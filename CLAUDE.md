@@ -12,10 +12,12 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M1 is built** (`docs/design.md` §17): the MC6809 core
-(`src/core/mc6809.c`) on the host, held to XRoar 1.13's by the oracle, with
-its behaviour tests. No machine yet: the bus's slow path is the caller's
-until M3, and the firmware does not link the CPU until M2. The record of each milestone (what was
+**Status: M2 is done** (`docs/design.md` §17): the MC6809 core
+(`src/core/mc6809.c`) held to XRoar 1.13's by the oracle, and the gate
+passed on the board at 12–13 % of core 0, with SRAM tier 2 and the indexed
+decoder out of line now the defaults (`design.md` §7.5). No machine yet:
+the bus's slow path is the caller's until M3 (the host tests' and the
+bench's), and the emulator image does not link the CPU until M7. The record of each milestone (what was
 verified, on which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
 
@@ -90,7 +92,7 @@ ctest --test-dir build/host --output-on-failure
 # PICO_SDK_PATH names one that exists
 tools/build.sh                                          # build/pico/pico-coco.uf2
 tools/build.sh -DPICO_COCO_UART=OFF build/pico-release  # the build that ships
-tools/build.sh -DPICO_COCO_RAM_TIER=2 build/tier2       # one directory per tier
+tools/build.sh -DPICO_COCO_RAM_TIER=0 build/tier0       # one directory per tier; 2 is the default
 tools/build.sh -DPICO_COCO_UART_PORT=0 build/uart0      # UART0 on GP2/GP3: a DS3231 holds GP4/GP5
 
 # hardware, with the Debug Probe's SWD and UART both connected, and the
@@ -99,6 +101,7 @@ tools/build.sh -DPICO_COCO_UART_PORT=0 build/uart0      # UART0 on GP2/GP3: a DS
 tools/uart-log.sh 30 out/run.log &   # capture UART1 first, so the banner is in it
 tools/flash.sh                       # reset halt + resume, never reset run (HW §2.7)
 tools/flash.sh build/uart0/pico-coco.elf   # the owner's board, which has the clock
+tools/flash.sh build/uart0/pico-coco-bench.elf   # M2's gate: the CPU alone, timed
 ```
 
 Both targets build under `-Wall -Wextra -Werror`, and CI builds both on every

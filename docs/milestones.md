@@ -4,6 +4,99 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M2: the gate, the CPU alone on the board
+
+On branch `m2`, 2026-11-14 (`design.md` §7.5, §17).
+
+**Built.** `src/bench/`, adapted from pico-oric's: two 6809 workloads on a
+flat bus, run by `test_bench` on the host and by a bench image,
+`pico-coco-bench`, on the board. **basic** is Color BASIC's character
+fetch in the direct page where the ROM copies it, walking a line of sums,
+with a five-byte float add: written to the ROM's shape, not copied from
+it. **mix** is 4,000 random documented instructions in a loop (254
+distinct opcodes, every addressing mode, indexed postbytes drawn from all
+the documented ones; the code ends at $65F0), with its code's pages
+sending writes to the slow path so a random store cannot rewrite it. Each
+run is ten guest seconds (600 NTSC fields), in slices of one field with
+the overshoot carried, through `mc6809_run`. The CPU now counts the
+instructions it executes (`mc6809_t.instructions`). A build option,
+`PICO_COCO_IDX_OUTLINE`, calls the indexed decoder instead of inlining
+it, for the measurement M1 carried.
+
+**Checked on the workstation** (macOS, Apple clang 21.0.0; Arm GNU
+15.2.Rel1 and Pico SDK 2.3.1 for the firmware):
+
+- `test_bench` passes: basic stores 45, 45 and 65 as packed floats and
+  makes 820 passes of its line in ten guest seconds; the mix runs no
+  undocumented opcode and two runs from a fresh load end identical,
+  registers and memory; each run ends within one instruction of its
+  length; and the counts equal `bench.h`'s, which the firmware checks the
+  board's against. With the decoder inlined and out of line, all four
+  host tests pass, the oracle included.
+- **Bugs planted one at a time** in a scratch copy: the digit 9 in the
+  float table made 9.5 fails the sums (45.5 for statements 1 and 2); the
+  mix's seed changed by one fails the counts (1,759,768 instructions for
+  1,760,687). So equal counts on the board are evidence that the same
+  code ran.
+- Every firmware build is clean, with and without the UART and with
+  UART0 for the owner's board. `pico-coco.elf` does not link the CPU yet,
+  so its size is M0's.
+
+**On the board**, 2026-11-14: the owner's Pimoroni Pico Plus 2 W
+(RP2350B, chip revision 2, `7458DC82A89AAC12`) at 150 MHz, core rail
+~1100 mV, die 18–20 °C, one core and the XIP cache to itself; images
+built with `-DPICO_COCO_UART_PORT=0`, flashed over SWD, read over UART0.
+Each image ran at least two passes of both workloads, and **every pass
+of every image counted the host's cycles and instructions** (8,960,403
+cycles; 2,118,076 instructions for basic at 4.230 cycles each, 1,760,687
+for the mix at 5.089). Host cycles per guest instruction, and the share
+of core 0 a guest at 0.895 MHz would take:
+
+| Image | text | basic | | mix | |
+|---|---:|---:|---:|---:|---:|
+| tier 0, decoder inlined (the control) | 115,108 | 99.5 | 14.0 % | 863.7 | 101.3 % |
+| tier 1, decoder inlined | 114,956 | 99.2 | 14.0 % | 866.0 | 101.5 % |
+| tier 2, decoder inlined | 114,964 | 83.3 | 11.7 % | 104.9 | 12.3 % |
+| tier 0, decoder out of line | 62,956 | 88.5 | 12.5 % | 537.9 | 63.1 % |
+| tier 2, decoder out of line | 62,796 | 88.1 | 12.4 % | 113.3 | 13.3 % |
+
+Pass to pass, each figure held to 0.02 %. `arm-none-eabi-nm` showed each
+tier's functions where they belong: tier 1 moves `attention` (1.9 KB);
+tier 2 also moves `mc6809_run` (71.0 KB inlined, 26.7 KB out of line),
+`page2`, `page3` and, out of line, `ea_indexed`. The run loop's
+disassembly at the default: the step inlined, one load and test of
+`attn`, the fetch, the cycle table, a `tbh` dispatch. Captures in
+`out/m2/`, not committed.
+
+**The gate passes with the first lever applied** (`design.md` §7.5).
+Against the estimate of 200–350 host cycles an instruction and 27–47 %
+of core 0, the BASIC-shaped loop took 83–100 cycles. The mix, from flash,
+took 864 and failed at 101 %: a 71 KB interpreter thrashes a 16 KB cache
+when the program reaches every opcode. From SRAM both pass at 12–13 %.
+So **the firmware's default tier is now 2**, and **the decoder is out of
+line by default**: 34 KiB in SRAM, within `design.md` §16's 30–45 KB,
+against 88 KiB for 6–8 % fewer cycles; and 63 % on the mix at tier 0
+against 101 % should SRAM ever be short. A fresh build directory with no
+options gave tier 2 and the decoder out of line, and on the board
+repeated that row: 88.1 and 113.3. Neither 300 MHz nor the loop's shape
+was needed. The finding is in `hardware-notes.md` §9.8 and
+`emulator-lessons.md` §3.4.
+
+**Not checked:**
+
+- A second board: the Pico 2 W, which the release must also run on
+  (`design.md` D3), and the UART1 build on a board without a clock.
+- The shared cache: core 1 presenting, the audio IRQ and the card all
+  fetch through it. M11 measures the tiers again with the whole emulator,
+  as the Z80's did (`hardware-notes.md` §9.8).
+- The real ROM's interpreter, whose opcode spread decides where between
+  the two workloads a CoCo falls: M3 on the host, M7 on the device.
+- The loop's bounds check on the opcode (`cmp #255` before the `tbh`),
+  left because the opcode is held in 16 bits for the trap's record: two
+  instructions per instruction, for M11.
+- From M1, still: HALT released with a line raised while halted; the
+  cycle within an instruction of a slow-path access (M3).
+
 ## M1: the 6809 on the host, the XRoar oracle
 
 On branch `m1`, 2026-11-14. Host only: no board step belongs to M1

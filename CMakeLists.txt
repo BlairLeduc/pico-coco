@@ -18,6 +18,17 @@ set(PICO_COCO_CORE_SOURCES
 
 set(PICO_COCO_WARNINGS -Wall -Wextra -Werror)
 
+# The indexed decoder called rather than inlined into each opcode. On since
+# M2's gate: 34 KiB of interpreter in SRAM at tier 2 against 88, within
+# design.md §16's budget, for 6-8 % more host cycles an instruction; and
+# 63 % of core 0 on the mix at tier 0 against 101 % (design.md §7.5).
+option(PICO_COCO_IDX_OUTLINE "The CPU's indexed decoder out of line" ON)
+if (PICO_COCO_IDX_OUTLINE)
+    set(PICO_COCO_IDX_OUTLINE_ON 1)
+else()
+    set(PICO_COCO_IDX_OUTLINE_ON 0)
+endif()
+
 # The core as a library both targets link. Headers only while it has no
 # sources; a STATIC library, built with our warnings, once it has.
 function(pico_coco_core_library)
@@ -25,10 +36,21 @@ function(pico_coco_core_library)
         add_library(pico_coco_core STATIC ${PICO_COCO_CORE_SOURCES})
         target_include_directories(pico_coco_core PUBLIC src/core)
         target_compile_options(pico_coco_core PRIVATE ${PICO_COCO_WARNINGS})
+        target_compile_definitions(pico_coco_core PRIVATE
+            PICO_COCO_IDX_OUTLINE=${PICO_COCO_IDX_OUTLINE_ON})
     else()
         add_library(pico_coco_core INTERFACE)
         target_include_directories(pico_coco_core INTERFACE src/core)
     endif()
+endfunction()
+
+# M2's workloads, shared by the host test and the bench firmware
+# (design.md §7.5). Portable like the core, and the slow path's owner.
+function(pico_coco_bench_library)
+    add_library(pico_coco_bench STATIC src/bench/bench.c)
+    target_include_directories(pico_coco_bench PUBLIC src/bench)
+    target_link_libraries(pico_coco_bench PUBLIC pico_coco_core)
+    target_compile_options(pico_coco_bench PRIVATE ${PICO_COCO_WARNINGS})
 endfunction()
 
 if (PICO_COCO_HOST)
@@ -38,6 +60,7 @@ if (PICO_COCO_HOST)
     set(CMAKE_C_EXTENSIONS OFF)
 
     pico_coco_core_library()
+    pico_coco_bench_library()
 
     enable_testing()
     add_subdirectory(test/host)
@@ -59,6 +82,7 @@ else()
     pico_sdk_init()
 
     pico_coco_core_library()
+    pico_coco_bench_library()
 
     # The firmware's version, git describe --always --dirty, for the
     # banner and the About page (design.md §14). A target that always
@@ -98,11 +122,12 @@ else()
         message(FATAL_ERROR "PICO_COCO_UART_PORT is 0 or 1, not ${PICO_COCO_UART_PORT}")
     endif()
 
-    # How much of the core's hot path runs from SRAM (src/core/hot.h): a
-    # lever measured in M2 and M11, 0 until a measurement earns more
-    # (design.md §7.5). A build directory configured before keeps its
-    # cached value until it is passed once (hardware-notes.md §9.8).
-    set(PICO_COCO_RAM_TIER 0 CACHE STRING "Hot-code SRAM tier, 0-2 (src/core/hot.h)")
+    # How much of the core's hot path runs from SRAM (src/core/hot.h). 2
+    # since M2's gate: the mix took 101 % of core 0 at tier 0 and 13 % at
+    # tier 2 (design.md §7.5, docs/milestones.md); M11 measures it again
+    # with core 1 presenting. A build directory configured before keeps
+    # its cached value until it is passed once (hardware-notes.md §9.8).
+    set(PICO_COCO_RAM_TIER 2 CACHE STRING "Hot-code SRAM tier, 0-2 (src/core/hot.h)")
     if (PICO_COCO_CORE_SOURCES)
         # The core library needs it too: that is where the marked functions are.
         target_compile_definitions(pico_coco_core PRIVATE PICO_COCO_RAM_TIER=${PICO_COCO_RAM_TIER})
@@ -158,4 +183,15 @@ else()
         src/port/main.c
     )
     pico_coco_firmware(pico-coco)
+
+    # M2's bench: the 6809 alone, timed on the basic and mix workloads
+    # (design.md §7.5, §17). One core, no LCD, keyboard or audio.
+    add_executable(pico-coco-bench
+        src/port/board.c
+        src/port/bench_main.c
+    )
+    pico_coco_firmware(pico-coco-bench)
+    target_link_libraries(pico-coco-bench pico_coco_bench)
+    target_compile_definitions(pico-coco-bench PRIVATE
+        PICO_COCO_IDX_OUTLINE=${PICO_COCO_IDX_OUTLINE_ON})
 endif()

@@ -5,16 +5,21 @@
 set(PICO_COCO_HOST_TESTS
     test_skeleton
     test_mc6809_behaviour
+    test_bench
 )
 
 foreach(t ${PICO_COCO_HOST_TESTS})
     add_executable(${t} ${t}.c)
     target_link_libraries(${t} PRIVATE pico_coco_core)
     target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(${t} PRIVATE m)
     target_compile_options(${t} PRIVATE ${PICO_COCO_WARNINGS})
     add_test(NAME ${t} COMMAND ${t})
     set_tests_properties(${t} PROPERTIES SKIP_RETURN_CODE 77)
 endforeach()
+# The bench's library brings the slow path, which the CPU tests define
+# for themselves, so only test_bench links it.
+target_link_libraries(test_bench PRIVATE pico_coco_bench)
 
 # The CPU oracle (§7.4, §15.2): our core against XRoar's mc6809.c, from the
 # pinned checkout tools/trace/build-xroar.sh makes. XRoar's files are

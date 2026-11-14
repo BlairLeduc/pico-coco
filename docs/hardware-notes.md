@@ -2161,6 +2161,25 @@ interpreter as well** (24 KB) gave 144.7 and 138.8, within 2 % of flash
 either way. Each figure held to 0.02 % over seven to nine runs. So a tier of
 callees alone is not a step on the way. Measure it, or skip it.
 
+A 6809 interpreter (2026-11-14, Pimoroni Pico Plus 2 W at 150 MHz, Arm
+GNU 15.2.Rel1 `-O3`, one core, the cache to itself) showed the case the
+smaller interpreters never reached: **an interpreter several times the
+cache's size, with a program that reaches all of it.** Its switch was
+71 KB, with an indexed-addressing decoder inlined into some sixty
+opcodes. On a BASIC-shaped loop, which uses a few dozen opcodes, it took
+99.5 host cycles an instruction from flash and 83.3 from SRAM. On a loop
+of 4,000 random documented instructions it took **863.7 from flash and
+104.9 from SRAM: 8.2×**. Small callees alone in SRAM (2 KB) changed
+neither. With the decoder called instead (a 27 KB switch, 34 KB moved in
+all), flash gave 88.5 and 537.9, and SRAM 88.1 and 113.3. So:
+
+- **Bench with a workload that reaches the whole interpreter.** A loop
+  shaped like the guest's interpreter fits the cache at any size and
+  hides the cliff.
+- **Inlining a shared helper into many opcodes trades flash behaviour for
+  SRAM speed.** Here it bought 6–8 % from SRAM and cost 1.6× from flash
+  on the wide mix, for 54 KB more SRAM to place it.
+
 A fourth build trap: **CMake caches options in the build directory.** When a
 project changes an option's default (here the SRAM tier), a directory
 configured earlier keeps its cached value until the option is passed once.

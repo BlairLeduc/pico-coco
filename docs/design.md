@@ -275,7 +275,7 @@ of that date. Those the lists did not name are sorted here.
 | Copy | Both | `cmake/pico_sdk_import.cmake`, `cmake/version.cmake`, `LICENSE`, `test_util.h` | No guest part. Taken in M0 |
 | Copy | Oric | `shotio` | Screenshots of the panel, no guest part; the folder becomes `/coco/shots/` |
 | Copy | Atom | `tools/test_mkfont.py` | Comes with `mkfont.py` |
-| Adapt | Oric | `src/bench/bench.*`, `bench_main.c` | The gate's bench (§7.5): 6809 workloads on a flat bus, run by a host test and the bench image |
+| Adapt | Oric | `src/bench/bench.*`, `bench_main.c` | The gate's bench (§7.5): 6809 workloads on a flat bus, run by a host test and the bench image. Taken in M2 |
 | Adapt | Oric | `shellargs` (in the Oric's working tree, not yet committed) | The shell's command line: its tape and disc switches take this machine's media. Taken once it is committed there |
 | Adapt | Oric | `guest.c`, `sdk_sim/`, `snap_util.h`, `disc_util.h` | The host harness (§15.3); `sdk_sim` has no guest part and is copied whole |
 | Adapt | Oric | `render-diff.sh`, `layout-survey.*`, `uart-screen.sh`, `soak.bas`, `fetch-corpus.sh`, `disc-corpus.sh`, `corpus-summary.py`, `tools/corpus/`, `fetch-test-suites.sh` | Each reads the guest's screen, keys, media or test suite; `uart-hold.sh` and `uart-type.sh` are copied whole |
@@ -396,7 +396,9 @@ A `switch`-dispatched interpreter with explicit cycle accounting
 - three opcode pages (`$10` and `$11` prefixes), one `switch` each;
 - **the indexed postbyte decoded by one function** returning the
   effective address and adding its cycles, shared by every indexed
-  opcode, and marked for inlining;
+  opcode. Written to be inlined; called out of line since M2's gate,
+  which measured that the smaller interpreter is worth more than the
+  call it saves (§7.5);
 - 8-bit and 16-bit arithmetic through small `always_inline` helpers that
   compute the flags, so each rule is written once;
 - the step function `always_inline` into the run loop, and the loop's
@@ -465,6 +467,36 @@ over the 16 KiB XIP cache and over the Oric's whole interpreter (EL
 §3.4). No estimate was written for this. The gate measures speed with
 the decoder inlined and out of line before choosing, and the SRAM tiers
 are sized from whichever wins.
+
+**Measured at the gate, M2** (2026-11-14, the owner's Pimoroni Pico Plus
+2 W at 150 MHz, Arm GNU 15.2.Rel1 `-O3`, one core, the XIP cache to
+itself; `src/bench/`, `docs/milestones.md`). Two workloads ran ten guest
+seconds each, every pass with cycle and instruction counts equal to the
+host's: **basic**, Color BASIC's character fetch and a float add, at
+4.23 E cycles an instruction; and **mix**, 4,000 random documented
+instructions in a loop, at 5.09. Host cycles per instruction, and the
+share of core 0 a guest at 0.895 MHz would take:
+
+| Build | basic | | mix | |
+|---|---:|---:|---:|---:|
+| Tier 0, decoder inlined | 99.5 | 14.0 % | 863.7 | 101.3 % |
+| Tier 1, decoder inlined | 99.2 | 14.0 % | 866.0 | 101.5 % |
+| Tier 2, decoder inlined | 83.3 | 11.7 % | 104.9 | 12.3 % |
+| Tier 0, decoder out of line | 88.5 | 12.5 % | 537.9 | 63.1 % |
+| **Tier 2, decoder out of line** | **88.1** | **12.4 %** | **113.3** | **13.3 %** |
+
+Against the estimate of 200–350 host cycles and 27–47 % of core 0, the
+BASIC-shaped loop took 83–100 cycles, at a third of the estimate's
+share. The mix found what the estimate did not consider: from flash, an
+interpreter several times the XIP cache's size thrashes it when the
+program reaches every opcode, and 864 cycles an instruction fails the
+gate. **With the interpreter in SRAM, both workloads pass at 12–13 %.**
+The gate passes with the first lever applied: **tier 2 is the firmware's
+default**, and **the decoder is out of line**, which puts 34 KiB in SRAM,
+within §16's budget, against 88 KiB for 6–8 % fewer cycles. Out of line
+is also the better build if SRAM is ever short: 63 % on the mix at tier
+0 against 101 %. Neither 300 MHz nor the loop's shape was needed. M11
+measures again with core 1 presenting, which shares the cache (HW §9.8).
 
 ---
 
@@ -1001,7 +1033,7 @@ development build and, with counters read over SWD, on the release build
 | Renderer's table (8 KB worst case) and line buffers | 10 KB |
 | Tape buffer | 64 KB |
 | One raw disc track and its build buffer | 16 KB |
-| Interpreter and hot callees in SRAM, if the tiers earn it | 30–45 KB |
+| Interpreter and hot callees in SRAM, if the tiers earn it; **34 KB at tier 2, measured in M2** (§7.5) | 30–45 KB |
 | Audio ring and queue, log ring, key queues | 16 KB |
 | SDK, FatFs, drivers, stacks | 30 KB |
 | **Total** | **about 305–320 KB of 520 KB** |
@@ -1066,7 +1098,7 @@ configuration; once settled, it is a constant.
 
 | What | Assumed | Confidence | Primary source |
 |---|---|---|---|
-| Host cycles per 6809 instruction (§7.5) | 200–350 | **Low** | M2, on the board |
+| Host cycles per 6809 instruction (§7.5) | 200–350 | **Settled** 2026-11-14 (M2): 88.1 on a BASIC-shaped loop and 113.3 on a random mix, at tier 2 with the decoder out of line; 99.5 and 863.7 from flash | M2, on the board |
 | 6809 cycle counts, flags, interrupt sequencing | Datasheet; **settled in M1** | High | MC6809E datasheet; the oracle; see below |
 | The NMOS 6809's undocumented opcodes and what software reaches them | Trapped | Low | The archive run (D12) |
 | A published 6809 functional test of standing exists | **None found** (M1, 2026-11-14) | — | Searched in M1; see below |

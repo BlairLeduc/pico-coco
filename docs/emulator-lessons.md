@@ -425,7 +425,13 @@ Measure first (§12). Then, in order of what paid off:
    the whole interpreter (33 KiB) took a compute loop from 31.8 % to 23.3 %
    and made results repeatable to 0.1 point (§12); and the 8 KiB ROM copied
    into SRAM on top gained nothing, since with the interpreter gone from the
-   XIP cache the ROM fits it.
+   XIP cache the ROM fits it. A 6809 interpreter is larger again (27–71 KiB
+   of switch), and there the benchmark decides the answer: a loop shaped
+   like BASIC's took 99 host cycles an instruction from flash, while random
+   documented instructions, which reach every opcode, took 864, and 105–113
+   from SRAM. **Time a wide instruction mix beside the guest-shaped loop**,
+   or the gate passes a build that real software with a broad opcode
+   spread will not.
 4. **Skip what the guest is only waiting through.** A `HALT` repeated until
    the next interrupt is free to skip if the interrupt line changes only
    between run slices: add the repeats' cycles and refresh counts at once.
