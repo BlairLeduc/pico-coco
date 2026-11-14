@@ -82,6 +82,12 @@ repeated that row: 88.1 and 113.3. Neither 300 MHz nor the loop's shape
 was needed. The finding is in `hardware-notes.md` §9.8 and
 `emulator-lessons.md` §3.4.
 
+**CI** on GitHub, 2026-11-14, PR #3: green on both builds. The host job
+(Ubuntu, GCC) ran all four tests, `test_bench` among them, so the counts
+in `bench.h` hold under GCC as under Apple clang, and the oracle ran
+against XRoar 1.13, not skipped. The firmware job built the bench image
+beside the emulator's, with and without the UART.
+
 **Not checked:**
 
 - A second board: the Pico 2 W, which the release must also run on
