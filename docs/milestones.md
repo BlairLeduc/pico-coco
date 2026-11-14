@@ -41,8 +41,9 @@ firmware):
   | `build/pico`, UART on | 22,764 | 0 | 860 |
   | `build/pico-release`, UART off | 20,932 | 0 | 844 |
 
-**On the board**, 2026-11-14: an RP2350B board (QFN-80, chip revision 2,
-module id `7458DC82A89AAC12`) in the owner's PicoCalc, with a DS3231 on
+**On the board**, 2026-11-14: a Pimoroni Pico Plus 2 W, as the owner
+identified it (RP2350B, QFN-80, chip revision 2, module id
+`7458DC82A89AAC12`), in the owner's PicoCalc, with a DS3231 on
 `i2c0` at GP4/GP5. That clock takes UART1's pins, so a build option was
 added, `PICO_COCO_UART_PORT`: 1, the default (D7), is UART1 on GP4/GP5;
 0 is UART0 on GP2/GP3 through `UART_AUX` (hardware-notes.md §1.1). The
@@ -63,5 +64,3 @@ the UART (Arm GNU 13.2.Rel1, Pico SDK 2.3.1).
 - The default UART1 build's banner on a board: this board's GP4/GP5 carry
   the clock. Over SWD, that image's UART1 was enabled at 115,200 baud on
   GP4/GP5 with its FIFO draining, but no capture was made.
-- Which RP2350B board (Plus 2 or Plus 2 W): the banner cannot tell them
-  apart.
