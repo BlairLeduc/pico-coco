@@ -121,7 +121,7 @@ word before the milestone that depends on them.
 | D10 | 2026-11-14 | No ROMs shipped; identified on the card by SHA-1 (§12.1). No internal flash writes (EL §8.7). | Settled by the owner |
 | D11 | 2026-11-14 | The picture is 256×192 at 1:1 at (32, 64), as the Atom's (EL §5.4). | Settled by the owner |
 | D12 | 2026-11-14 | 6809 undocumented opcodes are **trapped and counted** first; the archive run decides whether any is implemented (EL §3.1, §11.6). | Settled by the owner |
-| D13 | 2026-11-14 | The project is named **pico-coco**, after its first machine as the siblings are, with the card folder `/coco/`. The repository directory is still `picocalc-xroar`; renaming it is the owner's. | Settled by the owner |
+| D13 | 2026-11-14 | The project is named **pico-coco**, after its first machine as the siblings are, with the card folder `/coco/`. The owner renamed the repository directory from `picocalc-xroar` when its GitHub origin was set up. | Settled by the owner |
 | D14 | 2026-11-14 | PicoCalc findings go into `hardware-notes.md`, and what generalises into `emulator-lessons.md`, as learned, each written to stand alone (EL §14.1). One branch and pull request per milestone, CI green on both builds. | Settled by the owner |
 
 ---
@@ -264,6 +264,24 @@ the Oric's is the later version and is the one taken, unless noted.
 
 Anything that changes core in the move is searched for `sleep_`
 (EL §2.3).
+
+**Sorted in M0** (2026-11-14): every file tracked in both siblings was
+checked against the lists above, at pico-atom's and pico-oric's heads
+of that date. Those the lists did not name are sorted here.
+
+| List | From | Files | Why |
+|---|---|---|---|
+| Copy | Both | `cmake/pico_sdk_import.cmake`, `cmake/version.cmake`, `LICENSE`, `test_util.h` | No guest part. Taken in M0 |
+| Copy | Oric | `shotio` | Screenshots of the panel, no guest part; the folder becomes `/coco/shots/` |
+| Copy | Atom | `tools/test_mkfont.py` | Comes with `mkfont.py` |
+| Adapt | Oric | `src/bench/bench.*`, `bench_main.c` | The gate's bench (§7.5): 6809 workloads on a flat bus, run by a host test and the bench image |
+| Adapt | Oric | `shellargs` (in the Oric's working tree, not yet committed) | The shell's command line: its tape and disc switches take this machine's media. Taken once it is committed there |
+| Adapt | Oric | `guest.c`, `sdk_sim/`, `snap_util.h`, `disc_util.h` | The host harness (§15.3); `sdk_sim` has no guest part and is copied whole |
+| Adapt | Oric | `render-diff.sh`, `layout-survey.*`, `uart-screen.sh`, `soak.bas`, `fetch-corpus.sh`, `disc-corpus.sh`, `corpus-summary.py`, `tools/corpus/`, `fetch-test-suites.sh` | Each reads the guest's screen, keys, media or test suite; `uart-hold.sh` and `uart-type.sh` are copied whole |
+| Adapt | Atom | `mc6847_font.h`, `test_mc6847.c`, `test_mc6847_golden.c`, `vdg_scenes.*`, `test_present.c` | Go with `mc6847.c` (§9) |
+| Not used | Oric | `font.*`, `font_fallback.c` | The emulator's pages use the VDG's internal set (§9.6), which is in the firmware, so no ROM font and no fallback |
+| Not used | Oric | `bench_dormann.S`, `test/asm/` | 6502 suites and the Oric's test ROM; this project's test ROM is a 6809 one (§12.1) |
+| Not used | Atom | `tools/trace/allegro/`, `atomulator-trace.c`, `build-atomulator.sh` | Atomulator's driver; XRoar's replaces it (§15.2) |
 
 ---
 
