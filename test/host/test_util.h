@@ -9,7 +9,8 @@
 /* CTest treats this as "skipped" (SKIP_RETURN_CODE in CMakeLists). */
 #define TEST_SKIP_CODE 77
 
-static int test_failures = 0;
+/* Unused by a test that keeps its own count (test_mc6809_oracle). */
+static int test_failures __attribute__((unused)) = 0;
 
 #define CHECK(cond, ...)                                                   \
     do {                                                                   \
