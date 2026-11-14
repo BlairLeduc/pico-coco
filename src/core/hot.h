@@ -9,10 +9,11 @@
  * includes a Pico header.
  *
  * Moves come in tiers, and PICO_COCO_RAM_TIER says how many are taken.
- * Taken from pico-oric, where tier 2 won once core 1 was presenting; here
- * it is a lever for M2's gate and M11's perf pass, each tier measured
- * against tier 0 before it is the default (design.md §7.5, §17). A host
- * build leaves it at 0 and gets ordinary functions.
+ * Taken from pico-oric, where tier 2 won once core 1 was presenting. Here
+ * tier 2 is the firmware's default since M2's gate, where it took the
+ * random-instruction mix from 101 % of core 0 to 13 % (design.md §7.5);
+ * M11's perf pass measures it again. A host build leaves it at 0 and gets
+ * ordinary functions.
  *
  *   COCO_HOT1(name)  what the interpreter calls out to: the bus slow path,
  *                    the SAM, the PIAs.

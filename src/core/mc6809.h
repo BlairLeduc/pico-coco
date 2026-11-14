@@ -51,6 +51,8 @@ typedef struct {
     uint8_t  a, b, dp, cc;
 
     uint64_t cycles;           /* E cycles since power-on                  */
+    uint64_t instructions;     /* executed, trapped ones included; not
+                                * interrupt entries or wait cycles         */
 
     /* IRQ and FIRQ are levels, each a bitmask of asserted sources so they
      * compose (EL §3.2); NMI is an edge, latched, and not taken until S

@@ -5,9 +5,11 @@ against the Raspberry Pi Pico SDK, which will also run the **Dragon 32 and
 64**. It is a member of the pico-atom family: pico-atom's architecture, its
 MC6847, its port layer and its menu, with a new MC6809 in place of the 6502.
 
-**Status: M1, the CPU on the host.** The MC6809 core runs under the host
-tests, held instruction by instruction to XRoar's; the firmware still prints
-only a banner and a heartbeat on UART1, and no machine is emulated yet. See [`docs/design.md`](docs/design.md) for the
+**Status: M2, the CPU on the board.** The MC6809 core runs under the host
+build, held instruction by instruction to XRoar's, and on the board it
+passed the speed gate at 12–13 % of one core. There is no machine yet:
+nothing boots, and the emulator image is still a banner and a heartbeat.
+See [`docs/design.md`](docs/design.md) for the
 design and [`docs/milestones.md`](docs/milestones.md) for what has been
 checked.
 

@@ -381,8 +381,17 @@ static void COCO_HOT1(undocumented)(mc6809_t *c, uint16_t pc0, uint16_t op) {
  * them and counted (D12): $x7 as $x6, $xA as PC | $FF, $xE as $FFFF,
  * indirect ,R+ and ,-R, extended without indirection, and extended
  * indirect with register bits set. */
+/* PICO_COCO_IDX_OUTLINE, the default: one copy of the decoder, called, in
+ * place of one inlined into each indexed opcode. On the RP2350 at tier 2,
+ * 34 KiB of interpreter in SRAM against 88, for 6-8 % more host cycles an
+ * instruction (M2's gate, design.md §7.5). */
+#if PICO_COCO_IDX_OUTLINE
+static uint16_t __attribute__((noinline)) COCO_HOT2(ea_indexed)(coco_t *m, mc6809_t *c,
+        uint32_t *cyc, uint16_t pc0, uint16_t op) {
+#else
 INLINE uint16_t ea_indexed(coco_t *m, mc6809_t *c, uint32_t *cyc,
                            uint16_t pc0, uint16_t op) {
+#endif
     uint8_t pb = fetch8(m, c);
     uint16_t *r;
     switch ((pb >> 5) & 3u) {
@@ -1017,6 +1026,7 @@ INLINE uint32_t step(coco_t *m, uint32_t remaining) {
     }
 
     c->cycles += cyc;
+    c->instructions++;
     return cyc;
 }
 
