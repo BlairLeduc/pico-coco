@@ -1,0 +1,1105 @@
+# pico-coco: design
+
+A **Tandy Color Computer 1/2** emulator for the **ClockworkPi PicoCalc**,
+written in C against the Raspberry Pi Pico SDK, which also runs the
+CoCo's close relatives, the **Dragon 32 and 64**. It is a member of the
+pico-atom family: pico-atom's architecture, its MC6847, its port layer and
+its menu, with the 6502 replaced by a new **MC6809**, and later an
+**HD6309**.
+
+**The CoCo comes first** (D6). It is the machine the owner started on and
+the one this project is for: it is the default machine, the first to boot
+at every milestone, and the one whose behaviour settles a question when
+the two families differ. The Dragon is included, and built second. XRoar
+grew the other way round, from a Dragon, and where its source or its
+defaults lean that way this design does not follow.
+
+Companion documents in this directory:
+
+- `hardware-notes.md`: the authority on the PicoCalc. Cited as **HW §N**.
+- `emulator-lessons.md`: what the Atom, the Ace and the Oric taught. Cited
+  as **EL §N**. This design follows it, and says so where it departs.
+- `design-xroar-port.md`: the design this one replaces, a port of XRoar's
+  own source. Superseded on 2026-11-14 and kept for its survey of XRoar and
+  for the cost estimate that led here (D1).
+
+The sibling projects are cited as **Atom** (`pico-atom`) and **Oric**
+(`pico-oric`), with their design sections where they help. **XRoar** means
+Ciaran Anscomb's emulator, which this project uses as its reference and
+test oracle and never as source (§15.2).
+
+Plain **§N** points within this document. Guest addresses are `$XXXX`, the
+6809 world's convention, and host values `0x…` (EL §14.1). Dates are
+written in full. **Estimates are labelled as estimates.** Guest hardware
+facts in §3 are written from secondary knowledge and from a reading of
+XRoar's source; each one that becomes a constant is first settled from a
+primary source and recorded in §18 (EL §14.2).
+
+**Status, 2026-11-14.** Design only. Nothing is built.
+
+**Contents**
+
+1. [Goals and non-goals](#1-goals-and-non-goals) ·
+2. [Decisions](#2-decisions) ·
+3. [The guest machines](#3-the-guest-machines) ·
+4. [Host target](#4-host-target) ·
+5. [What comes from the siblings](#5-what-comes-from-the-siblings) ·
+6. [Architecture](#6-architecture) ·
+7. [CPU: MC6809, then HD6309](#7-cpu-mc6809-then-hd6309) ·
+8. [Bus, SAM and PIAs](#8-bus-sam-and-pias) ·
+9. [Video](#9-video) ·
+10. [Audio](#10-audio) ·
+11. [Keyboard and joysticks](#11-keyboard-and-joysticks) ·
+12. [Media: ROMs, cartridges, tape, disc, snapshots, settings](#12-media-roms-cartridges-tape-disc-snapshots-settings) ·
+13. [Timing](#13-timing) ·
+14. [User interface](#14-user-interface) ·
+15. [Testing](#15-testing) ·
+16. [Memory budget](#16-memory-budget) ·
+17. [Milestones](#17-milestones) ·
+18. [Constants to confirm](#18-constants-to-confirm) ·
+19. [Risks](#19-risks) ·
+20. [Dropped and deferred](#20-dropped-and-deferred)
+
+---
+
+## 1. Goals and non-goals
+
+**Goals**
+
+- Run the stock ROMs of the **Tandy CoCo 1 and 2** (Color BASIC, Extended
+  Color BASIC, Disk BASIC) well enough that BASIC, RS-DOS and the common
+  body of CoCo software behave as on the real machine, artefact colours
+  included; and the **Dragon 32 and 64** with their BASIC and DragonDOS
+  to the same standard.
+- A **6809 that is cycle-correct at instruction granularity** (EL §3.1),
+  with interrupts, `SYNC`, `CWAI` and HALT as software depends on them, and
+  the **6309** as a fitted option afterwards.
+- **Real time with headroom at the stock 150 MHz clock, without PSRAM**, so
+  one image runs on every RP2350 board the family supports (D3).
+- Tape, cartridges, floppy discs (RS-DOS and DragonDOS), snapshots and
+  settings from the SD card; the family's menu (D5).
+- A **host-testable core** with no SDK header and no allocation, built
+  under CTest on a workstation and in CI (EL §2.1).
+
+**Non-goals for the first release**
+
+- The CoCo 3, the MC-10, the Dragon 200-E, Alpha and Professional, and
+  RAM expansions (§20).
+- Bus accuracy inside an instruction. Where a title is found to need it,
+  it is modelled at instruction granularity as the Ace's wait states were
+  (EL §4.5), or recorded as not supported.
+- A composite-video simulation. Artefact colours come from a table (§9.5).
+- Shipping ROM images (§12.1).
+
+**The engineering problem in one line.** The first design measured
+nothing but estimated XRoar's per-cycle structure at 70–140 % of a core at
+300 MHz. This design drops that structure for the one the family has
+measured three times: a whole-instruction CPU on a page-table bus, devices
+brought up to date lazily, and no framebuffer. The Atom's 6502 took
+35–46 % of a core at 150 MHz (EL §1). The 6809 runs slower in instructions
+a second, and should cost less (§7.5, an estimate, gated in M2).
+
+---
+
+## 2. Decisions
+
+Numbered and dated (EL §14.7). **Settled** decisions are the owner's.
+**Proposed** ones are this document's recommendation and need the owner's
+word before the milestone that depends on them.
+
+| # | Date | Decision | State |
+|---|---|---|---|
+| D1 | 2026-11-14 | A native emulator based on pico-atom, using its MC6847 code, with the 6502 replaced by a 6809/6309. Replaces the XRoar port (`design-xroar-port.md`). | Settled |
+| D2 | 2026-11-14 | A **new CPU core** in pico-atom's style. XRoar's `mc6809.c` and `hd6309.c` are compiled only into a host test that holds the new core to them, instruction by instruction (§15.2). | Settled |
+| D3 | 2026-11-14 | Target all RP2350 boards as pico-atom does: one `pico2` image at **150 MHz**, no PSRAM, for Pico 2, Pico 2 W, Plus 2 and Plus 2 W. 300 MHz only if the M2 gate asks. | Settled |
+| D4 | 2026-11-14 | Start from pico-atom, and take pico-oric's later parts: the WD1793 and MFM track model, the split port files, loading a state as its machine, the corpus tools (§5). | Settled |
+| D5 | 2026-11-14 | The family's menu, item for item and key for key, less what these machines lack and plus what they add (cartridges, joysticks) (EL §10). The family's `key = value` settings file on the card. This replaces the port design's D5. | Settled by the owner |
+| D6 | 2026-11-14 | **The Tandy Color Computer comes first, and the Dragon is included.** Machines in order: **CoCo 1/2** (one machine with different ROMs and RAM), then **Dragon 32**, then **Dragon 64**. The default machine is a CoCo with Extended Color BASIC; a Dragon is the default only when the card has no CoCo ROMs. Where the families differ, the CoCo's behaviour is built and tested first. | Settled by the owner |
+| D7 | 2026-11-14 | Standalone, as the family: boots straight into the guest; a menu item returns to the PicoCalc shell when UF2 Loader started the image (`picocalc_shell.h`, as Atom and Oric). Development build on UART1, GP4/GP5; release build with no UART. | Settled by the owner |
+| D8 | 2026-11-14 | **XRoar is the reference emulator** (EL §11.4): built by a script from its own checkout at a pinned release, headless, never copied into the tree. Its source is also a secondary source for guest constants, each cross-checked against a datasheet, a schematic or the ROM executed (§18). | Settled by the owner |
+| D9 | 2026-11-14 | Licence **GPL-3.0**, as pico-atom and pico-oric, whose code this starts from. XRoar is GPL-3.0-or-later, so compiling its CPU into a test tool is compatible. | Settled by the owner |
+| D10 | 2026-11-14 | No ROMs shipped; identified on the card by SHA-1 (§12.1). No internal flash writes (EL §8.7). | Settled by the owner |
+| D11 | 2026-11-14 | The picture is 256×192 at 1:1 at (32, 64), as the Atom's (EL §5.4). | Settled by the owner |
+| D12 | 2026-11-14 | 6809 undocumented opcodes are **trapped and counted** first; the archive run decides whether any is implemented (EL §3.1, §11.6). | Settled by the owner |
+| D13 | 2026-11-14 | The project is named **pico-coco**, after its first machine as the siblings are, with the card folder `/coco/`. The repository directory is still `picocalc-xroar`; renaming it is the owner's. | Settled by the owner |
+| D14 | 2026-11-14 | PicoCalc findings go into `hardware-notes.md`, and what generalises into `emulator-lessons.md`, as learned, each written to stand alone (EL §14.1). One branch and pull request per milestone, CI green on both builds. | Settled by the owner |
+
+---
+
+## 3. The guest machines
+
+Written from secondary knowledge and XRoar's source, to fix the shape of
+the code. **Every figure here is a row in §18 until settled.**
+
+### 3.1 What they are
+
+The CoCo 1 and 2 are Motorola's reference design for these chips, and the
+Dragon 32 is built from the same one:
+
+| Part | Role |
+|---|---|
+| MC6809E | CPU, E clock about 0.89 MHz |
+| MC6883 SAM | Clock generation, address decode, DRAM refresh, **the video address counter** |
+| MC6847 VDG | Video: the chip pico-atom already models |
+| 2 × MC6821 PIA | Keyboard, joystick comparator, cassette, 6-bit DAC, single-bit sound, VDG mode pins, cartridge interrupt, printer |
+| ROM | CoCo: Color BASIC at `$A000` and, when fitted, Extended Color BASIC at `$8000`, 8 KB each. Dragon: one 16 KB BASIC at `$8000` |
+| Cartridge port | ROM at `$C000` (Disk BASIC, a game), I/O at `$FF40`, lines to FIRQ, NMI and HALT |
+
+A **CoCo** is 4, 16, 32 or 64 KB of RAM, with Color BASIC alone or with
+Extended Color BASIC; the CoCo 2 is the same machine on a smaller board,
+and its last revisions carry the MC6847T1 (§20). It was sold as an NTSC
+machine, at 60 Hz, and its software uses NTSC artefact colours (§9.5).
+
+The **Dragon 32** differs in its ROM, in the arrangement of the keyboard
+matrix, in the printer port (parallel, where the CoCo's is bit-banged
+serial) and in being a PAL machine at 50 Hz. The **Dragon 64** adds 64 KB
+of RAM used as such, a second BASIC ROM selected by a PIA line, and a
+6551 serial chip.
+
+### 3.2 Address map
+
+| Range | Contents |
+|---|---|
+| `$0000`–`$7FFF` | RAM (16 or 32 KB fitted on small machines; the rest reads as §8.1 says) |
+| `$8000`–`$BFFF` | BASIC ROMs; RAM when the SAM's map type is 1 (64 KB machines) |
+| `$C000`–`$FEFF` | Cartridge ROM; RAM in map type 1 |
+| `$FF00`–`$FF1F` | PIA0, four registers mirrored |
+| `$FF20`–`$FF3F` | PIA1, mirrored |
+| `$FF40`–`$FF5F` | Cartridge I/O (the disc controllers) |
+| `$FF60`–`$FFBF` | Unused on these machines |
+| `$FFC0`–`$FFDF` | SAM control bits: each a pair of addresses, write one to clear and the next to set |
+| `$FFE0`–`$FFFF` | Vectors, read from the BASIC ROM whatever the map type |
+
+### 3.3 The PIAs, as wired
+
+| Line | Use |
+|---|---|
+| PIA0 PA0–PA6 | Keyboard rows in (and joystick buttons) |
+| PIA0 PA7 | Joystick comparator in |
+| PIA0 PB0–PB7 | Keyboard columns out |
+| PIA0 CA1, CB1 | **HS** and **FS** from the VDG: the line and field interrupts (IRQ) |
+| PIA0 CA2, CB2 | Sound and joystick multiplexer select |
+| PIA1 PA0 | Cassette in |
+| PIA1 PA1 | Serial out (CoCo) or printer strobe (Dragon) |
+| PIA1 PA2–PA7 | The 6-bit DAC: sound, cassette out, joystick reference |
+| PIA1 CA2 | Cassette motor |
+| PIA1 PB1 | Single-bit sound |
+| PIA1 PB2 | RAM size strap (CoCo); ROM select (Dragon 64) |
+| PIA1 PB3, PB4–PB6, PB7 | VDG **CSS**, **GM0–GM2**, **A/G** |
+| PIA1 CB1 | Cartridge line: FIRQ |
+| PIA1 CB2 | Sound enable |
+
+### 3.4 Video, as wired
+
+The VDG's data comes from RAM at an address **the SAM generates**, not the
+VDG: the SAM holds a display offset (seven bits, in units of 512 bytes)
+and a mode (three bits) that sets how its counter divides, so the picture
+may start anywhere in memory and the SAM's mode need not match the VDG's.
+Mismatched pairs are how the "semigraphics 8, 12 and 24" modes exist.
+
+On the data bus, bit 7 drives the VDG's A/S pin and bit 6 its INV pin;
+INT/EXT is tied to GM0. So in text mode a byte with bit 7 set is a
+semigraphics-4 cell, or semigraphics-6 with GM0 high. This is not the
+Atom's wiring (EL §4.2: model the chip, then wire it).
+
+A field is 262 lines at 60 Hz on NTSC machines and 312 at 50 Hz on PAL
+ones, of 57 CPU cycles each; 192 are active.
+
+---
+
+## 4. Host target
+
+As pico-atom (Atom §3), by D3:
+
+- **One image**, built for `pico2`, at 150 MHz, no PSRAM, running on a
+  Pico 2, Pico 2 W, Plus 2 and Plus 2 W. The banner reports the physical
+  board apart from the build target, and the die temperature is read from
+  the channel the package has (HW §2.1, §8.1).
+- LCD on `spi1` at 75 MHz, southbridge on `i2c1`, SD on `spi0`, PWM audio
+  on GP26/GP27, with the family's drivers (§5).
+- The rail is set explicitly at 150 MHz (HW §3). The 300 MHz path exists
+  in the Atom's `board.c` and stays dormant unless the gate needs it.
+- An RP2040 build is not planned (§20).
+
+---
+
+## 5. What comes from the siblings
+
+By copy, rename (`atom_`/`PICO_ATOM_` and `oric_`/`PICO_ORIC_` →
+`coco_`/`PICO_COCO_`), re-verify, tests brought along, attribution
+kept, comments' document references changed to this document's sections
+(EL §14.6). The siblings are read, never edited. Where both have a file,
+the Oric's is the later version and is the one taken, unless noted.
+
+**Copy** (no guest part in them)
+
+| From | Files |
+|---|---|
+| Oric `src/port/` | `board`, `lcd`, `southbridge`, `kbd`, `audio`, `log`, `sd`, `card`, `diskio`, `storage`, FatFs configuration, `core0`, `core1`, `park`, `handoff`, `textpage` |
+| Oric `src/core/` | `snappool`, `pcm`, `sha1`, `fattime`, `romset`, `hot.h`, `status`, the settings parser and rewriter, `keylayout` |
+| Atom `src/core/` | `inflate` (gzip for tape images, if kept, §12.3) |
+| Oric `tools/`, CI, `test/host/` scaffolding | build, flash, UART capture and typing, perf and soak scripts, `swd-counters.py`, `trace-diff.py`, the corpus runners, `mkfont.py` |
+| `third_party/picocalc-shell/` | `picocalc_shell.h` |
+
+**Adapt** (structure kept, guest parts replaced)
+
+| From | File | What changes |
+|---|---|---|
+| Atom | `mc6847.c`, `mc6847.h`, `mc6847_font.c`, golden-image tests and `vdg-ppm.c` | The CoCo's wiring, which the Dragon shares (§3.4): SG4, INV on bit 6, the T1 variant's lower case later; rows addressed through the SAM (§9.2); artefact colours (§9.5) |
+| Atom | `beeper.c` | From one bit to a level: the DAC, the single-bit output and the multiplexer (§10) |
+| Atom | `bus.c`, `bus.h`, `atom.c`, `atom.h` | The machine: `coco.c`, with the SAM's map and the PIAs (§8) |
+| Oric | `wd1793.c`, `mfmdisk.c`, `microdisc.c`, `discio.c` | The WD179x family for RS-DOS and DragonDOS, their latches and interrupt wiring, JVC and VDK images (§12.4) |
+| Oric | `cassette.c`, `tape.c`, `tap.c`, `tapeio.c` | The CoCo's cassette format, which the Dragon shares, CAS files, the ROMs' block routines (§12.3) |
+| Oric | `keymatrix.c`, `keymap_picocalc.c`, `keymapio.c` | The 8×7 matrix in its two arrangements (§11) |
+| Oric | `snapshot.c`, `snapio.c`, `shot.c` | The fields (§12.5) |
+| Oric | `menu.c`, `roms.c`, `settingsio.c`, `display.c`, `main.c` | Machines, ROM slots, cartridges, joysticks (§14) |
+| Oric | `tools/trace/` | A driver for XRoar in place of Oricutron (§15.2) |
+
+**Not used**: `m6502.*`, `via6522.*`, `i8255.*`, `i8271.*`, `uef.*`,
+`ula.*`, `vsync.*`, `ay8912.*` (until a cartridge wants one), `portb.*`.
+
+**New**: `mc6809.c` (§7), `hd6309.c` later, `sam6883.c` (§8.2),
+`mc6821.c` (§8.3), `cart.c` (§12.2), `joystick.c` (§11.4), `cas.c`
+(§12.3), and the XRoar oracle harness (§15.2).
+
+Anything that changes core in the move is searched for `sleep_`
+(EL §2.3).
+
+---
+
+## 6. Architecture
+
+The family's, unchanged. This section states it briefly and cites the
+lessons for the reasons.
+
+**Core and port** (EL §2.1). `src/core/` is portable C with no SDK header
+and no dynamic allocation, all state in one `coco_t` or statically sized
+buffers; `src/port/` is the only place SDK headers appear. Both build
+under `-Wall -Wextra -Werror`, the core with the workstation's compiler
+under CTest and the firmware with `arm-none-eabi-gcc`, in CI. Every fixed
+capacity is in `src/core/config.h`, and `arm-none-eabi-size` is printed on
+every build.
+
+**The seam** (EL §2.2):
+
+```c
+void     coco_init(coco_t *m, const coco_config_t *cfg);
+void     coco_power_on(coco_t *m);            /* after ROMs are loaded (EL §9.2) */
+void     coco_reset(coco_t *m);
+uint32_t coco_run(coco_t *m, uint32_t ticks); /* whole instructions; returns the true count */
+uint32_t coco_run_field(coco_t *m);           /* one field, split at FS's edges (§13.1) */
+void     coco_key_set(coco_t *m, int row, int col, bool down);
+size_t   coco_audio_drain(coco_t *m, int16_t *dst, size_t max);
+void     coco_video_snapshot(const coco_t *m, coco_frame_t *out);   /* §9.3 */
+void     coco_copy(coco_t *dst, const coco_t *src);
+```
+
+`run` executes whole instructions until at least the time asked has
+elapsed and returns the true count; the caller carries the debt. There is
+no "exactly N" (EL §2.2). The machine is copied by function, which
+rebuilds the page table (EL §2.2).
+
+**Which core owns what** (EL §2.3):
+
+| Core 0 | Core 1 |
+|---|---|
+| The guest: CPU and every chip | LCD presenting |
+| Audio synthesis and the audio DMA IRQ | Southbridge I²C: keyboard, battery, backlight |
+| Pacing on the audio queue | SD card work, menus, the log's UART end |
+
+Core 1 never reads guest memory while the guest runs: everything it draws
+arrives in a snapshot through the **three-buffer pool** (EL §2.4). Core 1
+never sleeps, and core 0 never prints (EL §2.3). Card work, the menu,
+pause and restart use the **park**: core 0 stops at a field boundary,
+feeds the audio queue silence, and hands the machine to core 1 (EL §2.5).
+
+The port's files are split from the first day as the Oric's are: `core0`,
+`core1`, `park`, `handoff`, and one file per menu concern (EL §2.1).
+
+---
+
+## 7. CPU: MC6809, then HD6309
+
+### 7.1 Accuracy
+
+**Cycle-correct at instruction granularity** (EL §3.1): every documented
+opcode in every addressing mode takes its datasheet cycle count, including
+the indexed postbyte's extra cycles and long branches taken or not; the
+condition codes are exact, half-carry and `DAA` included; and the
+behaviour software leans on is modelled:
+
+- **IRQ, FIRQ and NMI** as levels and an edge: IRQ and FIRQ as bitmasks of
+  asserted sources, NMI latched on its edge and **not taken until S has
+  been loaded** since reset. FIRQ stacks only PC and CC and clears E; IRQ
+  stacks everything and sets E; `RTI` pulls by E.
+- **`SYNC`** and **`CWAI`**: the CPU waits for an interrupt, and `CWAI`
+  has already stacked its state. The run loop skips the wait as the Ace's
+  HALT skip does (EL §3.4), which matters here: BASIC and games idle on
+  `SYNC` waiting for the field interrupt.
+- **HALT**, the cartridge line the RS-DOS controller uses to pace a
+  transfer: a stall, as the tape trap's (EL §8.2), until the device's next
+  event (§12.4).
+- **Interrupts sampled at the instruction boundary**, with the last
+  cycle's rule taken from the datasheet and checked against XRoar
+  (EL §4.3: poll where the CPU does).
+- **Undocumented opcodes trapped and counted**, with the count and the
+  last PC on the heartbeat (D12).
+
+Per-cycle bus behaviour (dead cycles' addresses, the order of a 16-bit
+write's two halves within the instruction) is not modelled except where
+it reaches a device: a read-modify-write on a PIA does its read and its
+write, in order.
+
+### 7.2 Implementation
+
+A `switch`-dispatched interpreter with explicit cycle accounting
+(EL §3.2), state in a struct, the bus's fast path inlined:
+
+- three opcode pages (`$10` and `$11` prefixes), one `switch` each;
+- **the indexed postbyte decoded by one function** returning the
+  effective address and adding its cycles, shared by every indexed
+  opcode, and marked for inlining;
+- 8-bit and 16-bit arithmetic through small `always_inline` helpers that
+  compute the flags, so each rule is written once;
+- the step function `always_inline` into the run loop, and the loop's
+  disassembly read after any change to it (EL §3.4);
+- the cycle of an instruction on which its operand access falls recorded
+  on the bus's slow path only, so a PIA access can be placed in time
+  (EL §4.3). RAM pays nothing.
+
+### 7.3 The HD6309
+
+A second `switch` set, selected at power-on by the machine page (a 6309
+fitted is a hardware choice, and a state records it, EL §8.5): the extra
+registers (E, F, W, V, MD), the new instructions (`TFM`, the inter-register
+group, bit operations, `MULD`, `DIVD`), **native mode**'s shorter cycle
+counts and longer interrupt stack frame, and the illegal-instruction and
+divide-by-zero traps. In 6809 emulation mode it runs 6809 code with the
+6309's differences from the NMOS part, as the real chip does.
+
+It is a milestone of its own, after the first release's machines work on
+the 6809 (§17). The 6809 core is written so that the 6309 shares its
+helpers and bus, not its dispatch.
+
+### 7.4 Tests
+
+- **The oracle** (D2, §15.2): every opcode in every addressing mode,
+  over randomised registers, operands and memory, run on this core and on
+  XRoar's `mc6809.c` in one host program, comparing registers, every
+  memory write, and the **cycle count**, which XRoar's per-cycle bus
+  callback gives exactly. This is the cycle table asserted by execution
+  (EL §3.3). The same for `hd6309.c`, in both modes.
+- **Behaviour tests** of the project's own for what an instruction-level
+  comparison cannot see: NMI arming, FIRQ against IRQ, E and `RTI`,
+  `SYNC` and `CWAI` with each interrupt masked and not, HALT, the run
+  contract, the skip held to a stepping machine register for register
+  (EL §3.4). Each rule beside a control that must fail.
+- **Planted bugs**, one at a time in a scratch copy, to show the oracle
+  bites: a wrong half-carry, a long branch one cycle short, an indexed
+  mode's cycle count, a flag `MUL` leaves (EL §3.3).
+- **A published 6809 test program**, if one of standing exists (§18):
+  fetched by script, never committed, and a skip is not a pass.
+
+### 7.5 Budget: an estimate, and the gate
+
+The E clock is about 0.89 MHz and a 6809 instruction averages perhaps
+four to five cycles, so about **200,000 instructions a second**, a third
+of what the Atom's 6502 runs. A 6809 instruction does more (16-bit
+operations, the postbyte), so allow 200–350 host cycles each against the
+6502's measured 158–218 (EL §1). That gives **40–70 M host cycles a
+second: 27–47 % of core 0 at 150 MHz. This is an estimate**, and EL §1
+records such estimates wrong by 3× both ways.
+
+**The gate (M2)** is the Ace's (EL §14.3): the CPU alone on the board, on
+a flat bus, running a slice of the oracle's instruction mix and a loop
+shaped like BASIC's interpreter, reporting host cycles per instruction,
+with the board's cycle and instruction counts equal to the host's. The
+threshold is a **projected 60 % of core 0 at 150 MHz**; the Atom shipped
+at up to 46 % with zero underruns. If it fails, the levers in order
+(EL §3.4): SRAM placement in measured tiers, the run loop's shape, then
+300 MHz as a user's option (D3).
+
+---
+
+## 8. Bus, SAM and PIAs
+
+### 8.1 The page table
+
+The Atom's (EL §4.1): 256 pages of two pointers, NULL for the slow path,
+flags in a separate byte array. RAM and ROM are one indexed load. The
+I/O page `$FF` is slow-path and decoded there: the PIAs **by mask**, so
+their mirrors work; the SAM's bit pairs; cartridge I/O; and the vectors
+at `$FFE0`–`$FFFF`, which read from ROM in either map type.
+
+The table is rebuilt only when the bits that choose the map change
+(EL §4.1): the SAM's map type and page bit, the Dragon 64's ROM select,
+a cartridge's presence. Each page's flags say which array it points into,
+so a copy can rebuild the table.
+
+What an unpopulated address reads (a 16 KB machine above its RAM, the
+unused I/O ranges, a cartridge port with nothing in it) is taken from the
+schematic, not assumed `$FF` (EL §4.1), and matters at once: both ROMs
+size memory by writing and reading back.
+
+### 8.2 The SAM
+
+`sam6883.c` models the chip's register as the generic part (EL §4.2): 16
+bits set and cleared through address pairs, giving the VDG mode bits, the
+display offset, the page bit, the two rate bits, the memory size and the
+map type. From it the machine derives three things:
+
+- **the memory map** (§8.1);
+- **the video address for each scanline** (§9.2);
+- **the CPU's rate.** At rate 0 every cycle is 16 ticks of the master
+  oscillator. With R0 set (the "high-speed poke" CoCo software uses) the
+  rate is **address-dependent**: accesses to ROM and I/O take 8 ticks and
+  RAM accesses 16. With R1 set every cycle is 8 ticks and the video is
+  no longer refreshed correctly.
+
+Machine time is therefore counted in **oscillator ticks**, not CPU
+cycles. At rate 0 an instruction's time is its cycles × 16, and the run
+loop is the plain one. While a faster rate is selected, a **second copy
+of the run loop** is used, as the Ace's is while a trap is set
+(EL §3.2), in which the bus adds each access's ticks from a per-page
+cost; the CPU's internal cycles are charged at the rate of the
+instruction's own address. How close that comes to the SAM's real rule,
+including the stretched cycle on each change of rate, is settled against
+XRoar's traces and recorded (§18); the display in the all-fast rate shows
+what the snapshot finds and is not modelled as noise.
+
+### 8.3 The PIAs
+
+`mc6821.c` is the generic MC6821 (EL §4.2): two ports, each with a data
+direction register and a control register selecting it; **output latches
+apart from input pins**, so a read returns pins on input bits and the
+latch on output bits; CA1/CB1 edge flags with their polarity and enable;
+CA2/CB2 as inputs or in each output mode; the flags cleared by a read of
+the data register; IRQA and IRQB out. Its datasheet is its test plan.
+
+The wiring of §3.3 is a table in `coco.c` on top. Three points:
+
+- **HS and FS are brought up to date lazily** (EL §4.3). FS's edges are
+  where the field is split (§13.1). HS falls 262 or 312 times a field; its
+  flag is computed from the tick count **when PIA0's control or data
+  register A is read**, and only while software has enabled its interrupt
+  does the run slice stop at each line. BASIC leaves it disabled.
+- **One register, several meanings** (EL §4.2): PIA1's port B carries
+  the VDG mode with the single-bit sound and a strap. The machine compares
+  the bits that matter to each consumer.
+- **Reset** resets both PIAs and the SAM with the CPU; which chips are on
+  the reset line is read from the schematic (EL §3.2).
+
+### 8.4 Hooks
+
+The printer port and the serial bit are modelled to the extent the ROMs
+need to see them idle or busy; output is discarded and counted (§20). The
+Dragon 64's 6551 is present as registers that read as an idle chip, to
+the extent its ROM touches it at boot (EL §4.2: fit what the ROM
+touches).
+
+---
+
+## 9. Video
+
+### 9.1 No framebuffer
+
+As the Atom (EL §5.1): the picture is a function of video RAM and a few
+mode bits, so core 0 publishes a small snapshot and core 1 generates rows
+from it straight into two RGB565 line buffers. What changes from the Atom
+is that **the SAM chooses the bytes** and the mode can disagree between
+the two chips.
+
+### 9.2 Rows through the SAM
+
+`mc6847.c` keeps its job: decode a row of bytes into pixels for a VDG
+mode, through a lookup table per mode (EL §5.2). It gains a caller-supplied
+**row source**: for scanline *y* of 192, which bytes. `sam6883.c` supplies
+it from the SAM's mode: how many bytes a row has, and after how many
+scanlines the address advances (every 12, 3, 2 or 1). When the two chips
+agree this reduces to the Atom's nine modes. When they do not, the result
+is what the hardware shows: the semigraphics 8, 12 and 24 modes are a
+text-mode VDG fed a new row of bytes every 4, 3 or 1 scanlines.
+
+The text generator gains the CoCo's wiring (§3.4): semigraphics 4 as
+well as 6, chosen by GM0; inverse on bit 6; the character set from the
+Atom's verified table, with its layout asserted against the data
+(EL §5.5). The MC6847T1's lower case, for later CoCo 2s, is a variant
+table and a machine option (§20).
+
+### 9.3 The snapshot
+
+Published at the end of each field, **where the next active line begins**
+(EL §5.6):
+
+- the VDG mode byte (A/G, GM0–GM2, CSS) and the SAM's video mode;
+- **the bytes the SAM would fetch this field**, copied from guest RAM
+  starting at the display offset, wrapped at 64 KB: at most 6,144;
+- a few status bytes (tape, drive, the machine).
+
+The pool is three such buffers, about 19 KB. Copying 6 KB costs core 0
+tens of microseconds a field.
+
+**The mode belongs in the shadow** (EL §5.3): the presenter compares the
+snapshot's modes with the presented ones first, and a change marks every
+band dirty and rebuilds the table. Otherwise it diffs bytes against the
+shadow in bands of 8 rows with a column span, and sends each dirty band
+as one LCD window.
+
+### 9.4 Changes of mode within a field
+
+Some titles change CSS or the mode part-way down the screen. A snapshot
+with one mode cannot show that. The machine therefore **records each
+change of the video bits with the scanline it fell on**, computed from
+the tick count at the write, into a short list in the snapshot. Nothing
+is clocked per line to do it (EL §4.3).
+
+In the first version the presenter uses the mode in force at the first
+active line and **counts fields that had more than one**, on the
+heartbeat and in the archive run. Whether to render split fields, with a
+table per region, is decided by that count, not by expectation
+(EL §4.2).
+
+### 9.5 Colour, artefacts and the border
+
+- The palette is the Atom's `mc6847_palette`, with the mono palette from
+  the datasheet's luminance levels (EL §5.2), chosen by a setting.
+- **Artefact colours.** On NTSC machines the two-colour 256-pixel mode
+  with the black-and-white colour set shows pairs of pixels as colours,
+  and CoCo software draws with them. This fits the row table directly: a
+  byte is four pixel pairs, and each pair maps to black, white or one of
+  two colours. A setting chooses off, or one of the two phases (which
+  colour is which depends on how the machine powered on, and titles
+  offered a "press reset until red" screen). **It is on by default on a
+  CoCo**, since that is how the machine looked, and off on PAL machines,
+  which do not show it.
+  XRoar's finer table, which looks across byte boundaries, is not built
+  (§20).
+- **The border** is drawn only when its colour changes (EL §5.4).
+
+### 9.6 Geometry, status, pages
+
+The 256×192 picture at (32, 64) on the 320×320 panel, a full repaint
+11.5 ms (HW §4.7). A status line above and a perf line below, each drawn
+when its text changes and each hidden by a setting (EL §5.4). Tearing is
+accepted (EL §5.4).
+
+The menu and the other pages are guest text pages through the guest's own
+renderer, in the VDG's own character set (EL §5.8, §10), as the Atom's.
+The VDG's internal set has no lower case, and neither does the Atom's
+menu.
+
+Golden images in every mode and colour set, and the mismatched pairs,
+are committed only after they have been looked at, and compared with
+XRoar's rendering of the same memory (§15.3).
+
+---
+
+## 10. Audio
+
+**Sources.** A 6-bit DAC on PIA1's port A; a single-bit output on PIA1
+PB1; the cassette's signal; a cartridge's sound line. PIA0's CA2 and CB2
+select which analogue source reaches the speaker and PIA1's CB2 enables
+it. The DAC is also the joystick's reference, so software scanning a
+joystick moves it with the sound source switched away.
+
+**Synthesis.** The Atom's beeper is a box filter over a one-bit level at
+the exact rational sample period (EL §6.1). It already multiplies a
+level by a time, so it becomes a filter over **the speaker's level**: the
+machine computes that level from the DAC value, the single bit, the
+multiplexer and the enable **on every write that can change it**, stamped
+with the tick count at the start of the writing instruction, and the
+filter integrates between changes. The cost stays per change, not per
+sample. A one-pole DC blocker follows; silence is 0 (EL §6.1).
+
+The sample period is a reduced rational of oscillator ticks, recomputed
+at power-on for the machine's crystal (§13.2). Fixed point throughout.
+
+**Plumbing and pacing** are the family's without change (EL §6.2, §6.3,
+HW §5.3–5.4): 36,621 Hz at 150 MHz, two chained DMA channels over an
+aligned ring, the refill path in SRAM at priority `0x40`, an SPSC queue of
+compare words, **core 0 paced on the queue**, underrun samples and late
+refills counted apart, mute still consuming, the late path forced once
+(EL §6.4). Bring-up runs on timer pacing first (EL §6.3).
+
+**Tests** (EL §6.1): every sample against an independent model built from
+the edges a guest program made, to 1 LSB; the pitch of the ROM's `SOUND`
+and of a `PLAY` note against the cycle count of their loops; and whether
+the idle ROM makes any sound at all, since its keyboard and joystick scans
+write the DAC's port.
+
+---
+
+## 11. Keyboard and joysticks
+
+### 11.1 The path
+
+The family's (EL §7.1): held-key state from press and release events,
+canonical codes, the binding fixed at press time, the whole FIFO drained
+each poll on core 1, and key events **replayed into the matrix at the
+guest's pace**. The hold and gap for each ROM are settled by executing
+it, with a control that loses keys, and by typing a long program and
+counting the lines stored (EL §7.1). Modifier presses go a field ahead of
+their key, and releases wait the same minimum.
+
+### 11.2 The matrix
+
+Eight columns driven from PIA0 port B, seven rows read on port A. The
+CoCo and the Dragon use the same keys in **two arrangements** of the
+rows; the machine selects the table. Both are **settled by executing each
+ROM**: press every cell at the prompt, with and without SHIFT, and read
+what the ROM writes to the screen (EL §7.2), kept as a regression test
+that types every table entry through the real ROM.
+
+### 11.3 The mapping
+
+Data, one row per PicoCalc code: row, column and flags (EL §7.2), checked
+by a host test. The points particular to these machines:
+
+- **Typing is by character.** The PicoCalc sends `"` and the guest types
+  it as SHIFT+2: each such entry asserts or removes the guest's SHIFT
+  while the key is down.
+- **Lower case.** These machines have upper case only, shown inverse when
+  "lower case" is toggled (SHIFT+0). PicoCalc letters type the guest's
+  letters whatever their case.
+- **BREAK** is Esc, and **CLEAR** a plain key (proposed: Tab). Neither
+  may depend on a Shift chord the southbridge swallows (HW §6.3).
+- **The guest's arrows** are the PicoCalc's. The guest's shifted arrows
+  (SHIFT+← erases a line on the CoCo) cannot come from Shift+arrow, which
+  sends nothing for Left and Right, so they get Alt-layer keys.
+- **The emulator's keys** are on Alt and the function keys, which the
+  guest lacks, and the Alt layer cannot be taken by a game layout
+  (EL §7.2).
+- **Game layouts** are overlays, built-in ones generic and named by
+  shape, per-title ones text files on the card (EL §7.3). The built-ins
+  are chosen by surveying the archive, not guessed (EL §7.3).
+
+### 11.4 Joysticks
+
+Two analogue sticks, each two axes read by comparing against the DAC
+through PIA0 PA7, and a button each on a keyboard row line. The PicoCalc
+has none, so a **keyboard joystick**: the arrows drive one stick's axes
+to their ends or centre, and a key the southbridge delivers alongside the
+arrows is fire (`]`, EL §7.3). It is a layout, chosen in the menu's KEYS
+item like any other: off, right stick, left stick. The comparator is
+brought up to date when PIA0 is read, from the DAC's value then.
+
+Since the button shares a matrix row, the joystick layout and the
+keyboard interact as on the real machine; the sweep test of §11.2 is run
+with a button held.
+
+---
+
+## 12. Media: ROMs, cartridges, tape, disc, snapshots, settings
+
+### 12.1 ROMs
+
+No permission covers them, so none ships (EL §8.1, D10). The user puts
+them in `/coco/roms/`; the README names each file, its size and its
+SHA-1. The emulator **identifies ROMs by SHA-1** and knows the common
+alternate packagings (the CoCo's two 8 KB ROMs as one 16 KB file, the
+Dragon 64's two ROMs). A missing ROM gives a page naming the files, never
+a blank screen, and the About page shows every slot's file, status and
+hash (EL §8.1).
+
+The hashes are taken from the owner's images and cross-checked with
+XRoar's own list of known ROMs (its CRC-32s) before they are constants
+(§18). Host tests that need the ROMs find them in a gitignored staging
+directory and skip without them; CI runs what needs no ROM, including the
+whole CPU suite and a small test ROM the project assembles (EL §11.2).
+
+### 12.2 Cartridges
+
+`cart.c`: a ROM image mapped at `$C000`, and the cartridge line that
+makes the machine start it (on the real port, the Q clock wired to the
+cartridge-detect pin, which reaches FIRQ through PIA1 CB1). The menu
+inserts and removes one with a power-on (EL §10's machine page). The DOS
+controllers are cartridges with a chip behind them (§12.4). Sound and
+other active cartridges are deferred (§20).
+
+### 12.3 Tape
+
+Both families of machine use one cassette format: a leader, then blocks
+with a sync byte, type, length, data and checksum, as two tones a bit.
+The image format is **CAS**, the bytes of that stream.
+
+**Phase 1: the trap** (EL §8.2). On each ROM's **block-read and
+block-write routines**, found by reading the ROMs and guarded by their
+first bytes, so another ROM is never trapped. The CPU stalls there while
+the port serves the request with the guest parked; the trap leaves the
+machine where the routine is as it finishes its last byte and **lets the
+ROM run its own epilogue**, so what the routine leaves is the ROM's work
+(EL §8.2). A request no file answers is declined, or given up to the
+prompt where the ROM would otherwise wait in silence; which, is settled
+by what each ROM does when declined (EL §8.2). The file the user meant is
+found by the name in its first block when no file of that name exists.
+
+**Phase 2: the signal** (EL §8.3). The CAS bytes become half-cycles
+clocked in oscillator ticks and presented on PIA1 PA0, brought up to date
+only when that port is read, with the run slice ending at the deck's next
+edge. How the ROM times a bit is read from the ROM first. The motor
+follows PIA1 CA2, the machine's own relay line. Turbo while the tape
+plays (EL §9.3). Recording decodes what the ROM drives onto the DAC back
+into whole blocks appended to the image (EL §8.3); the player's edges are
+held to a recording of the ROM's own save, edge for edge.
+
+The Atom's gzip reader comes along only if the archive's CAS files are
+found gzipped (§15.4).
+
+### 12.4 Discs
+
+Two controller cartridges, each a Western Digital FD179x-family chip
+behind a latch, wired differently:
+
+| | RS-DOS (CoCo), built first | DragonDOS |
+|---|---|---|
+| Chip | WD1793 at `$FF48`–`$FF4B` | WD2797 at `$FF40`–`$FF43` |
+| Latch (drive, motor, density, side, precompensation) | `$FF40` | `$FF48` |
+| INTRQ | NMI, gated by the latch | NMI, gated by the latch |
+| DRQ | **HALT**: the CPU is held until the next byte is ready | The cartridge line: FIRQ through PIA1 CB1 |
+
+The decodes are as XRoar's source has them; the registers are read off
+each DOS ROM before they are constants (EL §8.4, §18).
+
+The chip is the Oric's `wd1793.c`, made the generic part with the
+variants' differences (the 2797's side-select output, the status bits
+that differ), and its design is kept whole (EL §8.4): **the disc turns in
+oscillator ticks**, a search waits for its ID to come round, a transfer
+moves a byte a byte-time and loses one the CPU missed; every timed step
+is an event the run loop stops at; the chip holds one raw track and
+**asks the port for a track at a time**, served with the guest parked.
+RS-DOS's HALT pacing is the CPU's stall (§7.1) ended by the chip's
+next-byte event.
+
+Images: **JVC/DSK** (CoCo) and **VDK** (Dragon), sector images from which
+`mfmdisk.c` builds tracks; a read-only file is a protected disc; a short
+image reads zeros past its end and grows when written (EL §8.4). DMK,
+which stores raw tracks, is deferred (§20).
+
+What READY and the motor mean to each DOS, and how each notices a disc
+change, are read from the DOS ROMs (EL §8.4). The archive's images are
+surveyed before any check the chip makes is trusted, and the whole
+archive is held to XRoar by screen, since XRoar's disc timing differs
+(EL §8.4).
+
+### 12.5 Snapshots
+
+The Oric's container and rules (EL §8.5): fields written explicitly,
+little-endian, with a header, version, lengths and CRC; zero is every
+field's reset state; ROM hashes, not bytes; everything a power-on chooses
+recorded (machine, RAM, CPU type, cartridge, television standard); the
+media's names carried; a **two-pass load into the machine the state
+names**; every field checked against the range a running machine keeps;
+a busy device never blocks a load; compared straight after the load as
+well as 150 fields on.
+
+Importing XRoar's snapshot format is a separate decision (EL §8.8), and
+deferred (§20).
+
+### 12.6 Settings and the card
+
+```
+/coco/
+  coco.ini         settings: key = value (EL §8.7)
+  roms/  tapes/  discs/  carts/  snaps/  keymaps/
+```
+
+The family's settings file and rules without change (EL §8.7): every
+default in one function, a wrong line changes nothing, saving is a
+deliberate menu action that **edits the user's text in place**, the
+output parsed back before it is written. Every write to the card goes
+through `name.new` and a rename with recovery on load (EL §8.6). No
+flash writes.
+
+---
+
+## 13. Timing
+
+### 13.1 The field
+
+`coco_run_field` splits the field at FS's edges, so guest instructions
+run while FS is in its flyback state and the field interrupt is a level
+with a duration (EL §5.6). The line counts are the MC6847 datasheet's
+for NTSC, and the PAL machines' extra lines are placed as the circuit
+places them, **read from the schematic and not from XRoar's numbering**
+(EL §5.6). The snapshot is taken where the next active line begins.
+
+A guest loop on the host must see FS low and escape once a field, and a
+redraw begun at the field interrupt must be complete in every snapshot,
+with the wrong field shape as a control that fails (EL §5.6).
+
+### 13.2 Clocks
+
+One master oscillator per machine: 14.31818 MHz on NTSC machines, and
+whatever the PAL machines carry (§18). Everything is counted in its ticks
+(§8.2), and **the tick count is the only clock** (EL §4.3). The values
+that depend on it (ticks a line, lines a field, the audio sample period,
+tape half-cycles, the disc's byte time) are computed once at power-on and
+kept where they are used (EL §9.3). The field rate is 50 or 60 Hz by
+machine and is a constant once settled (EL §9.1).
+
+No faster guest clock is offered beyond what the SAM's own rate bits give
+software (§8.2, §20).
+
+### 13.3 Power-on state
+
+RAM is zero-filled, with the two exceptions looked for (EL §9.2): state
+the ROM uses as a seed, and a check that zeros pass. Both BASICs' `RND`
+seeds and their cold- and warm-start flags are read from the ROMs before
+M3 and the finding recorded either way. ROMs are loaded, then the machine
+is powered on, in one documented order the host harness shares
+(EL §9.2).
+
+---
+
+## 14. User interface
+
+The family's (EL §10), by D5:
+
+- **Boots straight into the guest.** One Alt chord opens the menu, which
+  parks the guest; function keys open its pages directly.
+- **Pages**: Tapes, Discs, Snapshots, Keys (layouts and the keyboard
+  joystick), Machine, Settings, About. Where the Atom and the Oric have
+  an item, it is in the same place under the same key.
+- **The Machine page** stages changes and applies them by a restart that
+  behaves as a power-on: machine (CoCo, Dragon 32, Dragon 64), BASIC on
+  a CoCo (Color BASIC alone, or with Extended), RAM (4, 16, 32, 64 KB),
+  CPU (6809; 6309 from its milestone), television standard where the
+  machine was sold in both, cartridge (none, a ROM file, RS-DOS,
+  DragonDOS). ROMs are checked on the card first, and it
+  refuses while an unsaved recording exists.
+- **Pause**, **New tape**, a **status row** naming the first problem, the
+  **About page** with the version from `git describe` at build time
+  (EL §10).
+- **Return to the shell**, when UF2 Loader started the image (D7).
+- The firmware names no title (EL §10).
+
+---
+
+## 15. Testing
+
+### 15.1 Shape
+
+No framework; one binary per area under CTest; exit 77 is a skip and a
+skipped CPU test is an unverified CPU; behaviour asserted by execution;
+controls that must fail; bugs planted one at a time and recorded
+(EL §11.1). Hardware-independent logic lives in the core where the tests
+reach it.
+
+### 15.2 XRoar as oracle and reference
+
+Built by `tools/trace/build-xroar.sh` from its own checkout at a pinned
+release, outside the tree, with no GUI (EL §11.4). Used three ways:
+
+1. **The CPU oracle** (§7.4): `mc6809.c` and `hd6309.c` linked into a
+   host test with a flat memory behind their bus callback. A tool, with
+   its own CTest label, run in CI, which clones XRoar.
+2. **Trace diff of the whole machine**: the same ROMs and key script
+   under this core and under XRoar, registers before each instruction,
+   diffed; the first divergence is almost always the bug. XRoar is exact
+   per cycle and this core per instruction, so interrupts can land an
+   instruction apart: the driver resyncs and classifies what lay between,
+   or makes the two keep the same time, whichever the first runs show is
+   needed (EL §11.4). Errata found in either are carried by name.
+3. **Pictures and archives**: XRoar's rendering of the same video memory
+   beside the golden images (§9.6), and the disc archive held to it by
+   screen (§12.4).
+
+The reference is got building in M1, the milestone that first needs it,
+and kept in use (EL §11.4).
+
+### 15.3 The real software on the host
+
+A harness builds the real machine on the workstation, finds ROMs by
+SHA-1, types through the same matrix path as the firmware, and reads
+results as text decoded from video RAM (EL §11.2): boot each machine,
+type a sum, sound a note and measure it, save and load through the ROM's
+own routines, round-trip a tape through an independent decoder
+(EL §11.3), run each DOS against an in-memory disc, restore a snapshot
+mid-session.
+
+### 15.4 The archive
+
+Every tape, cartridge and disc image of the CoCo archive, and then the
+Dragon's, run
+on the host for a fixed guest time, each with its last frame and a
+one-line report (EL §11.6): undocumented opcodes reached and the
+instructions before the first (D12); fields with more than one video mode
+(§9.4); which keys titles test and which joystick they read (§11.3);
+whether CAS files come gzipped; the largest file, which sizes the
+buffers. Failures are classified before any is fixed.
+
+### 15.5 On the board
+
+The gate (§7.5); the registers and tick count at the end of each of the
+first 150 fields, equal to the host's (EL §13.3); scripted workloads
+typed over the UART, each feature measured against a control build in
+one sitting, the previous release measured beside the new (EL §12); a
+30-minute soak whose check shows the workload kept running, on the
+development build and, with counters read over SWD, on the release build
+(EL §11.5).
+
+---
+
+## 16. Memory budget
+
+**Estimates**, replaced by the linker map as each milestone lands
+(EL §14.4). The Atom's whole image came to about 255 KB of 520 KB
+(EL §1); this machine is the same shape.
+
+| Region | Estimate |
+|---|---:|
+| Guest RAM | 64 KB |
+| ROMs: BASIC 16 KB (two on a Dragon 64), cartridge or DOS up to 16 KB | 48 KB |
+| Snapshot pool, 3 × ~6.3 KB, and the presenter's shadow | 26 KB |
+| Renderer's table (8 KB worst case) and line buffers | 10 KB |
+| Tape buffer | 64 KB |
+| One raw disc track and its build buffer | 16 KB |
+| Interpreter and hot callees in SRAM, if the tiers earn it | 30–45 KB |
+| Audio ring and queue, log ring, key queues | 16 KB |
+| SDK, FatFs, drivers, stacks | 30 KB |
+| **Total** | **about 305–320 KB of 520 KB** |
+
+No PSRAM is used on boards that have it (D3). Both stacks are painted
+and their high-water marks reported from bring-up (HW §2.3).
+
+---
+
+## 17. Milestones
+
+Each ends with something that runs and something that is measured, and
+is recorded in `docs/milestones.md` with the date, the board, the
+compiler, what was checked and by whom, and a not-checked list carried
+forward (EL §14.3). One branch and pull request each (D14).
+
+```
+ host only                                 device
+ M0 skeleton, both builds, CI ───────────────────────────────┐
+ M1 6809 on host, XRoar oracle ──► M2 CPU on board (GATE) ─┐ │
+ M3 machine on host (SAM, PIAs)     M6 bring-up ◄──────────┼─┘
+ M4 video   M5 keyboard               │                    │
+   └──────────┴─────────────────► M7 GUEST BOOTS ON DEVICE ◄┘
+ M8 audio → M9 card, menu, cartridges, tape trap → M10 snapshots
+ M11 perf pass, archive run, soak → M12 tape signal and recording
+ M13 RS-DOS → M14 Dragon 32/64 and DragonDOS → M15 HD6309 → M16 release
+```
+
+The CoCo is the machine of every milestone to M13. The Dragon 32 is
+booted on the host from M3, because its different ROM and matrix are a
+cheap check that the wiring is data and not assumption, but nothing waits
+for it, and it reaches the device in M14.
+
+| M | What | Done when |
+|---|---|---|
+| **M0** | Repository, the two-target build, `config.h`, CI, `CLAUDE.md`, `milestones.md`; the siblings' files sorted into §5's lists | CI green on both builds; an SDK include in a core header shown to fail the host build (EL §2.1) |
+| **M1** | `mc6809.c`; XRoar built by script; the oracle and the behaviour tests | The oracle passes over every opcode and mode; each planted bug fails it; the skip is held to a stepping machine |
+| **M2** | **The gate**: the CPU alone on the board (§7.5) | Host cycles per instruction measured; board counts equal the host's; a projected share of core 0 under 60 %, or the levers applied and the result taken to the owner |
+| **M3** | The machine on the host: bus, SAM, PIAs, field loop; a CoCo with Color BASIC alone and with Extended | The CoCo boots its real ROMs to `OK` in each RAM size and answers a typed sum, read from video RAM; the trace diff against XRoar runs through boot and typing; a Dragon 32 boots on the host as the second wiring |
+| **M4** | Video: the VDG through the SAM, every mode and the mismatched pairs, artefact colours, the presenter | Golden images looked at and agreeing with XRoar's rendering; the dirty-band test with its control |
+| **M5** | Keyboard: the CoCo's matrix, the mapping table, hold and gap; the Dragon's matrix as a second table | Every table entry typed through Color BASIC; the long-program test stores every line |
+| **M6** | Board bring-up from the copied drivers, each stage its smoke test (EL §13.3) | Test pattern, keys logged, card read, on a Plus 2 W and a Pico 2 W |
+| **M7** | **The CoCo boots on the device**, timer-paced | Extended Color BASIC's banner and `OK` on the panel, a typed program run; the 150-field list equals the host's; the owner has typed on it |
+| **M8** | Audio: the level filter, the multiplexer, pacing on the queue | Every sample to 1 LSB on the host; `SOUND` and `PLAY` at pitch on the device; zero underruns; the late path forced |
+| **M9** | Card, settings, the menu, the Machine page, ROM cartridges, the tape trap | A game loaded from CAS and from a cartridge image and played; `CSAVE` and `CLOAD` round-trip; the trap's state held to the ROM's own routine |
+| **M10** | Snapshots | Restored mid-program into a machine doing something else, identical straight after and 150 fields on |
+| **M11** | The perf pass with SRAM tiers; the archive run; the soak | Each feature's cost against a control; D12 and §9.4 decided from the archive; a clean 30-minute soak on both builds |
+| **M12** | The tape signal, turbo, recording, the keyboard joystick and game layouts | Edge-for-edge against the ROM's own save; a recording loads in XRoar; a joystick game played by the owner |
+| **M13** | Discs for the CoCo: the WD1793, the RS-DOS controller with its HALT pacing, Disk BASIC, JVC/DSK images | Disk BASIC runs `DIR`, `LOAD`, `SAVE`, `DSKINI` and `BACKUP` on the host and the device; the CoCo disc archive held to XRoar by screen |
+| **M14** | The Dragons on the device: Dragon 32; Dragon 64 with its ROM switch, 64 KB map and the serial chip's idle registers; DragonDOS on the WD2797, VDK images | Both boot on the panel, the 64 in both modes; DragonDOS runs its commands; the Dragon archive run |
+| **M15** | HD6309 | Its oracle passes in both modes; a 6309 program runs on the device |
+| **M16** | Finish: README, the release build on a second board, attribution | A fresh card and board set up from the README alone |
+
+---
+
+## 18. Constants to confirm
+
+Written from secondary knowledge or XRoar's source. Each is transcribed
+from its primary source before it becomes a `#define`, and how it was
+settled is recorded here (EL §14.2). While unverified, a constant is
+configuration; once settled, it is a constant.
+
+| What | Assumed | Confidence | Primary source |
+|---|---|---|---|
+| Host cycles per 6809 instruction (§7.5) | 200–350 | **Low** | M2, on the board |
+| 6809 cycle counts, flags, interrupt sequencing | Datasheet | High | MC6809E datasheet; the oracle |
+| The NMOS 6809's undocumented opcodes and what software reaches them | Trapped | Low | The archive run (D12) |
+| A published 6809 functional test of standing exists | Unknown | Low | Searched for in M1 |
+| The master oscillator on PAL Dragons and PAL CoCos | 14.218 MHz against NTSC's 14.31818 | Low | Schematics; XRoar counts every machine in 14.31818 MHz ticks |
+| Lines a field and their layout on PAL machines; where FS and the field interrupt fall | 312, the extra lines inserted by a circuit outside the VDG | Low | Dragon 32 schematic and service manual |
+| Ticks a line and the active line's start | 57 CPU cycles; the datasheet's | Medium | MC6847 datasheet |
+| The SAM's bit pairs, its address-counter rule for each video mode, its rate rules and the stretched cycle (§8.2) | As §3.2, §8.2 | Medium | MC6883 datasheet; XRoar's traces |
+| What unpopulated memory and unused I/O read (§8.1) | Unknown | Low | Schematics; neither assumed `$FF` |
+| The PIA wiring of §3.3, bit for bit, on each machine | As listed | Medium | Schematics; the ROMs executed |
+| VDG data wiring: bit 7 A/S, bit 6 INV, INT/EXT from GM0 (§3.4) | As listed | Medium | Schematics; the ROM's own screen, executed |
+| Both keyboard matrices (§11.2) | Unwritten | — | Each ROM executed |
+| Key hold and gap for each ROM (§11.1) | A few fields | Low | Each ROM executed |
+| The ROMs' tape block routines, their entry bytes and what they leave (§12.3) | Unwritten | — | The ROMs read and executed |
+| Tape bit timing as each ROM reads and writes it | Two tones, about 1200 and 2400 Hz | Low | The ROMs read; a save recorded |
+| ROM file names, sizes and SHA-1s (§12.1) | Unwritten | — | The owner's images; XRoar's ROM list |
+| Disc controller registers, latch bits, interrupt and HALT wiring (§12.4) | As the table, from XRoar's decodes | Medium | Each DOS ROM read; controller schematics |
+| WD2797 against WD1793: which differences each DOS sees | Side select, some status bits | Low | Datasheets |
+| VDK and JVC header rules | Community descriptions | Low | A corpus of real files (EL §8.8) |
+| Seeds and flags in RAM at power-on (§13.3) | Unknown | Low | Both ROMs read |
+| What the Dragon 64's ROM needs of the 6551 at boot (§8.4) | Idle registers | Low | The ROM executed |
+| Artefact colours: which pair gives which colour in each phase (§9.5) | Blue and red, swapped by phase | Low | XRoar's table; photographs of a real set |
+
+---
+
+## 19. Risks
+
+1. **The CPU's cost.** An estimate (§7.5). The gate is the second
+   milestone, on the family's measured method, with ordered levers.
+2. **A new CPU core is the largest new code.** Its correctness rests on
+   the oracle, so the oracle is built first and shown to fail (§7.4).
+   The oracle shares XRoar's mistakes, if it has any: the datasheet
+   decides a disagreement about cycles (EL §11.4).
+3. **Instruction granularity against software that counts cycles.**
+   The SAM's rate changes and titles that race the beam mid-line are
+   where a whole-instruction CPU can show. The archive run counts them
+   (§15.4), and what cannot be modelled is recorded, not hidden.
+4. **Mid-field mode changes** (§9.4) may prove common enough to need
+   split rendering, which is more work in the presenter.
+5. **Two DOSes, two wirings, one chip model** (§12.4): the HALT-paced
+   transfer is new to the family.
+6. **The keyboard.** The PicoCalc resolves Shift itself and swallows
+   some chords (HW §6.3). Typing by character suits it; games that read
+   SHIFT with the arrows do not, and need layouts.
+7. **No ROM can be shipped**, so first use needs a card prepared from
+   the README, and CI cannot run the real ROMs.
+8. **Secondary sources.** §3 is written from memory and from another
+   emulator. §18 exists so that none of it reaches a header unchecked.
+
+---
+
+## 20. Dropped and deferred
+
+**Dropped**, with the reason (EL §14.5):
+
+- **Porting XRoar's source** (`design-xroar-port.md`): its per-cycle
+  structure was estimated at 70–140 % of a core at 300 MHz, and its heap
+  needed PSRAM (D1).
+- **Scaling the picture**: uneven doubling for 56 % more wire time
+  (EL §5.4).
+- **Composite simulation and XRoar's finer artefact table**: the
+  byte-pair table gives the colours software drew with (§9.5).
+- **Video noise** in the SAM's all-fast rate, and bus snow.
+- **A faster guest clock** as an emulator option: no common modification
+  beyond the SAM's own rate bits (EL §9.3).
+- **RP2040 boards**: a memory question first, and unmeasured (Atom §3.1).
+- **Internal flash writes; ROMs in the firmware** (D10).
+
+**Deferred**, with what would bring each back:
+
+- **CoCo 3** (GIME, 512 KB, 640-sample modes) and **MC-10** (a 6803):
+  machines of their own, after release.
+- **Dragon 200-E, Alpha, Professional; RAM expansions**.
+- **The MC6847T1** and its lower case, for later CoCo 2s: a variant
+  table, when a ROM set that expects it is supported.
+- **DMK disc images; double-sided and 80-track drive types** beyond what
+  the first DOS tests need.
+- **Sound and other active cartridges** (Orchestra 90, the Games Master
+  Cartridge), the multi-pak: the Oric's AY-3-8912 is there to take.
+- **Printer output to a file; the serial ports**.
+- **WAV tapes**; **importing XRoar snapshots** (EL §8.8).
+- **Split-field rendering** (§9.4) and **implemented undocumented
+  opcodes** (D12): each decided by the archive run.
+- **300 MHz**: if the gate asks, or as a user's opt-in later (EL §9.4).
