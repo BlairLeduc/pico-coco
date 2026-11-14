@@ -54,13 +54,14 @@ clk_peri=150000000 Hz`, core rail ~1100 mV, die 18 °C, firmware
 `ed8a9fa-dirty` (the uncommitted M0 tree). Capture in `out/m0/banner.log`,
 not committed.
 
+**CI** on GitHub, 2026-11-14, PR #1: green on both builds, the host
+core and its tests (Ubuntu, GCC) and the `pico2` firmware with and without
+the UART (Arm GNU 13.2.Rel1, Pico SDK 2.3.1).
+
 **Not checked:**
 
-- CI on GitHub, which done-when needs green on both builds; recorded on
-  the PR.
 - The default UART1 build's banner on a board: this board's GP4/GP5 carry
   the clock. Over SWD, that image's UART1 was enabled at 115,200 baud on
   GP4/GP5 with its FIFO draining, but no capture was made.
 - Which RP2350B board (Plus 2 or Plus 2 W): the banner cannot tell them
   apart.
-- The host build with GCC on Linux, which only CI runs.
