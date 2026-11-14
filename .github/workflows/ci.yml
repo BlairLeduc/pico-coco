@@ -14,7 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # M1 adds XRoar's checkout here, for the CPU oracle (design.md §15.2).
+      # XRoar's checkout at the pinned release, for the CPU oracle; without
+      # it test_mc6809_oracle skips, and a skip is not a pass (design.md
+      # §15.1, §15.2). The test step below fails on that skip.
+      - name: Fetch XRoar for the CPU oracle
+        run: tools/trace/build-xroar.sh --checkout-only
 
       - name: Configure
         run: cmake -S . -B build/host -DPICO_COCO_HOST=ON -DCMAKE_BUILD_TYPE=Debug
@@ -23,7 +27,13 @@ jobs:
         run: cmake --build build/host -j
 
       - name: Test
-        run: ctest --test-dir build/host --output-on-failure --no-tests=error -j 4
+        run: |
+          set -o pipefail
+          ctest --test-dir build/host --output-on-failure --no-tests=error -j 4 | tee ctest.log
+          if grep -q 'test_mc6809_oracle .*Skipped' ctest.log; then
+            echo "the CPU oracle skipped: XRoar's checkout was not found" >&2
+            exit 1
+          fi
 
   firmware:
     name: pico2 UF2

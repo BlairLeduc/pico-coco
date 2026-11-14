@@ -35,7 +35,8 @@ facts in §3 are written from secondary knowledge and from a reading of
 XRoar's source; each one that becomes a constant is first settled from a
 primary source and recorded in §18 (EL §14.2).
 
-**Status, 2026-11-14.** Design only. Nothing is built.
+**Status, 2026-11-14.** M0 and M1 are built: the skeleton, and the MC6809
+core on the host, held to XRoar's (`milestones.md`). No machine yet.
 
 **Contents**
 
@@ -362,11 +363,30 @@ behaviour software leans on is modelled:
   (EL §4.3: poll where the CPU does).
 - **Undocumented opcodes trapped and counted**, with the count and the
   last PC on the heartbeat (D12).
+- **The interrupt latch, as XRoar models it** (settled in M1 by the
+  oracle, 2026-11-14). In SYNC and CWAI the CPU polls once a cycle through
+  a one-cycle latch: a line that rises during the wait is latched by the
+  next cycle and acted on at the one after, so SYNC ends three cycles after
+  the rise and CWAI vectors six after. Straight after an interrupt entry
+  or the end of SYNC, the next boundary decides on the lines latched
+  before it, not on the lines then: a line raised during an entry waits
+  for the handler's first instruction. Elsewhere the lines at a boundary
+  are taken as they are, which is what the chip's latch holds when a line
+  changed during the previous instruction (§13.1, M3).
 
 Per-cycle bus behaviour (dead cycles' addresses, the order of a 16-bit
 write's two halves within the instruction) is not modelled except where
 it reaches a device: a read-modify-write on a PIA does its read and its
-write, in order.
+write, in order, `CLR` included, which reads first as the chip does.
+
+Where the datasheet calls a flag undefined, the core does what XRoar
+does, since XRoar is the authority it is held to (EL §3.1): H after a
+subtraction, a compare, `ASL` or `ASR` is left alone; `DAA`'s V is bit 7
+of the result xor the new C (hoglet67's measurement, which XRoar cites);
+`SEX` leaves V alone. `TFR` and `EXG` between registers of different
+sizes, and with unused register codes, do what tlindner measured and XRoar
+implements, and are counted as undocumented. So are the undocumented
+indexed postbytes, which are decoded as the chip decodes them.
 
 ### 7.2 Implementation
 
@@ -436,6 +456,15 @@ threshold is a **projected 60 % of core 0 at 150 MHz**; the Atom shipped
 at up to 46 % with zero underruns. If it fails, the levers in order
 (EL §3.4): SRAM placement in measured tiers, the run loop's shape, then
 300 MHz as a user's option (D3).
+
+**The interpreter's size, measured in M1** (2026-11-14, Arm GNU 15.2.Rel1,
+`-O3`, Cortex-M33): 88,208 bytes of text, `mc6809_run` 71,000 of it,
+with the indexed postbyte's decoder inlined at every indexed opcode as
+§7.2 has it. With that decoder out of line it is 36,160. Both are well
+over the 16 KiB XIP cache and over the Oric's whole interpreter (EL
+§3.4). No estimate was written for this. The gate measures speed with
+the decoder inlined and out of line before choosing, and the SRAM tiers
+are sized from whichever wins.
 
 ---
 
@@ -1038,9 +1067,9 @@ configuration; once settled, it is a constant.
 | What | Assumed | Confidence | Primary source |
 |---|---|---|---|
 | Host cycles per 6809 instruction (§7.5) | 200–350 | **Low** | M2, on the board |
-| 6809 cycle counts, flags, interrupt sequencing | Datasheet | High | MC6809E datasheet; the oracle |
+| 6809 cycle counts, flags, interrupt sequencing | Datasheet; **settled in M1** | High | MC6809E datasheet; the oracle; see below |
 | The NMOS 6809's undocumented opcodes and what software reaches them | Trapped | Low | The archive run (D12) |
-| A published 6809 functional test of standing exists | Unknown | Low | Searched for in M1 |
+| A published 6809 functional test of standing exists | **None found** (M1, 2026-11-14) | — | Searched in M1; see below |
 | The master oscillator on PAL Dragons and PAL CoCos | 14.218 MHz against NTSC's 14.31818 | Low | Schematics; XRoar counts every machine in 14.31818 MHz ticks |
 | Lines a field and their layout on PAL machines; where FS and the field interrupt fall | 312, the extra lines inserted by a circuit outside the VDG | Low | Dragon 32 schematic and service manual |
 | Ticks a line and the active line's start | 57 CPU cycles; the datasheet's | Medium | MC6847 datasheet |
@@ -1059,6 +1088,26 @@ configuration; once settled, it is a constant.
 | Seeds and flags in RAM at power-on (§13.3) | Unknown | Low | Both ROMs read |
 | What the Dragon 64's ROM needs of the 6551 at boot (§8.4) | Idle registers | Low | The ROM executed |
 | Artefact colours: which pair gives which colour in each phase (§9.5) | Blue and red, swapped by phase | Low | XRoar's table; photographs of a real set |
+
+**Settled in M1**, 2026-11-14:
+
+- **6809 cycle counts, flags and interrupt sequencing.** The cycle table
+  in `mc6809.c` was written from the MC6809E datasheet, and the oracle
+  holds every documented opcode in every addressing mode to XRoar 1.13's
+  `mc6809.c`, which counts bus cycles one by one: 266 opcodes, 2,048
+  trials each, every indexed postbyte and `TFR`/`EXG` pair eight times,
+  with interrupts, SYNC, CWAI and reset. They agreed on every register,
+  cycle and write, with no datasheet count changed, and no erratum of
+  XRoar's was found. Flags the datasheet leaves undefined follow XRoar
+  (§7.1).
+- **A published 6809 test program of standing.** None was found. A search
+  on 2026-11-14 turned up hand-written suites inside other emulators
+  (MCL6809's, the `mc6809-core` crate's test binary), a 2003 instruction
+  exerciser by W. Schwotzer for FlexEmu whose availability was not
+  checked, and an open request on r/EmuDev for a ZEXDOC-like 6809 test.
+  None is a common standard, as Dormann's is for the 6502 and ZEXALL for
+  the Z80. The oracle stands in its place; Schwotzer's exerciser is the
+  lead if one is wanted.
 
 ---
 

@@ -13,6 +13,7 @@ option(PICO_COCO_HOST "Build the portable core and its host tests, with no Pico 
 
 # Every fixed capacity lives in src/core/config.h; nothing here duplicates one.
 set(PICO_COCO_CORE_SOURCES
+    src/core/mc6809.c
 )
 
 set(PICO_COCO_WARNINGS -Wall -Wextra -Werror)
