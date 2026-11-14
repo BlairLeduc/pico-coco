@@ -20,7 +20,10 @@ under the SDK's BSD-3-Clause licence.
 
 ## XRoar, the reference and the CPU oracle
 
-Not in the tree, and in no image (`docs/design.md` D2, D8, §15.2). From M1 a
-script builds it from its own checkout at a pinned release, outside the
-tree, and its `mc6809.c` and `hd6309.c` are compiled only into a host test.
-XRoar is Ciaran Anscomb's, under the GPL-3.0-or-later.
+Not in the tree, and in no image (`docs/design.md` D2, D8, §15.2).
+`tools/trace/build-xroar.sh` clones it at the pinned release (1.13) into
+the gitignored `reference/`, and builds it headless in `out/`. CMake
+compiles its `src/mc6809/mc6809.c` and `portalib/delegate.c` from that
+checkout into `test_mc6809_oracle` alone, through `test/host/xroar_cpu.c`,
+this project's driver; `hd6309.c` joins them in M15. XRoar is Ciaran
+Anscomb's, under the GPL-3.0-or-later.

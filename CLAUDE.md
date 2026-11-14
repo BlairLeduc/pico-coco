@@ -12,9 +12,10 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M0 is built** (`docs/design.md` §17): both builds, `config.h`,
-CI, this file and the milestone log; the siblings' files sorted into §5's
-lists. Nothing is emulated yet. The record of each milestone (what was
+**Status: M1 is built** (`docs/design.md` §17): the MC6809 core
+(`src/core/mc6809.c`) on the host, held to XRoar 1.13's by the oracle, with
+its behaviour tests. No machine yet: the bus's slow path is the caller's
+until M3, and the firmware does not link the CPU until M2. The record of each milestone (what was
 verified, on which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
 
@@ -114,8 +115,12 @@ one: the core building clean without the SDK is what keeps SDK headers out of
   give a timing test a control that must fail. Plant bugs one at a time to
   show a test bites, and record them.
 - **A golden image proves nothing until someone has looked at it.**
-- **XRoar is a tool, never source** (D2, D8): built by script outside the
-  tree at a pinned release. Its CPU is linked only into the oracle test.
+- **XRoar is a tool, never source** (D2, D8): `tools/trace/build-xroar.sh`
+  clones it at the pinned release into `reference/` (gitignored) and builds
+  it headless in `out/xroar`. Its CPU is linked only into
+  `test_mc6809_oracle`, which skips without the checkout; re-run cmake after
+  fetching it. Plant a CPU bug in a scratch copy and run both
+  `test_mc6809_oracle` and `test_mc6809_behaviour`: some bugs only one sees.
 
 ## Architecture: the parts that are easy to break
 

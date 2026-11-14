@@ -384,6 +384,24 @@ makes the test report **skipped** (CTest exit code 77), and **a skipped
 functional test is an unverified CPU**, not a pass. CI fetches the suites on
 every run.
 
+For a CPU with no suite of standing (the 6809 has none to match Dormann's
+or ZEXALL), **compile a reference emulator's CPU into a host test and hold
+yours to it instruction by instruction**: the same random registers over
+the same memory (a pattern hashed from a seed and the address, under the
+instruction's bytes, so nothing need be copied per trial), every register,
+the cycle count, every write in order. A reference that calls back once a
+bus cycle gives the cycle count exactly, dead cycles included. Compare the
+reads too, as a subsequence: yours must appear, in order, among the
+reference's, which has its dummy reads besides; that catches a read the
+chip does not make, which a device would see. It cannot catch a read
+you leave out, such as the read that `CLR` makes before it writes, so
+that one needs a behaviour test. Interrupts and waits need their own
+trials: lines raised at a chosen cycle of the wait, every instruction
+boundary compared. Plant bugs again; on the 6809 the oracle caught a wrong
+half-carry, a long branch a cycle short, an indexed mode a cycle short
+and `MUL`'s carry from the wrong bit, and only the behaviour tests caught
+`CLR` without its read and two broken wait skips.
+
 ### 3.4 Making it faster, if you must
 
 Measure first (§12). Then, in order of what paid off:
