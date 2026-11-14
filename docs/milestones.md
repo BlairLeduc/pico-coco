@@ -98,6 +98,12 @@ Arm GNU 15.2.Rel1 and Pico SDK 2.3.1 for the firmware):
   measured in a scratch copy, 36,160. Carried to M2 (`design.md` §7.5).
 - **A published 6809 test of standing**: none found (`design.md` §18).
 
+**CI** on GitHub, 2026-11-14, PR #2: green on both builds once the host
+build's one GCC-only error was fixed (`test_util.h`'s counter unused in
+the oracle; Apple clang does not warn). The host job fetched XRoar 1.13
+(`af501b71`), and `test_mc6809_oracle` ran and passed in 0.74 s on
+Ubuntu's GCC, not skipped; `test_mc6809_behaviour` passed beside it.
+
 **Not checked:**
 
 - Anything on a board: the CPU's speed and its counts against the host's
@@ -111,7 +117,6 @@ Arm GNU 15.2.Rel1 and Pico SDK 2.3.1 for the firmware):
 - The cycle within an instruction on which a slow-path access falls, for
   the PIAs (`design.md` §7.2): M3.
 - The indexed decoder inlined against out of line, for speed: M2.
-- CI on GitHub: not yet run on this branch.
 
 ## M0: skeleton, both builds, CI
 
