@@ -1,0 +1,14 @@
+# Build trees, UART captures and fetched test suites and references
+# (design.md §15.2, §15.4).
+build/
+out/
+test/suites/
+reference/
+
+# The CoCo's and the Dragon's ROMs are copyrighted and not distributed
+# (design.md §12.1, D10): roms/ is a staging area, and only its README is
+# in git.
+roms/*
+!roms/README.md
+
+.DS_Store
