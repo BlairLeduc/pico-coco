@@ -13,7 +13,12 @@ option(PICO_COCO_HOST "Build the portable core and its host tests, with no Pico 
 
 # Every fixed capacity lives in src/core/config.h; nothing here duplicates one.
 set(PICO_COCO_CORE_SOURCES
+    src/core/bus.c
+    src/core/coco.c
     src/core/mc6809.c
+    src/core/mc6821.c
+    src/core/romset.c
+    src/core/sha1.c
 )
 
 set(PICO_COCO_WARNINGS -Wall -Wextra -Werror)
@@ -64,6 +69,15 @@ if (PICO_COCO_HOST)
 
     enable_testing()
     add_subdirectory(test/host)
+
+    # The trace diff's own half (design.md §15.2): a tool, not a test,
+    # run by tools/trace/trace-coco.sh beside XRoar.
+    add_executable(coco-trace tools/trace/coco-trace.c test/host/guest.c)
+    target_link_libraries(coco-trace PRIVATE pico_coco_core)
+    target_include_directories(coco-trace PRIVATE test/host)
+    target_compile_options(coco-trace PRIVATE ${PICO_COCO_WARNINGS})
+    target_compile_definitions(coco-trace PRIVATE
+        PICO_COCO_DEFAULT_ROMS="${PROJECT_SOURCE_DIR}/roms")
 else()
     # One pico2 image for every RP2350 board (design.md §4, D3).
     if (NOT DEFINED PICO_BOARD)

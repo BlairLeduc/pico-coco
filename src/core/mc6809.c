@@ -106,6 +106,14 @@ INLINE uint8_t lines(const mc6809_t *c) {
                      ((c->nmi_pending && c->nmi_armed) ? MC6809_LINE_NMI : 0u));
 }
 
+void COCO_HOT1(mc6809_lines_late)(mc6809_t *c) {
+    if (!c->stale) {
+        c->active = lines(c);
+        c->stale = true;
+        mc6809_attn(c);
+    }
+}
+
 void COCO_HOT1(mc6809_attn)(mc6809_t *c) {
     c->attn = (uint8_t)((c->irq | c->firq) != 0 || c->nmi_pending ||
                         c->halt || c->wait != MC6809_RUNNING || c->stale);
@@ -139,6 +147,16 @@ void mc6809_set_halt(mc6809_t *c, bool asserted) {
 #define RD(a)    bus_read(m, (uint16_t)(a))
 #define WR(a, v) bus_write(m, (uint16_t)(a), (uint8_t)(v))
 
+/* A data access, with the cycle of the instruction it falls on. Counted
+ * back from the instruction's end, whose count is known by the time of
+ * the access, in the cycle sequences of the datasheet as XRoar models
+ * them: an 8-bit read or a store is the last cycle; a word's two bytes
+ * are the last two, or the two before a dead cycle for ADDD, SUBD and the
+ * compares; read-modify-write reads two cycles before it writes, and TST
+ * reads two before its end (§7.2). */
+#define RDA(a, at)    bus_read_at(m, (uint16_t)(a), (at))
+#define WRA(a, v, at) bus_write_at(m, (uint16_t)(a), (uint8_t)(v), (at))
+
 INLINE uint8_t fetch8(coco_t *m, mc6809_t *c) {
     return RD(c->pc++);
 }
@@ -153,10 +171,18 @@ INLINE uint16_t rd16(coco_t *m, uint16_t a) {
     return (uint16_t)((hi << 8) | RD(a + 1u));
 }
 
-INLINE void wr16(coco_t *m, uint16_t a, uint16_t v) {
-    WR(a, v >> 8);
-    WR(a + 1u, v);
+/* `last` is MC6809_IO_LAST when the second byte is the last cycle. */
+INLINE uint16_t rd16_at(coco_t *m, uint16_t a, uint32_t at, uint32_t last) {
+    uint16_t hi = RDA(a, at);
+    return (uint16_t)((hi << 8) | RDA(a + 1u, (at + 1u) | last));
 }
+
+INLINE void wr16_at(coco_t *m, uint16_t a, uint16_t v, uint32_t at) {
+    WRA(a, v >> 8, at);
+    WRA(a + 1u, v, (at + 1u) | MC6809_IO_LAST);
+}
+
+#define LAST(n) ((n) | MC6809_IO_LAST)
 
 /* Stacks grow down; a word goes low byte first, so it lies high byte at
  * the lower address. */
@@ -659,15 +685,23 @@ void mc6809_reset(coco_t *m) {
 /* An 8-bit operand in each mode, at base + $00, $10, $20, $30. */
 #define OP8(base, stmt)                                                  \
     case (base):        v = IMM8();        stmt; break;                  \
-    case (base) + 0x10: v = RD(DIR());     stmt; break;                  \
-    case (base) + 0x20: ea = IDX(); v = RD(ea); stmt; break;             \
-    case (base) + 0x30: v = RD(EXT());     stmt; break;
+    case (base) + 0x10: ea = DIR(); v = RDA(ea, LAST(cyc)); stmt; break; \
+    case (base) + 0x20: ea = IDX(); v = RDA(ea, LAST(cyc)); stmt; break; \
+    case (base) + 0x30: ea = EXT(); v = RDA(ea, LAST(cyc)); stmt; break;
 
+/* ADDD, SUBD and the compares: a dead cycle after the word. */
 #define OP16(base, stmt)                                                 \
     case (base):        w = IMM16();          stmt; break;               \
-    case (base) + 0x10: w = rd16(m, DIR());   stmt; break;               \
-    case (base) + 0x20: ea = IDX(); w = rd16(m, ea); stmt; break;        \
-    case (base) + 0x30: w = rd16(m, EXT());   stmt; break;
+    case (base) + 0x10: ea = DIR(); w = rd16_at(m, ea, cyc - 2u, 0); stmt; break; \
+    case (base) + 0x20: ea = IDX(); w = rd16_at(m, ea, cyc - 2u, 0); stmt; break; \
+    case (base) + 0x30: ea = EXT(); w = rd16_at(m, ea, cyc - 2u, 0); stmt; break;
+
+/* The 16-bit loads: the word is the last two cycles. */
+#define LD16(base, stmt)                                                 \
+    case (base):        w = IMM16();          stmt; break;               \
+    case (base) + 0x10: ea = DIR(); w = rd16_at(m, ea, cyc - 1u, MC6809_IO_LAST); stmt; break; \
+    case (base) + 0x20: ea = IDX(); w = rd16_at(m, ea, cyc - 1u, MC6809_IO_LAST); stmt; break; \
+    case (base) + 0x30: ea = EXT(); w = rd16_at(m, ea, cyc - 1u, MC6809_IO_LAST); stmt; break;
 
 /* Stores, at base (direct) + $00, $10, $20. The value is read after the
  * address, so STX ,X++ stores the incremented X, as the chip does. */
@@ -675,20 +709,20 @@ void mc6809_reset(coco_t *m) {
     case (base):        ea = DIR(); goto st8_##base;                     \
     case (base) + 0x10: ea = IDX(); goto st8_##base;                     \
     case (base) + 0x20: ea = EXT();                                      \
-    st8_##base: WR(ea, ld8(c, (reg))); break;
+    st8_##base: WRA(ea, ld8(c, (reg)), LAST(cyc)); break;
 
 #define ST16(base, reg)                                                  \
     case (base):        ea = DIR(); goto st16_##base;                    \
     case (base) + 0x10: ea = IDX(); goto st16_##base;                    \
     case (base) + 0x20: ea = EXT();                                      \
-    st16_##base: wr16(m, ea, ld16(c, (reg))); break;
+    st16_##base: wr16_at(m, ea, ld16(c, (reg)), cyc - 1u); break;
 
 /* The unary group in memory, at $0n, $6n, $7n: read, then write. */
 #define MEM(n, fn)                                                       \
     case (n):        ea = DIR(); goto mem_##n;                           \
     case 0x60 + (n): ea = IDX(); goto mem_##n;                           \
     case 0x70 + (n): ea = EXT();                                         \
-    mem_##n: WR(ea, fn(c, RD(ea))); break;
+    mem_##n: WRA(ea, fn(c, RDA(ea, cyc - 2u)), LAST(cyc)); break;
 
 #define INH(n, fn)                                                       \
     case 0x40 + (n): c->a = fn(c, c->a); break;                          \
@@ -720,16 +754,10 @@ static uint32_t COCO_HOT2(page2)(coco_t *m, mc6809_t *c, uint16_t pc0) {
     OP16(0x83, (void)sub16(c, get_d(c), w))             /* CMPD */
     OP16(0x8C, (void)sub16(c, c->y, w))                 /* CMPY */
 
-    case 0x8E: c->y = ld16(c, IMM16()); break;          /* LDY  */
-    case 0x9E: c->y = ld16(c, rd16(m, DIR())); break;
-    case 0xAE: ea = IDX(); c->y = ld16(c, rd16(m, ea)); break;
-    case 0xBE: c->y = ld16(c, rd16(m, EXT())); break;
+    LD16(0x8E, c->y = ld16(c, w))                       /* LDY  */
     ST16(0x9F, c->y)                                    /* STY  */
 
-    case 0xCE: c->s = ld16(c, IMM16()); c->nmi_armed = true; break;   /* LDS */
-    case 0xDE: c->s = ld16(c, rd16(m, DIR())); c->nmi_armed = true; break;
-    case 0xEE: ea = IDX(); c->s = ld16(c, rd16(m, ea)); c->nmi_armed = true; break;
-    case 0xFE: c->s = ld16(c, rd16(m, EXT())); c->nmi_armed = true; break;
+    LD16(0xCE, { c->s = ld16(c, w); c->nmi_armed = true; })    /* LDS */
     ST16(0xDF, c->s)                                    /* STS  */
 
     default:
@@ -790,9 +818,9 @@ INLINE uint32_t step(coco_t *m, uint32_t remaining) {
     MEM(0x0C, op_inc)
     MEM(0x0F, op_clr)          /* reads first, as the chip does */
 
-    case 0x0D: (void)op_tst(c, RD(DIR())); break;     /* TST: no write */
-    case 0x6D: ea = IDX(); (void)op_tst(c, RD(ea)); break;
-    case 0x7D: (void)op_tst(c, RD(EXT())); break;
+    case 0x0D: ea = DIR(); (void)op_tst(c, RDA(ea, cyc - 2u)); break;  /* TST: no write */
+    case 0x6D: ea = IDX(); (void)op_tst(c, RDA(ea, cyc - 2u)); break;
+    case 0x7D: ea = EXT(); (void)op_tst(c, RDA(ea, cyc - 2u)); break;
 
     case 0x0E: c->pc = DIR(); break;                  /* JMP */
     case 0x6E: c->pc = IDX(); break;
@@ -996,9 +1024,9 @@ INLINE uint32_t step(coco_t *m, uint32_t remaining) {
     OP16(0x83, set_d(c, sub16(c, get_d(c), w)))               /* SUBD */
     OP16(0xC3, set_d(c, add16(c, get_d(c), w)))               /* ADDD */
     OP16(0x8C, (void)sub16(c, c->x, w))                       /* CMPX */
-    OP16(0xCC, set_d(c, ld16(c, w)))                          /* LDD  */
-    OP16(0x8E, c->x = ld16(c, w))                             /* LDX  */
-    OP16(0xCE, c->u = ld16(c, w))                             /* LDU  */
+    LD16(0xCC, set_d(c, ld16(c, w)))                          /* LDD  */
+    LD16(0x8E, c->x = ld16(c, w))                             /* LDX  */
+    LD16(0xCE, c->u = ld16(c, w))                             /* LDU  */
 
     ST16(0xDD, get_d(c))                                      /* STD  */
     ST16(0x9F, c->x)                                          /* STX  */

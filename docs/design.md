@@ -277,7 +277,7 @@ of that date. Those the lists did not name are sorted here.
 | Copy | Atom | `tools/test_mkfont.py` | Comes with `mkfont.py` |
 | Adapt | Oric | `src/bench/bench.*`, `bench_main.c` | The gate's bench (§7.5): 6809 workloads on a flat bus, run by a host test and the bench image. Taken in M2 |
 | Adapt | Oric | `shellargs` (in the Oric's working tree, not yet committed) | The shell's command line: its tape and disc switches take this machine's media. Taken once it is committed there |
-| Adapt | Oric | `guest.c`, `sdk_sim/`, `snap_util.h`, `disc_util.h` | The host harness (§15.3); `sdk_sim` has no guest part and is copied whole |
+| Adapt | Oric | `guest.c`, `sdk_sim/`, `snap_util.h`, `disc_util.h` | The host harness (§15.3); `sdk_sim` has no guest part and is copied whole. `guest.c` taken in M3 |
 | Adapt | Oric | `render-diff.sh`, `layout-survey.*`, `uart-screen.sh`, `soak.bas`, `fetch-corpus.sh`, `disc-corpus.sh`, `corpus-summary.py`, `tools/corpus/`, `fetch-test-suites.sh` | Each reads the guest's screen, keys, media or test suite; `uart-hold.sh` and `uart-type.sh` are copied whole |
 | Adapt | Atom | `mc6847_font.h`, `test_mc6847.c`, `test_mc6847_golden.c`, `vdg_scenes.*`, `test_present.c` | Go with `mc6847.c` (§9) |
 | Not used | Oric | `font.*`, `font_fallback.c` | The emulator's pages use the VDG's internal set (§9.6), which is in the firmware, so no ROM font and no fallback |
@@ -360,7 +360,12 @@ behaviour software leans on is modelled:
   event (§12.4).
 - **Interrupts sampled at the instruction boundary**, with the last
   cycle's rule taken from the datasheet and checked against XRoar
-  (EL §4.3: poll where the CPU does).
+  (EL §4.3: poll where the CPU does). **Settled in M3** by the trace
+  diff: the CPU acts at a boundary on the lines as they stood at the
+  start of the instruction's last cycle. A line that changes later,
+  whether an edge or a PIA access made in that last cycle, counts from
+  the boundary after (`mc6809_lines_late`), and the machine ends a run
+  slice a cycle after each edge so this falls out.
 - **Undocumented opcodes trapped and counted**, with the count and the
   last PC on the heartbeat (D12).
 - **The interrupt latch, as XRoar models it** (settled in M1 by the
@@ -405,7 +410,10 @@ A `switch`-dispatched interpreter with explicit cycle accounting
   disassembly read after any change to it (EL §3.4);
 - the cycle of an instruction on which its operand access falls recorded
   on the bus's slow path only, so a PIA access can be placed in time
-  (EL §4.3). RAM pays nothing.
+  (EL §4.3). RAM pays nothing. Built in M3 (`mc6809_t.io_at`): counted
+  back from the instruction's end in the datasheet's cycle sequences, as
+  XRoar models them, with a flag for the last cycle. The bench measured
+  no cost (87.6 and 113.9 host cycles against M2's 88.1 and 113.3).
 
 ### 7.3 The HD6309
 
@@ -520,6 +528,17 @@ unused I/O ranges, a cartridge port with nothing in it) is taken from the
 schematic, not assumed `$FF` (EL §4.1), and matters at once: both ROMs
 size memory by writing and reading back.
 
+**Modelled in M3 from XRoar, and held by the trace diff** (2026-11-14):
+RAM space that no chip answers reads `$FF`. An empty ROM socket, the
+empty cartridge slot and unused I/O read the data bus as the last cycle
+left it. This core does not model dead cycles, but the cycle before a
+direct, extended or 5-bit-offset indexed access is one, with `$FFFF` on
+the address bus, so those read the ROM's byte there, `$27` for BASIC 1.3.
+Color BASIC's sizing read of `$8000` with no Extended BASIC fitted is
+where the trace first needed it. The modes whose last cycle before the
+access is another are not modelled. The schematic remains the primary
+source (§18).
+
 ### 8.2 The SAM
 
 `sam6883.c` models the chip's register as the generic part (EL §4.2): 16
@@ -561,7 +580,17 @@ The wiring of §3.3 is a table in `coco.c` on top. Three points:
   where the field is split (§13.1). HS falls 262 or 312 times a field; its
   flag is computed from the tick count **when PIA0's control or data
   register A is read**, and only while software has enabled its interrupt
-  does the run slice stop at each line. BASIC leaves it disabled.
+  does the run slice stop at each line. BASIC leaves it disabled. As
+  built in M3, any PIA access first brings HS, FS and the outputs up to
+  the cycle it falls on (§7.2). So a read of `$FF02` in the instruction
+  that FS falls during clears a flag set before it, as XRoar has it.
+- **The IRQ output rises tRS3 after an enabled edge** (the datasheet's
+  figure 13, 1 µs; XRoar's 14 ticks), and a data read lowers it. In
+  XRoar, and so here, the delayed rise comes even if a read cleared the
+  flag first. Settled in M3 by the trace diff: the field interrupt's
+  timing under Extended BASIC is the edge plus tRS3 plus the CPU's latch
+  (§7.1). A one-cycle phase fitted first matched the same runs and was
+  this delay, misread.
 - **One register, several meanings** (EL §4.2): PIA1's port B carries
   the VDG mode with the single-bit sound and a strap. The machine compares
   the bits that matter to each consumer.
@@ -897,8 +926,11 @@ flash writes.
 
 `coco_run_field` splits the field at FS's edges, so guest instructions
 run while FS is in its flyback state and the field interrupt is a level
-with a duration (EL §5.6). The line counts are the MC6847 datasheet's
-for NTSC, and the PAL machines' extra lines are placed as the circuit
+with a duration (EL §5.6). FS falls as line 230 begins, counted from
+power-on (13 lines of blanking, 25 of top border, 192 active), and rises
+as the next field's line 0 begins, as XRoar counts them. The trace diff
+holds this core to XRoar's field interrupts for 50 guest seconds (M3).
+The line counts are the MC6847 datasheet's for NTSC, and the PAL machines' extra lines are placed as the circuit
 places them, **read from the schematic and not from XRoar's numbering**
 (EL §5.6). The snapshot is taken where the next active line begins.
 
@@ -924,7 +956,12 @@ software (§8.2, §20).
 RAM is zero-filled, with the two exceptions looked for (EL §9.2): state
 the ROM uses as a seed, and a check that zeros pass. Both BASICs' `RND`
 seeds and their cold- and warm-start flags are read from the ROMs before
-M3 and the finding recorded either way. ROMs are loaded, then the machine
+M3 and the finding recorded either way. **Found in M3** (2026-11-14,
+Color BASIC 1.3 and Extended 1.1, executed): the warm-start test is
+`$71` against `$55`, which zeros fail, so the machine cold-starts. The
+cold start copies `RND`'s seed from the ROM (`$A132`) to `$0115`, so
+no seed is taken from RAM, and both give 50 and 32 for their first two
+`RND(100)`. ROMs are loaded, then the machine
 is powered on, in one documented order the host harness shares
 (EL §9.2).
 
@@ -1104,20 +1141,21 @@ configuration; once settled, it is a constant.
 | A published 6809 functional test of standing exists | **None found** (M1, 2026-11-14) | — | Searched in M1; see below |
 | The master oscillator on PAL Dragons and PAL CoCos | 14.218 MHz against NTSC's 14.31818 | Low | Schematics; XRoar counts every machine in 14.31818 MHz ticks |
 | Lines a field and their layout on PAL machines; where FS and the field interrupt fall | 312, the extra lines inserted by a circuit outside the VDG | Low | Dragon 32 schematic and service manual |
-| Ticks a line and the active line's start | 57 CPU cycles; the datasheet's | Medium | MC6847 datasheet |
-| The SAM's bit pairs, its address-counter rule for each video mode, its rate rules and the stretched cycle (§8.2) | As §3.2, §8.2 | Medium | MC6883 datasheet; XRoar's traces |
-| What unpopulated memory and unused I/O read (§8.1) | Unknown | Low | Schematics; neither assumed `$FF` |
-| The PIA wiring of §3.3, bit for bit, on each machine | As listed | Medium | Schematics; the ROMs executed |
+| Ticks a line and the active line's start | 57 CPU cycles; the datasheet's. **M3**: 912 ticks a line, 262 a field, FS falling as line 230 begins, held to XRoar's field interrupts by the trace diff | Medium | MC6847 datasheet |
+| PIA IRQ response time tRS3 (§8.3) | 1 µs, 14 ticks as XRoar counts it; **M3**: the trace diff needs it | Medium | MC6821 datasheet figure 13 |
+| The SAM's bit pairs, its address-counter rule for each video mode, its rate rules and the stretched cycle (§8.2) | As §3.2, §8.2. **M3**: the bit pairs, and RAM's row and column in 4K, 16K and 64K modes for 4K, 16K, 32K and 64K chips as XRoar models them, held through boot in every size by the trace diff; the video counter (M4) and rates (M11) not yet | Medium | MC6883 datasheet; XRoar's traces |
+| What unpopulated memory and unused I/O read (§8.1) | **M3**: absent RAM `$FF`; empty sockets and unused I/O the byte at `$FFFF` (§8.1), as XRoar's trace needs | Medium | Schematics; neither assumed `$FF` |
+| The PIA wiring of §3.3, bit for bit, on each machine | As listed. **M3, the CoCo**: IRQ from PIA0, FIRQ from PIA1; the RAM strap on PIA1 PB2 (low on 4K, high on 16K, linked to PIA0 PB6 on 32K and 64K); port B's undriven inputs low; PB1 reading the silent sound high; PA0 the cassette, low; PA7 the comparator; PIAs repeating over 32 bytes. Each one the boot trace needs (§15.2). The Dragon's not executed | Medium | Schematics; the ROMs executed |
 | VDG data wiring: bit 7 A/S, bit 6 INV, INT/EXT from GM0 (§3.4) | As listed | Medium | Schematics; the ROM's own screen, executed |
-| Both keyboard matrices (§11.2) | Unwritten | — | Each ROM executed |
+| Both keyboard matrices (§11.2) | **M3, the CoCo**: every letter, digit and shifted symbol typed through the matrix and printed back by Color BASIC 1.3 and Extended 1.1 (`test_boot`); the arrows, CLEAR and BREAK not yet (M5). The Dragon's unwritten | — | Each ROM executed |
 | Key hold and gap for each ROM (§11.1) | A few fields | Low | Each ROM executed |
 | The ROMs' tape block routines, their entry bytes and what they leave (§12.3) | Unwritten | — | The ROMs read and executed |
 | Tape bit timing as each ROM reads and writes it | Two tones, about 1200 and 2400 Hz | Low | The ROMs read; a save recorded |
-| ROM file names, sizes and SHA-1s (§12.1) | Unwritten | — | The owner's images; XRoar's ROM list |
+| ROM file names, sizes and SHA-1s (§12.1) | **Settled** 2026-11-14 (M3) for `bas13.rom`, `extbas11.rom` and `disk11.rom`, the owner's images, each matching XRoar 1.13's CRC-32 (`roms/README.md`); the Dragons' and other CoCo versions to come | High | The owner's images; XRoar's ROM list |
 | Disc controller registers, latch bits, interrupt and HALT wiring (§12.4) | As the table, from XRoar's decodes | Medium | Each DOS ROM read; controller schematics |
 | WD2797 against WD1793: which differences each DOS sees | Side select, some status bits | Low | Datasheets |
 | VDK and JVC header rules | Community descriptions | Low | A corpus of real files (EL §8.8) |
-| Seeds and flags in RAM at power-on (§13.3) | Unknown | Low | Both ROMs read |
+| Seeds and flags in RAM at power-on (§13.3) | **M3, the CoCo**: none taken from RAM; the warm-start flag `$71`/`$55` fails on zeros (§13.3) | High | Both ROMs read |
 | What the Dragon 64's ROM needs of the 6551 at boot (§8.4) | Idle registers | Low | The ROM executed |
 | Artefact colours: which pair gives which colour in each phase (§9.5) | Blue and red, swapped by phase | Low | XRoar's table; photographs of a real set |
 

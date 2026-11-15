@@ -47,10 +47,10 @@ int main(void) {
 
     static const double sums[BENCH_BASIC_STMTS] = { 45.0, 45.0, 65.0 };
     for (unsigned i = 0; i < BENCH_BASIC_STMTS; i++) {
-        double v = unpack(&g_a.ram[BENCH_BASIC_RESULT + 5u * i]);
+        double v = unpack(&g_a.m.ram[BENCH_BASIC_RESULT + 5u * i]);
         CHECK(v == sums[i], "statement %u: %g, not %g", i + 1, v, sums[i]);
     }
-    unsigned passes = (unsigned)(g_a.ram[BENCH_BASIC_PASSES] << 8 | g_a.ram[BENCH_BASIC_PASSES + 1]);
+    unsigned passes = (unsigned)(g_a.m.ram[BENCH_BASIC_PASSES] << 8 | g_a.m.ram[BENCH_BASIC_PASSES + 1]);
     printf("basic: %u passes of the line\n", passes);
     CHECK(passes > 100, "only %u passes of the line in ten seconds", passes);
 
@@ -80,7 +80,7 @@ int main(void) {
     (void)bench_run(&g_b, BENCH_RUN_CYCLES);
     CHECK(memcmp(&g_a.m.cpu, &g_b.m.cpu, sizeof(g_a.m.cpu)) == 0,
           "two runs of the mix ended in different CPU states");
-    CHECK(memcmp(g_a.ram, g_b.ram, sizeof(g_a.ram)) == 0,
+    CHECK(memcmp(g_a.m.ram, g_b.m.ram, sizeof(g_a.m.ram)) == 0,
           "two runs of the mix ended with different memory");
 
     CHECK(c == BENCH_MIX_RUN_CYCLES && insns == BENCH_MIX_RUN_INSNS,
