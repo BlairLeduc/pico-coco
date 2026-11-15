@@ -116,7 +116,14 @@ nothing for it beyond keeping M3's field ending at its active line.
 - INT/EXT from GM0 by a ROM; the MC6847T1; the SAM's fast rates' effect
   on video.
 - The PAL machines' picture (frozen).
-- CI, until the branch is pushed.
+
+**CI** on GitHub, 2026-11-15, PR #5: green on both builds. The host job
+(Ubuntu, GCC) ran all 14 tests: `test_vdg_oracle` and
+`test_mc6809_oracle` ran against XRoar 1.13, `test_mc6847_golden`
+passed on the committed images, and `test_boot` and `test_screen`
+skipped, as they must with no ROMs. So the ROMs' screens and the trace
+diff are checked on the workstation only. The firmware job built both
+images, with and without the UART.
 
 ## M3: the machine on the host
 
