@@ -77,8 +77,8 @@ the pinned checkout as the CPU oracle links its `mc6809.c`;
   pixels after 995. Planted: dropping the mode test, and dropping the
   invalidation, each failed (`test_present`). The pool's transitions
   and 100,000 random steps of both cores, as pico-oric's.
-- **Golden images looked at**: the 25 scenes, by Claude on 2026-11-15,
-  on a contact sheet. Every glyph plain and inverse, '@' in zeroed
+- **Golden images looked at**: the 25 scenes, by Claude and then by the
+  owner on 2026-11-15, on a contact sheet; the owner found them right. Every glyph plain and inverse, '@' in zeroed
   cells, the semigraphics bytes; the external case's raw bits and SG6
   in blue and red, magenta and orange; in each graphics mode the frame
   on all four edges, the diagonal and the bars in the right colour set;
@@ -104,7 +104,6 @@ nothing for it beyond keeping M3's field ending at its active line.
 
 - Anything on a board: the snapshot's cost on core 0, the presenter on
   the panel, the band and window costs (M7).
-- That the owner has looked at the golden images.
 - XRoar's own rendering, colour for colour: the oracle compares colour
   indices, and the palette is a rendering choice (§9.5). Artefacts are
   held to XRoar's simple rule, not its finer renderers, and to no
