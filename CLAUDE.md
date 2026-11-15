@@ -14,8 +14,9 @@ style (`docs/design.md` §1, §5).
 
 **Status: M3 is built** (`docs/design.md` §17): the CoCo on the host.
 The MC6809 core, the SAM, the PIAs and the field loop boot Color BASIC
-1.3 and Extended 1.1 in 16 to 64 KB. The trace diff holds every
-instruction to XRoar 1.13's through boot and typing. The emulator image
+1.3 and Extended 1.1 in 16 to 64 KB, Color BASIC 1.1 in 4 KB, and the
+Dragon 32, the second wiring. The trace diff holds every instruction to
+XRoar 1.13's through boot and typing. The emulator image
 does not run the machine until M7. The record of each milestone (what was
 verified, on which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
@@ -105,6 +106,8 @@ tools/flash.sh build/uart0/pico-coco-bench.elf   # M2's gate: the CPU alone, tim
 # the trace diff against XRoar (design.md §15.2): XRoar built headless by
 # tools/trace/build-xroar.sh, the host build's coco-trace, ROMs in roms/
 tools/trace/trace-coco.sh -ram 64 -ext -fields 600 -type "$(printf 'PRINT 2+3\r')"
+tools/trace/trace-coco.sh -bas bas11 -ram 4 -fields 600   # a 4 KB CoCo
+tools/trace/trace-coco.sh -machine dragon32 -fields 500   # PAL: 50 fields a second
 ```
 
 Both targets build under `-Wall -Wextra -Werror`, and CI builds both on every

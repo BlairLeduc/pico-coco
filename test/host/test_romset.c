@@ -30,7 +30,6 @@ static void to_hex(const uint8_t *d, char *out) {
     for (unsigned i = 0; i < SHA1_DIGEST_LEN; i++) sprintf(out + 2 * i, "%02x", d[i]);
 }
 
-#define ROM_BYTES 8192u
 #define CARD_CHUNK 512u   /* a card sector, as the firmware reads (M9) */
 
 static uint8_t buf[16384];
@@ -96,23 +95,24 @@ int main(void) {
         const uint8_t *img = guest_rom_image((rom_id_t)i);
         if (!img) continue;
         found++;
-        memcpy(buf, img, ROM_BYTES);
-        CHECK(romset_identify(buf, ROM_BYTES) == (rom_id_t)i, "%s not identified",
+        size_t size = romset_images[i].size;
+        memcpy(buf, img, size);
+        CHECK(romset_identify(buf, size) == (rom_id_t)i, "%s not identified",
               romset_images[i].file);
         /* A near-miss: one byte different. */
         buf[0x1234] ^= 0x01u;
-        CHECK(romset_identify(buf, ROM_BYTES) == ROM_UNKNOWN, "%s with a byte changed passed",
+        CHECK(romset_identify(buf, size) == ROM_UNKNOWN, "%s with a byte changed passed",
               romset_images[i].file);
-        CHECK(romset_identify(img, ROM_BYTES - 1) == ROM_UNKNOWN, "%s one byte short passed",
+        CHECK(romset_identify(img, size - 1) == ROM_UNKNOWN, "%s one byte short passed",
               romset_images[i].file);
         /* Hashed a sector at a time, as the firmware will read the card. */
         sha1_t s;
         uint8_t d[SHA1_DIGEST_LEN];
         sha1_init(&s);
-        for (unsigned off = 0; off < ROM_BYTES; off += CARD_CHUNK)
+        for (unsigned off = 0; off < size; off += CARD_CHUNK)
             sha1_update(&s, img + off, CARD_CHUNK);
         sha1_final(&s, d);
-        CHECK(romset_identify_digest(d, ROM_BYTES) == (rom_id_t)i,
+        CHECK(romset_identify_digest(d, size) == (rom_id_t)i,
               "%s hashed in pieces not identified", romset_images[i].file);
     }
     if (found < ROM_IMAGE_COUNT)

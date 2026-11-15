@@ -24,6 +24,8 @@ carries the same table, and `test_romset` holds the two to each other.
 | `$A000` | `bas13.rom` | 8192 | `d8f4d15e` | Color BASIC 1.3 |
 | `$8000` | `extbas11.rom` | 8192 | `a82a6254` | Extended Color BASIC 1.1 |
 | `$C000` | `disk11.rom` | 8192 | `0b9c5415` | Disk Extended Color BASIC 1.1 (M13) |
+| `$A000` | `bas11.rom` | 8192 | `6270955a` | Color BASIC 1.1, for 4 KB CoCos |
+| `$8000` | `d32.rom` | 16384 | `e3879310` | Dragon 32 BASIC |
 
 SHA-1:
 
@@ -31,4 +33,6 @@ SHA-1:
 28b92bebe35fa4f026a084416d6ea3b1552b63d3  bas13.rom
 ad927fb4f30746d820cb8b860ebb585e7f095dea  extbas11.rom
 10bdc5aa2d7d7f205f67b47b19003a4bd89defd1  disk11.rom
+cecb7c24ff1e0ab5836e4a7a8eb1b8e01f1fded3  bas11.rom
+f2dab125673e653995a83bf6b793e3390ec7f65a  d32.rom
 ```

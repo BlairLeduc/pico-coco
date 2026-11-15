@@ -243,19 +243,35 @@ static uint8_t pia0b_pins(const coco_t *m) {
 
 /* PIA1 port B: on the CoCo, PB2 is the RAM-size strap, low with 4K chips
  * and pulled high with 16K, or the link to PIA0 PB6 with 32K and 64K
- * (XRoar; §18). The Dragon's PB0 is the printer's BUSY, pulled up. */
+ * (XRoar; §18). The Dragon's PB0 is the printer's BUSY, and its PB2 is
+ * high with 4K or 16K chips and low with larger (XRoar's dragon32.c; the
+ * Dragon 32's boot trace agrees in 16, 32 and 64 KB, 2026-11-14). */
 static uint8_t pia1b_pins(const coco_t *m) {
     /* PB1, the single-bit sound, set as an input reads the sound output
      * back, inverted (XRoar's single_bit_feedback): high while it is
-     * silent, as it is until M8 brings the audio (§10). */
-    uint8_t in = 0x02u;
+     * silent, as it is until M8 brings the audio (§10). XRoar feeds it
+     * back only once its sound has updated, and reads it low before
+     * then: the Dragon 32 reads it 23 instructions after reset
+     * (2026-11-14, §18). */
+    uint8_t in = m->sound_fed ? 0x02u : 0x00u;
     if (m->cfg.machine == COCO_MACHINE_COCO) {
         if (m->cfg.ram_k == 16) in |= 0x04u;
         else if (linked_pb(m) && (mc6821_out(&m->pia0.b) & 0x40u)) in |= 0x04u;
     } else {
-        in |= 0x01u;
+        /* PB0 is BUSY, which XRoar's printer, absent, never asserts,
+         * over the pull-up (its pia1b_data_preread; §18). */
+        if (m->cfg.ram_k <= 16) in |= 0x04u;
     }
     return in;
+}
+
+/* XRoar's sound updates, and feeds PB1 back, at each FS rise and when the
+ * single-bit sound or the multiplexer is enabled: PB1 made an output, or
+ * CB2 an output driven high (its sound.c, dragon.c; §18). */
+static void note_sound(coco_t *m) {
+    const mc6821_port_t *b = &m->pia1.b;
+    if ((b->ddr & 0x02u) || ((b->cr & MC6821_CR_C2_OUT) && mc6821_c2_out(b)))
+        m->sound_fed = true;
 }
 
 /* ---- the I/O page ----------------------------------------------------- */
@@ -273,12 +289,10 @@ static uint8_t open_bus(const coco_t *m) {
 }
 
 /* The CoCo's PIAs, and an unexpanded Dragon 32's, ignore A2 and repeat
- * over their 32 bytes (XRoar's relaxed decode; §8.1, §18). M14: the
- * Dragon 64's answer only with A2 low. */
+ * over their 32 bytes; a Dragon with more than 32 KB answers only with A2
+ * low (XRoar's relaxed decode; §8.1, §18). */
 static bool pia_selected(const coco_t *m, uint16_t a) {
-    (void)m;
-    (void)a;
-    return true;
+    return m->cfg.machine == COCO_MACHINE_COCO || m->cfg.ram_k <= 32 || !(a & 4u);
 }
 
 static uint8_t io_read(coco_t *m, uint16_t a) {
@@ -323,6 +337,7 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         if (!pia_selected(m, a)) return;
         before_pia(m);
         mc6821_write(&m->pia1, reg, v);   /* M4: VDG mode; M8: sound */
+        note_sound(m);
         update_irq(m);
         return;
     }
@@ -369,12 +384,22 @@ void coco_init(coco_t *m, const coco_config_t *cfg) {
     set_ram_org(m);
 
     /* NTSC's field, from the MC6847's figures as XRoar counts them (§13.1,
-     * §18: medium). M14: the Dragon's 312 lines and where the extra ones
-     * go, from its schematic (§18: low); until then it runs NTSC's. */
+     * §18: medium). */
     m->line_ticks = 57u * 16u;
     m->field_lines = 262u;
     m->fs_fall_line = 13u + 25u + 192u;
     m->hs_low_ticks = 64u;
+    if (cfg->machine == COCO_MACHINE_DRAGON32) {
+        /* The Dragon's PAL field, as XRoar's vdg_pal.c makes it (§13.1,
+         * §18: low): the VDG is held for 25 lines of HS alone at its line
+         * 254 and again at its line 0, where FS has just risen. So 312
+         * lines, every one with its HS; FS falls 25 + 230 lines in. The VDG
+         * starts at its line 0 with nothing held, so the first field lacks
+         * the leading 25. */
+        m->field_lines = 262u + 50u;
+        m->fs_fall_line = 25u + m->fs_fall_line;
+        m->field_lead = 25u;
+    }
 
     m->tpc = 16u;
     mc6809_init(&m->cpu);
@@ -420,8 +445,11 @@ void coco_power_on(coco_t *m) {
     memset(m->keys, 0, sizeof(m->keys));
     mc6809_init(&m->cpu);
     m->tick0 = m->cyc0 = 0;
-    m->field_start = 0;
+    /* The first field began field_lead lines before tick 0: modulo 2^64,
+     * as every use of field_start adds to it or subtracts it. */
+    m->field_start = 0u - (uint64_t)m->field_lead * m->line_ticks;
     m->fields = 0;
+    m->sound_fed = false;
     coco_reset(m);
 }
 
@@ -474,6 +502,7 @@ uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
     now = coco_ticks(m);
     if (now < end) (void)coco_run(m, (uint32_t)(end - now));
     c1_edge(m, 1, true, end);
+    m->sound_fed = true;
     update_irq(m);
 
     m->field_start = end;

@@ -5,7 +5,8 @@
  * the page table's slow path where the chips do not answer, the field
  * interrupt (FS on PIA0 CB1, sixty in sixty fields, with CB1 disabled as
  * the control), the line interrupt (HS on PIA0 CA1, 262 a field, the run
- * sliced at each line), the keyboard's rows and columns through PIA0, the
+ * sliced at each line), the Dragon's PAL field (312 lines, the first 287)
+ * and its PIA decode, the keyboard's rows and columns through PIA0, the
  * copy, and the run contract.
  */
 
@@ -51,9 +52,12 @@ static void build_rom(uint8_t crb, uint8_t cra, bool hs_handler) {
     rom[0x1FFE] = 0xA0; rom[0x1FFF] = 0x00;                       /* RESET */
 }
 
+static coco_machine_t which = COCO_MACHINE_COCO;
+
 static void machine(coco_t *m, unsigned ram_k) {
     coco_config_t cfg;
     coco_config_default(&cfg);
+    cfg.machine = which;
     cfg.ram_k = ram_k;
     coco_init(m, &cfg);
     coco_load_rom(m, 0xA000, rom, sizeof rom);
@@ -140,6 +144,48 @@ int main(void) {
         CHECK(n == 2620, "HS interrupts in 10 fields: %u, not 262 a field", n);
         unsigned none = count_irqs(0x04, 0x04, true, 10);
         CHECK(none == 0, "with CA1's interrupt disabled, %u interrupts", none);
+    }
+
+    /* ---- the Dragon's PAL field --------------------------------------- */
+    {
+        which = COCO_MACHINE_DRAGON32;
+        build_rom(0x05, 0x04, false);
+        machine(&ma, 32);
+        /* Ticks from power-on, the reset's own cycles among them. */
+        (void)coco_run_field(&ma);
+        uint64_t first = coco_ticks(&ma);
+        uint32_t second = coco_run_field(&ma);
+        CHECK(first >= 287u * 912u && first < 287u * 912u + 20u * 16u,
+              "the Dragon's first field ended at %llu, not 287 lines in", (unsigned long long)first);
+        CHECK(second > 312u * 912u - 20u * 16u && second < 312u * 912u + 20u * 16u,
+              "the Dragon's field ran %u ticks, not 312 lines", second);
+        unsigned n = count_irqs(0x05, 0x04, false, 50);
+        CHECK(n == 50, "the Dragon's FS interrupts in 50 fields: %u", n);
+        n = count_irqs(0x04, 0x05, true, 10);
+        CHECK(n == 3120, "the Dragon's HS interrupts in 10 fields: %u, not 312 a field", n);
+        which = COCO_MACHINE_COCO;
+        build_rom(0x05, 0x04, false);
+        machine(&ma, 64);
+        (void)coco_run_field(&ma);
+        first = coco_ticks(&ma);
+        CHECK(first >= 262u * 912u && first < 262u * 912u + 20u * 16u,
+              "the CoCo's first field ended at %llu, not 262 lines in", (unsigned long long)first);
+    }
+
+    /* ---- the Dragon's PIA decode -------------------------------------- */
+    {
+        which = COCO_MACHINE_DRAGON32;
+        build_rom(0x04, 0x04, false);
+        machine(&ma, 32);
+        bus_write(&ma, 0xFF21, 0x34);
+        CHECK(bus_read(&ma, 0xFF25) == 0x34, "an unexpanded Dragon 32's PIA1 does not repeat with A2 set");
+        machine(&ma, 64);
+        bus_write(&ma, 0xFF21, 0x34);
+        CHECK(bus_read(&ma, 0xFF21) == 0x34 && bus_read(&ma, 0xFF25) != 0x34,
+              "an expanded Dragon's PIA1 answered with A2 set");
+        bus_write(&ma, 0xFF25, 0x00);
+        CHECK(bus_read(&ma, 0xFF21) == 0x34, "a write with A2 set reached an expanded Dragon's PIA1");
+        which = COCO_MACHINE_COCO;
     }
 
     /* ---- the keyboard through PIA0 ----------------------------------- */

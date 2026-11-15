@@ -16,7 +16,8 @@ bytes lie in order; the I/O page's decode; the PIAs' wiring; the
 keyboard matrix; and the field loop in master-oscillator ticks, split
 where FS falls. `mc6821.c`, the generic PIA, with tRS3 on its IRQ
 outputs. `sam6883.h`, the SAM's register. `sha1` and `romset` from
-pico-oric, with the owner's three ROMs. In the CPU: `io_at`, the cycle
+pico-oric, with the owner's five ROMs. The Dragon 32 as the second
+wiring: its 16 KB ROM, its PAL field, PIA1 port B and the PIA decode. In the CPU: `io_at`, the cycle
 of an instruction a slow-path access falls on, and
 `mc6809_lines_late`, for a change made in an instruction's last cycle.
 On the host: `test/host/guest.c`, the harness, from pico-oric's;
@@ -25,7 +26,8 @@ trace diff against XRoar. The bench now uses the machine's RAM.
 
 **Checked on the workstation** (macOS, Apple clang 21.0.0; XRoar 1.13
 headless, `af501b71`; the owner's `bas13.rom`, `extbas11.rom`,
-`disk11.rom`, whose CRC-32s are in XRoar's list):
+`disk11.rom`, `bas11.rom` and `d32.rom`, whose CRC-32s are in XRoar's
+list):
 
 - **The CoCo boots its real ROMs**: Color BASIC 1.3 alone and with
   Extended Color BASIC 1.1, in 16, 32 and 64 KB, each to its banner and
@@ -34,21 +36,35 @@ headless, `af501b71`; the owner's `bas13.rom`, `extbas11.rom`,
   digit and shifted symbol through the matrix and prints it back. Each
   gives `PRINT MEM`: 14631, 31015 and 31015 alone; 8487, 24871 and 24871
   with Extended (`test_boot`).
+- **A 4 KB CoCo boots Color BASIC 1.1**, and BASIC 1.1 boots in 16 KB,
+  each answering the same typed lines, with `PRINT MEM` 2343 and 14631
+  (`test_boot`).
 - **4 KB with BASIC 1.3 does not boot, and should not.** The ROM drives
   PIA0 PB6 low and reads the strap on PIA1 PB2, which a 4K machine ties
   low, and takes 64K mode, which 4K chips cannot serve. It hangs sizing
   memory. XRoar hangs the same way, and the trace diff holds the two
-  together for ten seconds. 4K machines shipped with BASIC 1.0 and 1.1,
-  which are not to hand.
+  together for ten seconds. 4K machines shipped with BASIC 1.0 and 1.1.
+- **The Dragon 32 boots on the host**, the second wiring: Dragon BASIC
+  to its banner and `OK` in 1.29 guest seconds in 32 KB, and expanded to
+  64 KB. It answers `PRINT 2+3`, takes every letter, digit and shifted
+  symbol through its own matrix and prints them back, and gives
+  `PRINT MEM` 24871 (`test_boot`). Its field is XRoar's PAL one, 312
+  lines with the first 287 (`design.md` §13.1).
 - **The trace diff against XRoar runs through boot and typing.** Every
   configuration, 4, 16, 32 and 64 KB, alone and with Extended, agrees
   instruction for instruction, every register, for ten guest seconds:
   1.9–2.2 million instructions each, through `PRINT 2+3` and `PRINT MEM`
-  typed. Fifty guest seconds of a typed program printing `I;I*I;TIMER`
+  typed. So do BASIC 1.1 in 4, 16, 32 and 64 KB, and the Dragon 32 in
+  16, 32 and 64 KB, and all twelve again for 1,500 fields through a typed
+  program (5.3–6.4 million instructions each). Fifty guest seconds of a
+  program counting to 20,000 also agree on the Dragon 32 in 32 KB (10.7
+  million instructions) and on BASIC 1.1 in 4 KB (10.9 million). Fifty guest seconds of a typed program printing `I;I*I;TIMER`
   300 times also agree: 10.9 million instructions on 64 KB with Extended,
   11.0 million on 16 KB. Typing goes in on both sides as XRoar's `-type`
   puts it in: POLCAT returns each character and the 1 ms delay returns at
-  once, in no time.
+  once, in no time. Each ROM's addresses are XRoar's for that image:
+  POLCAT is `$A1C1` in BASIC 1.1 and `$A1CB` in 1.3, and the Dragon's
+  are `$BBE5`, `$BBC5` and its key scan at `$851B`.
 - **What the trace diff settled**, each by a divergence and its cure
   (`design.md` §7.1, §8.1, §8.3, §13.1, §18):
 
@@ -58,6 +74,7 @@ headless, `af501b71`; the owner's `bas13.rom`, `extbas11.rom`,
   | Extended reading `$FF22`: PB0 high | Port B has no pull-ups | Undriven port B inputs read low |
   | 4K reading `$FF20`: PA0 high | The cassette input | Low with no tape |
   | Extended reading `$FF22`: PB1 low | The single-bit sound's feedback | High while silent (M8) |
+  | Dragon reading `$FF22`, 23 instructions in: PB0 and PB1 high | XRoar's absent printer is never busy; its sound feeds PB1 back only once it has updated | PB0 low; PB1 low until the first FS rise or the sound enabled, then high (M8) |
   | The field interrupt an instruction early, then late | The CPU's latch at its last cycle, and tRS3 | Edges and rises seen a cycle late; tRS3 14 ticks |
   | `TST 2,U` and `ROL 2,U` on `$FF02` as FS falls | A read in the edge's instruction clears its flag | PIA accesses brought up to their cycle (`io_at`) |
   | Long runs, a read in an instruction's last cycle | The CPU has already latched the line | `mc6809_lines_late` |
@@ -76,6 +93,15 @@ headless, `af501b71`; the owner's `bas13.rom`, `extbas11.rom`,
   | No last-cycle rule | agrees ten seconds; parts at 1,037,379 in the 50-second run | pass |
   | Port B pulled up | parts at 124,839 | pass |
   | V and W swapped in the harness's matrix | (not its concern) | `test_boot` fails, every size |
+  | The Dragon typed through the CoCo's matrix | (not its concern) | `test_boot` fails, the Dragon |
+  | The Dragon's first field full length | parts at 258,247 | `test_machine` fails |
+  | The Dragon on NTSC's field | parts at 258,173 | `test_machine` fails |
+  | PB1 fed back from power-on | parts at 23 on the Dragon; the CoCo agrees | pass |
+  | The Dragon's PB0 pulled up | parts at 23 | pass |
+  | The expanded Dragon's PIAs repeating | (BASIC does not look) | `test_machine` fails |
+
+  The PB1 plant shows why the Dragon earned its place in M3: no CoCo
+  ROM reads the pin before the first field ends.
 
   Before the every-key line was added, the V and W swap passed
   `test_boot`, since `PRINT 2+3` and `PRINT MEM` type neither.
@@ -84,8 +110,10 @@ headless, `af501b71`; the owner's `bas13.rom`, `extbas11.rom`,
   bit pairs, RAM through the SAM in 16K and 64K modes with the page bit
   and map type, the slow path where no chip answers, sixty FS interrupts
   in sixty fields with CB1 disabled as the control, 262 HS interrupts a
-  field with CA1 disabled as the control, the keyboard's rows and columns
-  through PIA0, the copy and the run contract. `test_mc6821` covers the
+  field with CA1 disabled as the control, the Dragon's 312-line field and
+  287-line first, its 50 FS and 3,120 HS interrupts, its PIA decode with
+  and without expansion, the keyboard's rows and columns through PIA0,
+  the copy and the run contract. `test_mc6821` covers the
   PIA from its datasheet, each rule beside a control. `test_romset`
   covers SHA-1, the table against `roms/README.md`, and each image found.
   The oracle, the behaviour tests and the bench still pass with the CPU's
@@ -111,12 +139,12 @@ firmware job built both images, with and without the UART.
 
 **Not checked:**
 
-- **The Dragon 32 on the host**, which the done-when asks for as the
-  second wiring: no Dragon ROM is to hand. The machine has its kind,
-  its 16 KB ROM at `$8000`, PB0's pull-up and the relaxed decode
-  (XRoar's for an unexpanded Dragon 32); its matrix, its PAL field and
-  its boot are unexecuted.
-- 4 KB machines on the ROMs they shipped with (BASIC 1.0, 1.1).
+- The Dragon's PAL field against its schematic: it is XRoar's
+  placement, held by the trace diff (M14). Likewise PIA1 PB0 and the
+  start of PB1's feedback, which are XRoar's behaviour.
+- The Dragon's arrows, CLEAR and BREAK, as the CoCo's (M5).
+- BASIC 1.0, and `dplus49b.rom` (DOSplus 4.9B, in XRoar's list), which
+  is in `roms/` but not in the table until DragonDOS (M14).
 - The SAM's fast rates (R0's address-dependent one runs at rate 0; M11)
   and its video counter (M4); open bus after the indexed modes whose last
   cycle before the access is not a dead one; PIA C2 pulse modes.

@@ -20,6 +20,8 @@ typedef enum {
     ROM_COCO_BAS13,     /* Color BASIC 1.3, $A000                     */
     ROM_COCO_EXTBAS11,  /* Extended Color BASIC 1.1, $8000             */
     ROM_COCO_DISK11,    /* Disk Extended Color BASIC 1.1, $C000 (M13)  */
+    ROM_COCO_BAS11,     /* Color BASIC 1.1, $A000: the 4 KB CoCo's     */
+    ROM_DRAGON32,       /* Dragon 32 BASIC, 16 KB at $8000             */
     ROM_IMAGE_COUNT,
     ROM_UNKNOWN = -1,
 } rom_id_t;

@@ -35,7 +35,7 @@ typedef struct {
 
 typedef enum {
     COCO_MACHINE_COCO = 0,     /* the CoCo 1 and 2 (D6)                    */
-    COCO_MACHINE_DRAGON32 = 1, /* the second wiring, on the host from M3   */
+    COCO_MACHINE_DRAGON32 = 1, /* the second wiring: PAL, on the host from M3 */
 } coco_machine_t;
 
 typedef struct {
@@ -66,15 +66,19 @@ typedef struct coco_s {
      * cycle count cyc0, and the ticks a cycle takes from there. */
     uint64_t tick0, cyc0;
     uint32_t tpc;
-    uint64_t field_start;      /* the tick the current field began      */
+    uint64_t field_start;      /* the tick the current field began, modulo
+                                * 2^64: before tick 0 on a PAL machine,
+                                * whose first field is short (coco.c)    */
     uint64_t hs_seen;          /* HS edges are accounted up to here     */
     uint64_t irq_due[4];       /* PIA0 A, B, PIA1 A, B: an output's rise */
     uint32_t fields;
+    bool     sound_fed;        /* the sound has fed PIA1 PB1 back (coco.c) */
 
     /* The field's shape, computed at power-on (§13.1, §18: medium). */
     uint32_t line_ticks;       /* 57 E cycles of 16 ticks               */
-    uint32_t field_lines;      /* 262 on NTSC                           */
+    uint32_t field_lines;      /* 262 on NTSC, 312 on PAL               */
     uint32_t fs_fall_line;     /* FS falls as this line begins          */
+    uint32_t field_lead;       /* PAL: lines the first field lacks      */
     uint32_t hs_low_ticks;     /* HS is low this long from a line's start */
 
     /* RAM: the chips' organisation, from the size (§8.1). */

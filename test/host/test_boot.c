@@ -1,17 +1,22 @@
-/* test_boot.c — the CoCo boots its real ROMs (design.md §17 M3, §15.3).
+/* test_boot.c — the machines boot their real ROMs (design.md §17 M3,
+ * §15.3).
  *
  * Color BASIC 1.3 alone, and with Extended Color BASIC 1.1, in 16, 32 and
- * 64 KB, to its banner and "OK", read from video RAM; then a sum typed
- * through the matrix and answered on the screen; every letter, digit and
- * shifted symbol typed and printed back; and PRINT MEM, the ROM's
- * own sizing of memory, against what XRoar prints, the trace diff having
- * held the two together through it (2026-11-14).
+ * 64 KB; Color BASIC 1.1 in 4 and 16 KB; and the Dragon 32 in 32 KB and
+ * expanded to 64, the second wiring (§3.1). Each to its banner and "OK",
+ * read from video RAM; then a sum typed through the matrix, the CoCo's
+ * or the Dragon's, and answered on the screen; every letter, digit and
+ * shifted symbol typed and printed back; and PRINT MEM, the ROM's own
+ * sizing of memory, against what XRoar prints, the trace diff having held
+ * the two together through it (2026-11-14).
  *
- * Not 4 KB: BASIC 1.3 drives PIA0 PB6 low and reads the strap on PIA1 PB2,
- * which a 4K machine ties low, so it takes 64K mode, and 4K chips cannot
- * serve it. It hangs sizing memory, under XRoar too, which the trace diff
- * holds this core to instruction for instruction; 4K CoCos shipped with
- * BASIC 1.0 and 1.1. Skips without the ROMs, and a skip is not a pass.
+ * Not BASIC 1.3 in 4 KB: it drives PIA0 PB6 low and reads the strap on
+ * PIA1 PB2, which a 4K machine ties low, so it takes 64K mode, and 4K
+ * chips cannot serve it. It hangs sizing memory, under XRoar too, which
+ * the trace diff holds this core to instruction for instruction; 4K CoCos
+ * shipped with BASIC 1.0 and 1.1, and 1.1 is here. A case whose ROM is
+ * absent is left out, and with none present the test skips; a skip is not
+ * a pass.
  */
 
 #include <string.h>
@@ -22,6 +27,8 @@
 static guest_t g;
 
 typedef struct {
+    coco_machine_t machine;
+    rom_id_t    basic;
     unsigned    ram_k;
     bool        extended;
     const char *banner;    /* the screen row it starts */
@@ -30,28 +37,32 @@ typedef struct {
 
 int main(void) {
     const char *dir;
-    if (!guest_find_roms(&dir)) {
-        printf("skipped: no Color BASIC 1.3 in %s (roms/README.md)\n", dir);
-        return TEST_SKIP_CODE;
-    }
+    guest_find_roms(&dir);
 
     static const boot_t boots[] = {
-        { 16, false, "COLOR BASIC 1.3",          " 14631" },
-        { 32, false, "COLOR BASIC 1.3",          " 31015" },
-        { 64, false, "COLOR BASIC 1.3",          " 31015" },
-        { 16, true,  "EXTENDED COLOR BASIC 1.1", " 8487"  },
-        { 32, true,  "EXTENDED COLOR BASIC 1.1", " 24871" },
-        { 64, true,  "EXTENDED COLOR BASIC 1.1", " 24871" },
+        { COCO_MACHINE_COCO,     ROM_COCO_BAS11, 4,  false, "COLOR BASIC 1.1",          " 2343"  },
+        { COCO_MACHINE_COCO,     ROM_COCO_BAS11, 16, false, "COLOR BASIC 1.1",          " 14631" },
+        { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 16, false, "COLOR BASIC 1.3",          " 14631" },
+        { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 32, false, "COLOR BASIC 1.3",          " 31015" },
+        { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 64, false, "COLOR BASIC 1.3",          " 31015" },
+        { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 16, true,  "EXTENDED COLOR BASIC 1.1", " 8487"  },
+        { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 32, true,  "EXTENDED COLOR BASIC 1.1", " 24871" },
+        { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 64, true,  "EXTENDED COLOR BASIC 1.1", " 24871" },
+        { COCO_MACHINE_DRAGON32, ROM_DRAGON32,   32, false, "(C) 1982 DRAGON DATA LTD", " 24871" },
+        { COCO_MACHINE_DRAGON32, ROM_DRAGON32,   64, false, "(C) 1982 DRAGON DATA LTD", " 24871" },
     };
 
+    int ran = 0;
     for (size_t i = 0; i < sizeof boots / sizeof boots[0]; i++) {
         const boot_t *b = &boots[i];
-        if (b->extended && !guest_have_rom(ROM_COCO_EXTBAS11)) {
-            printf("%u KB Extended: no extbas11.rom, left out\n", b->ram_k);
+        if (!guest_have_rom(b->basic) || (b->extended && !guest_have_rom(ROM_COCO_EXTBAS11))) {
+            printf("%u KB %s: no %s, left out\n", b->ram_k, b->banner,
+                   guest_have_rom(b->basic) ? "extbas11.rom" : romset_images[b->basic].file);
             continue;
         }
+        ran++;
         int failures_before = test_failures;
-        guest_build(&g, b->ram_k, b->extended);
+        guest_build_as(&g, b->machine, b->ram_k, b->basic, b->extended);
         bool ok = guest_boot(&g);
         CHECK(ok, "%u KB %s: no OK in ten seconds", b->ram_k, b->banner);
         if (!ok) { guest_dump(&g.m, stderr); continue; }
@@ -92,6 +103,10 @@ int main(void) {
             CHECK(strcmp(mem, b->mem) == 0, "%u KB %s: PRINT MEM gave \"%s\", XRoar \"%s\"",
                   b->ram_k, b->banner, mem, b->mem);
         if (test_failures != failures_before) guest_dump(&g.m, stderr);
+    }
+    if (!ran) {
+        printf("skipped: no BASIC ROM in %s (roms/README.md)\n", dir);
+        return TEST_SKIP_CODE;
     }
     TEST_DONE();
 }

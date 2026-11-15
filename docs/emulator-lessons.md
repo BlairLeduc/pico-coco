@@ -1895,6 +1895,19 @@ it finds problems no unit test is shaped to catch.
   any line containing `[`, meant for vector lines, also skipped every
   instruction with indirect addressing (`STB [$0088]`). Each one showed
   up as a divergence that was not one.
+- **A reference's incidental state is part of what it answers.** An input
+  pin fed back from a reference's sound model read low until that model
+  first updated, which happened at the first field's end, and high after.
+  One machine's ROM read the pin 23 instructions after reset and another
+  only after the first field, so a plain "high" held the second through
+  every run and parted the first at once. Model such a thing as the
+  reference does, so the diff holds, and write down that it is the
+  reference's behaviour and not yet the hardware's.
+- **Each ROM has its own intercept addresses.** The key-poll routine moves
+  between versions of the same BASIC (`$A1C1` in one, `$A1CB` in the
+  next), so a typing driver takes its addresses from the reference's
+  table for the image loaded, not from the first version it was written
+  for. A wrong address goes unnoticed until something is typed.
 
 ### 11.5 The soak
 

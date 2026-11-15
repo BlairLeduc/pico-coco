@@ -934,6 +934,13 @@ The line counts are the MC6847 datasheet's for NTSC, and the PAL machines' extra
 places them, **read from the schematic and not from XRoar's numbering**
 (EL §5.6). The snapshot is taken where the next active line begins.
 
+The Dragon 32 runs, from M3, on XRoar's PAL field so that the trace
+diff can hold it: 312 lines, every one with HS, the VDG held for 25
+lines at its line 254 and again at its line 0, so FS falls 255 lines
+into the field; the first field after power-on lacks the leading 25
+and is 287 lines. That is XRoar's numbering, held to the boot trace and
+not yet to the schematic; M14 settles it (§18).
+
 A guest loop on the host must see FS low and escape once a field, and a
 redraw begun at the field interrupt must be complete in every snapshot,
 with the wrong field shape as a control that fails (EL §5.6).
@@ -1140,18 +1147,18 @@ configuration; once settled, it is a constant.
 | The NMOS 6809's undocumented opcodes and what software reaches them | Trapped | Low | The archive run (D12) |
 | A published 6809 functional test of standing exists | **None found** (M1, 2026-11-14) | — | Searched in M1; see below |
 | The master oscillator on PAL Dragons and PAL CoCos | 14.218 MHz against NTSC's 14.31818 | Low | Schematics; XRoar counts every machine in 14.31818 MHz ticks |
-| Lines a field and their layout on PAL machines; where FS and the field interrupt fall | 312, the extra lines inserted by a circuit outside the VDG | Low | Dragon 32 schematic and service manual |
+| Lines a field and their layout on PAL machines; where FS and the field interrupt fall | 312, the extra lines inserted by a circuit outside the VDG. **M3, the Dragon 32**: XRoar's placement (§13.1), which the trace diff holds through boot, typing and 50 guest seconds of a program; the schematic not yet read | Low | Dragon 32 schematic and service manual |
 | Ticks a line and the active line's start | 57 CPU cycles; the datasheet's. **M3**: 912 ticks a line, 262 a field, FS falling as line 230 begins, held to XRoar's field interrupts by the trace diff | Medium | MC6847 datasheet |
 | PIA IRQ response time tRS3 (§8.3) | 1 µs, 14 ticks as XRoar counts it; **M3**: the trace diff needs it | Medium | MC6821 datasheet figure 13 |
 | The SAM's bit pairs, its address-counter rule for each video mode, its rate rules and the stretched cycle (§8.2) | As §3.2, §8.2. **M3**: the bit pairs, and RAM's row and column in 4K, 16K and 64K modes for 4K, 16K, 32K and 64K chips as XRoar models them, held through boot in every size by the trace diff; the video counter (M4) and rates (M11) not yet | Medium | MC6883 datasheet; XRoar's traces |
 | What unpopulated memory and unused I/O read (§8.1) | **M3**: absent RAM `$FF`; empty sockets and unused I/O the byte at `$FFFF` (§8.1), as XRoar's trace needs | Medium | Schematics; neither assumed `$FF` |
-| The PIA wiring of §3.3, bit for bit, on each machine | As listed. **M3, the CoCo**: IRQ from PIA0, FIRQ from PIA1; the RAM strap on PIA1 PB2 (low on 4K, high on 16K, linked to PIA0 PB6 on 32K and 64K); port B's undriven inputs low; PB1 reading the silent sound high; PA0 the cassette, low; PA7 the comparator; PIAs repeating over 32 bytes. Each one the boot trace needs (§15.2). The Dragon's not executed | Medium | Schematics; the ROMs executed |
+| The PIA wiring of §3.3, bit for bit, on each machine | As listed. **M3, the CoCo**: IRQ from PIA0, FIRQ from PIA1; the RAM strap on PIA1 PB2 (low on 4K, high on 16K, linked to PIA0 PB6 on 32K and 64K); port B's undriven inputs low; PB1 reading the silent sound high; PA0 the cassette, low; PA7 the comparator; PIAs repeating over 32 bytes. Each one the boot trace needs (§15.2). **M3, the Dragon 32**: PIA1 PB0, the printer's BUSY, read low, as XRoar's absent printer is never busy, over the pull-up; PB2 high with 4K or 16K chips and low with larger; the PIAs repeating with 32 KB and answering only with A2 low above it. PB1 reads low until XRoar's sound first updates (the first FS rise, or PB1 or CB2 enabling the sound) and the silent sound high after: the Dragon reads it 23 instructions after reset, the CoCos only after the first field. That and PB0 are XRoar's behaviour, not yet the hardware's | Medium | Schematics; the ROMs executed |
 | VDG data wiring: bit 7 A/S, bit 6 INV, INT/EXT from GM0 (§3.4) | As listed | Medium | Schematics; the ROM's own screen, executed |
-| Both keyboard matrices (§11.2) | **M3, the CoCo**: every letter, digit and shifted symbol typed through the matrix and printed back by Color BASIC 1.3 and Extended 1.1 (`test_boot`); the arrows, CLEAR and BREAK not yet (M5). The Dragon's unwritten | — | Each ROM executed |
+| Both keyboard matrices (§11.2) | **M3, the CoCo**: every letter, digit and shifted symbol typed through the matrix and printed back by Color BASIC 1.3 and Extended 1.1 (`test_boot`); the arrows, CLEAR and BREAK not yet (M5). **M3, the Dragon 32**: the same keys, by the same test through Dragon BASIC, on XRoar's table (the CoCo's rows turned by two, the digits first) | — | Each ROM executed |
 | Key hold and gap for each ROM (§11.1) | A few fields | Low | Each ROM executed |
 | The ROMs' tape block routines, their entry bytes and what they leave (§12.3) | Unwritten | — | The ROMs read and executed |
 | Tape bit timing as each ROM reads and writes it | Two tones, about 1200 and 2400 Hz | Low | The ROMs read; a save recorded |
-| ROM file names, sizes and SHA-1s (§12.1) | **Settled** 2026-11-14 (M3) for `bas13.rom`, `extbas11.rom` and `disk11.rom`, the owner's images, each matching XRoar 1.13's CRC-32 (`roms/README.md`); the Dragons' and other CoCo versions to come | High | The owner's images; XRoar's ROM list |
+| ROM file names, sizes and SHA-1s (§12.1) | **Settled** 2026-11-14 (M3) for `bas13.rom`, `extbas11.rom`, `disk11.rom`, `bas11.rom` and `d32.rom`, the owner's images, each matching XRoar 1.13's CRC-32 (`roms/README.md`); the Dragon 64's and other CoCo versions to come | High | The owner's images; XRoar's ROM list |
 | Disc controller registers, latch bits, interrupt and HALT wiring (§12.4) | As the table, from XRoar's decodes | Medium | Each DOS ROM read; controller schematics |
 | WD2797 against WD1793: which differences each DOS sees | Side select, some status bits | Low | Datasheets |
 | VDK and JVC header rules | Community descriptions | Low | A corpus of real files (EL §8.8) |

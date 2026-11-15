@@ -1,4 +1,4 @@
-/* guest.c — a real CoCo, on the host (guest.h). */
+/* guest.c — a real CoCo or Dragon, on the host (guest.h). */
 
 #include "guest.h"
 
@@ -54,17 +54,24 @@ const uint8_t *guest_rom_image(rom_id_t r) {
     return guest_have_rom(r) ? images[r] : NULL;
 }
 
-void guest_build(guest_t *g, unsigned ram_k, bool extended) {
+void guest_build_as(guest_t *g, coco_machine_t machine, unsigned ram_k, rom_id_t basic,
+                    bool extended) {
     coco_config_t cfg;
     coco_config_default(&cfg);
+    cfg.machine = machine;
     cfg.ram_k = ram_k;
     coco_init(&g->m, &cfg);
-    coco_load_rom(&g->m, 0xA000u, images[ROM_COCO_BAS13], romset_images[ROM_COCO_BAS13].size);
+    uint32_t size = romset_images[basic].size;
+    coco_load_rom(&g->m, size == 0x4000u ? 0x8000u : 0xA000u, images[basic], size);
     if (extended && have[ROM_COCO_EXTBAS11])
         coco_load_rom(&g->m, 0x8000u, images[ROM_COCO_EXTBAS11],
                       romset_images[ROM_COCO_EXTBAS11].size);
     coco_power_on(&g->m);
     g->ok_ticks = 0;
+}
+
+void guest_build(guest_t *g, unsigned ram_k, bool extended) {
+    guest_build_as(g, COCO_MACHINE_COCO, ram_k, ROM_COCO_BAS13, extended);
 }
 
 void guest_fields(guest_t *g, int n) {
@@ -98,6 +105,18 @@ static const char *const coco_rows[COCO_KEY_ROWS] = {
     "\n\x05\x06\0\0\0\0\x07",   /* ENTER, CLEAR, BREAK, SHIFT at column 7 */
 };
 
+/* The Dragon's: the same columns, the rows turned by two, the digits
+ * first (XRoar's dkbd.c; settled likewise by Dragon 32 BASIC, §11.2). */
+static const char *const dragon_rows[COCO_KEY_ROWS] = {
+    "01234567",
+    "89:;,-./",
+    "@ABCDEFG",
+    "HIJKLMNO",
+    "PQRSTUVW",
+    "XYZ\x01\x02\x03\x04 ",
+    "\n\x05\x06\0\0\0\0\x07",
+};
+
 #define SHIFT_ROW 6
 #define SHIFT_COL 7
 
@@ -105,10 +124,11 @@ static const char *const coco_rows[COCO_KEY_ROWS] = {
 static const char shifted_from[] = "!\"#$%&'()*+<=>?";
 static const char shifted_on[]   = "123456789:;,-./";
 
-static bool find_key(char ch, int *row, int *col) {
+static bool find_key(const coco_t *m, char ch, int *row, int *col) {
+    const char *const *rows = m->cfg.machine == COCO_MACHINE_DRAGON32 ? dragon_rows : coco_rows;
     for (int r = 0; r < COCO_KEY_ROWS; r++)
         for (int c = 0; c < COCO_KEY_COLS; c++)
-            if (coco_rows[r][c] == ch && !(ch == 0)) {
+            if (rows[r][c] == ch && ch != 0) {
                 *row = r;
                 *col = c;
                 return true;
@@ -131,8 +151,8 @@ void guest_type(guest_t *g, const char *s) {
         if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 'a' + 'A');
         int row, col;
         const char *sh = strchr(shifted_from, ch);
-        if (sh && find_key(shifted_on[sh - shifted_from], &row, &col)) press(g, row, col, true);
-        else if (find_key(ch, &row, &col)) press(g, row, col, false);
+        if (sh && find_key(&g->m, shifted_on[sh - shifted_from], &row, &col)) press(g, row, col, true);
+        else if (find_key(&g->m, ch, &row, &col)) press(g, row, col, false);
     }
     guest_fields(g, 10);
 }

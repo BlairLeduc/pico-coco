@@ -1,12 +1,12 @@
-/* guest.h — a real CoCo, on the host, for the tests that need its ROMs
- * (design.md §15.3), adapted from pico-oric's.
+/* guest.h — a real CoCo or Dragon, on the host, for the tests that need
+ * its ROMs (design.md §15.3), adapted from pico-oric's.
  *
  * Needs the user's ROM images, which the tree does not ship (D10). It
  * looks in PICO_COCO_ROMS if that is set, else the repository's roms/
  * staging directory, and recognises images by SHA-1 whatever they are
  * called (romset.h).
  *
- * Typing goes straight into the matrix by the CoCo's own rows and columns,
+ * Typing goes straight into the matrix by the machine's rows and columns,
  * a key held and released over whole fields. M5 replaces it with the
  * firmware's path, PicoCalc events through the mapping table (§11).
  */
@@ -33,9 +33,15 @@ bool guest_find_roms(const char **dir);
 bool guest_have_rom(rom_id_t r);
 const uint8_t *guest_rom_image(rom_id_t r);
 
-/* Build a CoCo with `ram_k` of RAM and Color BASIC, and Extended Color
- * BASIC if `extended`; load the ROMs, then power on (§13.3). */
+/* Build a CoCo with `ram_k` of RAM and Color BASIC 1.3, and Extended
+ * Color BASIC if `extended`; load the ROMs, then power on (§13.3). */
 void guest_build(guest_t *g, unsigned ram_k, bool extended);
+
+/* The same for any machine and BASIC: on a CoCo, `basic` is a Color BASIC
+ * at $A000 with Extended at $8000 if `extended`; on a Dragon, its 16 KB
+ * BASIC at $8000. The caller checks the images are present. */
+void guest_build_as(guest_t *g, coco_machine_t machine, unsigned ram_k, rom_id_t basic,
+                    bool extended);
 
 /* Run fields until "OK" shows at the start of a screen row, or for ten
  * guest seconds. True if it showed. */
@@ -43,8 +49,9 @@ bool guest_boot(guest_t *g);
 
 void guest_fields(guest_t *g, int n);
 
-/* Type a string a key at a time, SHIFT held where the CoCo's keyboard
- * needs it; '\n' is ENTER. Then a few fields for the ROM to act. */
+/* Type a string a key at a time, SHIFT held where the keyboard needs it,
+ * through the machine's own matrix; '\n' is ENTER. Then a few fields for
+ * the ROM to act. */
 void guest_type(guest_t *g, const char *s);
 
 /* The text on one of the 16 rows of the 32-column screen, as ASCII,

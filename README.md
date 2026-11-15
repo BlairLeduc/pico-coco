@@ -6,8 +6,8 @@ against the Raspberry Pi Pico SDK, which will also run the **Dragon 32 and
 MC6847, its port layer and its menu, with a new MC6809 in place of the 6502.
 
 **Status: M3, the machine on the host.** On the workstation, the CoCo
-boots Color BASIC and Extended Color BASIC from your ROMs. It runs
-instruction for instruction as XRoar does. On the PicoCalc the CPU
+boots Color BASIC and Extended Color BASIC from your ROMs, and so does
+the Dragon 32. Each runs instruction for instruction as XRoar does. On the PicoCalc the CPU
 passed its speed gate; the emulator image is still a banner and a
 heartbeat.
 See [`docs/design.md`](docs/design.md) for the
