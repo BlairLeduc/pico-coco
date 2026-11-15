@@ -102,6 +102,13 @@ and 13.3 % of core 0, counts equal to the host's. So `io_at` and the
 last-cycle rule cost nothing measurable. Capture in `out/m3/`, not
 committed.
 
+**CI** on GitHub, 2026-11-14, PR #4: green on both builds. The host job
+(Ubuntu, GCC) ran all eight tests: `test_machine` passed on its test ROM,
+`test_romset` passed what it can check without images, the oracle ran
+against XRoar 1.13, and `test_boot` skipped, as it must with no ROMs.
+So the boot and the trace diff are checked on the workstation only. The
+firmware job built both images, with and without the UART.
+
 **Not checked:**
 
 - **The Dragon 32 on the host**, which the done-when asks for as the
