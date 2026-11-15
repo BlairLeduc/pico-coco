@@ -59,9 +59,9 @@
 #define BENCH_MIX_RUN_CYCLES     8960403u
 #define BENCH_MIX_RUN_INSNS      1760687u
 
+/* The machine's own RAM serves as the flat bus's (coco.h). */
 typedef struct {
     coco_t  m;
-    uint8_t ram[COCO_ADDR_SPACE];
 } bench_t;
 
 /* Clear the machine, assemble the basic program, and point the CPU at it.

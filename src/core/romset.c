@@ -1,0 +1,45 @@
+/* romset.c — the ROM images the machines know (romset.h). */
+
+#include "romset.h"
+
+#include <stdbool.h>
+#include <string.h>
+
+/* The owner's images, 2026-11-14; XRoar 1.13's CRC-32s agree: $D8F4D15E,
+ * $A82A6254, $0B9C5415, $6270955A and $E3879310 (§18). */
+const rom_info_t romset_images[ROM_IMAGE_COUNT] = {
+    [ROM_COCO_BAS13] = { "bas13.rom", 8192u,
+        { 0x28, 0xb9, 0x2b, 0xeb, 0xe3, 0x5f, 0xa4, 0xf0, 0x26, 0xa0,
+          0x84, 0x41, 0x6d, 0x6e, 0xa3, 0xb1, 0x55, 0x2b, 0x63, 0xd3 } },
+    [ROM_COCO_EXTBAS11] = { "extbas11.rom", 8192u,
+        { 0xad, 0x92, 0x7f, 0xb4, 0xf3, 0x07, 0x46, 0xd8, 0x20, 0xcb,
+          0x8b, 0x86, 0x0e, 0xbb, 0x58, 0x5e, 0x7f, 0x09, 0x5d, 0xea } },
+    [ROM_COCO_DISK11] = { "disk11.rom", 8192u,
+        { 0x10, 0xbd, 0xc5, 0xaa, 0x2d, 0x7d, 0x7f, 0x20, 0x5f, 0x67,
+          0xb4, 0x7b, 0x19, 0x00, 0x3a, 0x4b, 0xd8, 0x9d, 0xef, 0xd1 } },
+    [ROM_COCO_BAS11] = { "bas11.rom", 8192u,
+        { 0xce, 0xcb, 0x7c, 0x24, 0xff, 0x1e, 0x0a, 0xb5, 0x83, 0x6e,
+          0x4a, 0x7a, 0x8e, 0xb1, 0xb8, 0xe0, 0x1f, 0x1f, 0xde, 0xd3 } },
+    [ROM_DRAGON32] = { "d32.rom", 16384u,
+        { 0xf2, 0xda, 0xb1, 0x25, 0x67, 0x3e, 0x65, 0x39, 0x95, 0xa8,
+          0x3b, 0xf6, 0xb7, 0x93, 0xe3, 0x39, 0x0e, 0xc7, 0xf6, 0x5a } },
+};
+
+rom_id_t romset_identify(const uint8_t *data, size_t len) {
+    /* Hash only a length some image has; then the digest decides. */
+    bool size_known = false;
+    for (int i = 0; i < ROM_IMAGE_COUNT; i++) size_known |= len == romset_images[i].size;
+    if (!size_known) return ROM_UNKNOWN;
+    uint8_t d[SHA1_DIGEST_LEN];
+    sha1(data, len, d);
+    return romset_identify_digest(d, len);
+}
+
+rom_id_t romset_identify_digest(const uint8_t digest[SHA1_DIGEST_LEN], size_t len) {
+    for (int i = 0; i < ROM_IMAGE_COUNT; i++) {
+        if (len == romset_images[i].size &&
+            memcmp(digest, romset_images[i].sha1, SHA1_DIGEST_LEN) == 0)
+            return (rom_id_t)i;
+    }
+    return ROM_UNKNOWN;
+}

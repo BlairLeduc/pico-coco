@@ -27,7 +27,7 @@ void bus_write_slow(coco_t *m, uint16_t a, uint8_t v) {
 static void machine_clear(bench_t *b, unsigned protect_lo, unsigned protect_hi) {
     memset(b, 0, sizeof(*b));
     for (unsigned p = 0; p < COCO_PAGE_COUNT; p++) {
-        uint8_t *base = &b->ram[p * COCO_PAGE_SIZE];
+        uint8_t *base = &b->m.ram[p * COCO_PAGE_SIZE];
         b->m.page[p].read = base;
         b->m.page[p].write = (p >= protect_lo && p < protect_hi) ? NULL : base;
     }
@@ -176,7 +176,7 @@ static const char line[] =
  * it: M3 runs the real one (design.md §17). */
 void bench_basic_load(bench_t *b) {
     machine_clear(b, CODE >> 8, COCO_PAGE_COUNT);
-    uint8_t *mem = b->ram;
+    uint8_t *mem = b->m.ram;
     memcpy(mem + LINE, line, sizeof line);          /* with its 0 */
     memcpy(mem + TABLE, digits, sizeof digits);
 
@@ -426,16 +426,16 @@ void bench_mix_load(bench_t *b) {
 
     /* Random data everywhere else, from the same seed every time. */
     mix_rng = 0x6809C0C0u;
-    for (unsigned i = 0; i < MIX_CODE; i++) b->ram[i] = mix_rnd8();
-    for (unsigned i = MIX_END; i < COCO_ADDR_SPACE; i++) b->ram[i] = mix_rnd8();
+    for (unsigned i = 0; i < MIX_CODE; i++) b->m.ram[i] = mix_rnd8();
+    for (unsigned i = MIX_END; i < COCO_ADDR_SPACE; i++) b->m.ram[i] = mix_rnd8();
 
     uint16_t at = MIX_CODE;
     /* The longest instruction is five bytes, and the jump three. */
     for (unsigned i = 0; i < BENCH_MIX_INSNS && at < MIX_END - 8u; i++)
-        mix_one(b->ram, &at, ops, nops);
-    b->ram[at++] = 0x7Eu;                                    /* JMP MIX_CODE */
-    b->ram[at++] = (uint8_t)(MIX_CODE >> 8);
-    b->ram[at++] = (uint8_t)MIX_CODE;
+        mix_one(b->m.ram, &at, ops, nops);
+    b->m.ram[at++] = 0x7Eu;                                    /* JMP MIX_CODE */
+    b->m.ram[at++] = (uint8_t)(MIX_CODE >> 8);
+    b->m.ram[at++] = (uint8_t)MIX_CODE;
 
     b->m.cpu.s = 0x3F00u;
     b->m.cpu.pc = MIX_CODE;

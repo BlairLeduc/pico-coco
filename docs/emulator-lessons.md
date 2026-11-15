@@ -1871,6 +1871,43 @@ it finds problems no unit test is shaped to catch.
   instruction.
 - Keep typed lines under the guest's line length, and wait after RETURN; the
   guest may have no type-ahead.
+- **Feed typing to both sides the same way.** A reference's typing option
+  may not go through the keyboard at all. XRoar's intercepts the ROM's
+  key-poll routine and returns each character from it, in no time. A
+  driver that does the same keeps the traces together through typing, and
+  the matrix path gets a test of its own.
+- **When an interrupt lands an instruction off, find the mechanism rather
+  than fitting a phase.** On a 6809 and two 6821 PIAs, three effects each
+  moved the field interrupt by an instruction. The CPU acts on the lines
+  it latched at its last cycle's start. The PIA's IRQ output rises 1 µs
+  (tRS3) after the edge, and rises even if a read cleared the flag in that
+  time. A read of the port in the instruction the edge falls in clears
+  the flag. A one-cycle phase offset fitted to ten seconds of trace
+  matched, and was tRS3 misread. With the real mechanisms the traces
+  agreed for 50 guest seconds, and dropping any one of them parted them
+  again.
+- **The data bus is not `$FF` where nothing drives it.** The 6809's dead
+  cycles put `$FFFF` on the address bus, so after a direct, extended or
+  short-offset indexed access the floating bus still holds the ROM's
+  byte there. The first trace divergence was the ROM's memory sizing
+  reading an empty socket.
+- **Check the diff tool's filters on real lines.** A filter that skipped
+  any line containing `[`, meant for vector lines, also skipped every
+  instruction with indirect addressing (`STB [$0088]`). Each one showed
+  up as a divergence that was not one.
+- **A reference's incidental state is part of what it answers.** An input
+  pin fed back from a reference's sound model read low until that model
+  first updated, which happened at the first field's end, and high after.
+  One machine's ROM read the pin 23 instructions after reset and another
+  only after the first field, so a plain "high" held the second through
+  every run and parted the first at once. Model such a thing as the
+  reference does, so the diff holds, and write down that it is the
+  reference's behaviour and not yet the hardware's.
+- **Each ROM has its own intercept addresses.** The key-poll routine moves
+  between versions of the same BASIC (`$A1C1` in one, `$A1CB` in the
+  next), so a typing driver takes its addresses from the reference's
+  table for the image loaded, not from the first version it was written
+  for. A wrong address goes unnoticed until something is typed.
 
 ### 11.5 The soak
 

@@ -84,6 +84,15 @@ typedef struct {
      * mc6809_attn(). */
     uint8_t  attn;
 
+    /* The cycle of the current instruction, from 1, on which a data access
+     * that took the slow path falls; 0 for a fetch, the stack or a vector.
+     * Written only on the slow path, so that a PIA can be brought up to
+     * that cycle first (§7.2, EL §4.3). */
+    uint8_t  io_at;
+
+    /* The current run's length in cycles; mc6809_stop zeroes it. */
+    uint32_t run_limit;
+
     /* Undocumented opcodes and indexed postbytes: trapped and counted
      * (D12, §7.1). An opcode is consumed as a NOP; a postbyte is decoded
      * as the chip decodes it. */
@@ -103,11 +112,23 @@ void     mc6809_reset(struct coco_s *m);
  * Returns the cycles taken. */
 uint32_t mc6809_step(struct coco_s *m);
 
-/* Whole instructions until at least `cycles` have passed; returns the true
- * count, and the caller carries the debt (§6, EL §2.2). A wait or HALT
- * that nothing can end before the slice does is skipped in one go: lines
- * change only between slices (§7.1, EL §3.4). */
+/* Whole instructions until at least `cycles` have passed, or sooner if
+ * the machine calls mc6809_stop during one; returns the true count, and
+ * the caller carries the debt (§6, EL §2.2). A wait or HALT that nothing
+ * can end before the slice does is skipped in one go: lines change only
+ * between slices (§7.1, EL §3.4). */
 uint32_t mc6809_run(struct coco_s *m, uint32_t cycles);
+
+/* End the run after the current instruction: something the slice's length
+ * was computed from has changed (the SAM's rate, a PIA's interrupt
+ * enables, an interrupt now due; coco.c, §6). */
+static inline void mc6809_stop(mc6809_t *c) { c->run_limit = 0; }
+
+/* Will the next step fetch an instruction? False when it will take an
+ * interrupt, wait or halt instead: the boundary's own decision, on the
+ * lines latched before it where the chip acts on those (stale). For a
+ * breakpoint, which fires only before a fetch (tools/trace). */
+bool     mc6809_fetches_next(const mc6809_t *c);
 
 /* Interrupt lines. IRQ and FIRQ are level-sensitive per source; NMI is
  * edge-triggered: a false-to-true transition latches. */
@@ -118,6 +139,15 @@ void     mc6809_set_halt(mc6809_t *c, bool asserted);
 
 /* Recompute attn after writing a field it depends on directly. */
 void     mc6809_attn(mc6809_t *c);
+
+/* The line changes about to be made fall in the current instruction's last
+ * cycle, after the CPU has latched what it acts on: the next boundary
+ * decides on the lines as they are now (§7.1). For a device on the slow
+ * path, when io_at says the access is the last cycle. */
+void     mc6809_lines_late(mc6809_t *c);
+
+/* io_at's top bit: the access is its instruction's last cycle. */
+#define MC6809_IO_LAST 0x80u
 
 /* Whether an opcode is documented, as $00xx, $10xx or $11xx. The oracle
  * enumerates what it holds the core to from this. */

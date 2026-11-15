@@ -24,6 +24,25 @@
  * and always takes the slow path (§3.2, §8.1). */
 #define COCO_IO_PAGE         0xFFu
 
+/* ---- ROMs, the cartridge and the PIAs (design.md §3.2, §12.1) ------- */
+
+/* $8000-$BFFF holds BASIC: two 8 KB halves on a CoCo, one 16 KB image on
+ * a Dragon 32. M14: the Dragon 64's second BASIC. */
+#define COCO_ROM_SIZE      0x4000u
+#define COCO_ROM_HALF      0x2000u
+/* $C000-$FEFF is the cartridge's window, up to 16 KB (M9: mirrors). */
+#define COCO_CART_SIZE     0x4000u
+/* The largest image the ROM table knows (romset.h). */
+#define COCO_ROM_IMAGE_MAX 0x4000u
+
+/* PIA0 A and B, PIA1 A and B: the ports whose IRQ output can be due. */
+#define COCO_PIA_PORTS          4u
+
+/* The keyboard matrix: columns on PIA0 port B, rows on port A (§11.2).
+ * Plain ints, as the loops over them are. */
+#define COCO_KEY_COLS           8
+#define COCO_KEY_ROWS           7
+
 /* ---- The picture (design.md §9.6, D11) ------------------------------- */
 
 #define COCO_PIC_W            256u

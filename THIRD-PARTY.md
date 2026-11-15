@@ -25,5 +25,7 @@ Not in the tree, and in no image (`docs/design.md` D2, D8, §15.2).
 the gitignored `reference/`, and builds it headless in `out/`. CMake
 compiles its `src/mc6809/mc6809.c` and `portalib/delegate.c` from that
 checkout into `test_mc6809_oracle` alone, through `test/host/xroar_cpu.c`,
-this project's driver; `hd6309.c` joins them in M15. XRoar is Ciaran
+this project's driver; `hd6309.c` joins them in M15. From M3 the
+headless XRoar also runs beside `tools/trace/coco-trace.c` for the trace
+diff, as a separate program, sharing nothing with this project's code. XRoar is Ciaran
 Anscomb's, under the GPL-3.0-or-later.

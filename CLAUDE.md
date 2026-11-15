@@ -12,12 +12,12 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M2 is done** (`docs/design.md` §17): the MC6809 core
-(`src/core/mc6809.c`) held to XRoar 1.13's by the oracle, and the gate
-passed on the board at 12–13 % of core 0, with SRAM tier 2 and the indexed
-decoder out of line now the defaults (`design.md` §7.5). No machine yet:
-the bus's slow path is the caller's until M3 (the host tests' and the
-bench's), and the emulator image does not link the CPU until M7. The record of each milestone (what was
+**Status: M3 is built** (`docs/design.md` §17): the CoCo on the host.
+The MC6809 core, the SAM, the PIAs and the field loop boot Color BASIC
+1.3 and Extended 1.1 in 16 to 64 KB, Color BASIC 1.1 in 4 KB, and the
+Dragon 32, the second wiring. The trace diff holds every instruction to
+XRoar 1.13's through boot and typing. The emulator image
+does not run the machine until M7. The record of each milestone (what was
 verified, on which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
 
@@ -102,6 +102,12 @@ tools/uart-log.sh 30 out/run.log &   # capture UART1 first, so the banner is in 
 tools/flash.sh                       # reset halt + resume, never reset run (HW §2.7)
 tools/flash.sh build/uart0/pico-coco.elf   # the owner's board, which has the clock
 tools/flash.sh build/uart0/pico-coco-bench.elf   # M2's gate: the CPU alone, timed
+
+# the trace diff against XRoar (design.md §15.2): XRoar built headless by
+# tools/trace/build-xroar.sh, the host build's coco-trace, ROMs in roms/
+tools/trace/trace-coco.sh -ram 64 -ext -fields 600 -type "$(printf 'PRINT 2+3\r')"
+tools/trace/trace-coco.sh -bas bas11 -ram 4 -fields 600   # a 4 KB CoCo
+tools/trace/trace-coco.sh -machine dragon32 -fields 500   # PAL: 50 fields a second
 ```
 
 Both targets build under `-Wall -Wextra -Werror`, and CI builds both on every

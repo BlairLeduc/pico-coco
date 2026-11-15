@@ -6,6 +6,8 @@ set(PICO_COCO_HOST_TESTS
     test_skeleton
     test_mc6809_behaviour
     test_bench
+    test_mc6821
+    test_machine
 )
 
 foreach(t ${PICO_COCO_HOST_TESTS})
@@ -17,6 +19,20 @@ foreach(t ${PICO_COCO_HOST_TESTS})
     add_test(NAME ${t} COMMAND ${t})
     set_tests_properties(${t} PROPERTIES SKIP_RETURN_CODE 77)
 endforeach()
+# The tests that run the real ROMs share the harness (§15.3), and find
+# the images in roms/ unless PICO_COCO_ROMS says otherwise.
+foreach(t test_boot test_romset)
+    add_executable(${t} ${t}.c guest.c)
+    target_link_libraries(${t} PRIVATE pico_coco_core m)
+    target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_options(${t} PRIVATE ${PICO_COCO_WARNINGS})
+    target_compile_definitions(${t} PRIVATE
+        PICO_COCO_DEFAULT_ROMS="${PROJECT_SOURCE_DIR}/roms"
+        PICO_COCO_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+    add_test(NAME ${t} COMMAND ${t})
+    set_tests_properties(${t} PROPERTIES SKIP_RETURN_CODE 77 LABELS rom)
+endforeach()
+
 # The bench's library brings the slow path, which the CPU tests define
 # for themselves, so only test_bench links it.
 target_link_libraries(test_bench PRIVATE pico_coco_bench)

@@ -4,6 +4,185 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M3: the machine on the host
+
+On branch `m3`, 2026-11-14 (`design.md` §8, §13, §15.2, §17). Host
+only, besides the bench re-measured on the board.
+
+**Built.** `src/core/coco.c`, the machine: the page table built from the
+SAM's map, with RAM reached through the SAM's row and column and the
+chips' organisation, a page taking the fast path only where its 256
+bytes lie in order; the I/O page's decode; the PIAs' wiring; the
+keyboard matrix; and the field loop in master-oscillator ticks, split
+where FS falls. `mc6821.c`, the generic PIA, with tRS3 on its IRQ
+outputs. `sam6883.h`, the SAM's register. `sha1` and `romset` from
+pico-oric, with the owner's five ROMs. The Dragon 32 as the second
+wiring: its 16 KB ROM, its PAL field, PIA1 port B and the PIA decode. In the CPU: `io_at`, the cycle
+of an instruction a slow-path access falls on, and
+`mc6809_lines_late`, for a change made in an instruction's last cycle.
+On the host: `test/host/guest.c`, the harness, from pico-oric's;
+`tools/trace/coco-trace.c`, `trace-diff.py` and `trace-coco.sh`, the
+trace diff against XRoar. The bench now uses the machine's RAM.
+
+**Checked on the workstation** (macOS, Apple clang 21.0.0; XRoar 1.13
+headless, `af501b71`; the owner's `bas13.rom`, `extbas11.rom`,
+`disk11.rom`, `bas11.rom` and `d32.rom`, whose CRC-32s are in XRoar's
+list):
+
+- **The CoCo boots its real ROMs**: Color BASIC 1.3 alone and with
+  Extended Color BASIC 1.1, in 16, 32 and 64 KB, each to its banner and
+  `OK` in 0.63–1.28 guest seconds, read from video RAM. Each answers
+  `PRINT 2+3` with 5, typed through the matrix. Each takes every letter,
+  digit and shifted symbol through the matrix and prints it back. Each
+  gives `PRINT MEM`: 14631, 31015 and 31015 alone; 8487, 24871 and 24871
+  with Extended (`test_boot`).
+- **A 4 KB CoCo boots Color BASIC 1.1**, and BASIC 1.1 boots in 16 KB,
+  each answering the same typed lines, with `PRINT MEM` 2343 and 14631
+  (`test_boot`).
+- **4 KB with BASIC 1.3 does not boot, and should not.** The ROM drives
+  PIA0 PB6 low and reads the strap on PIA1 PB2, which a 4K machine ties
+  low, and takes 64K mode, which 4K chips cannot serve. It hangs sizing
+  memory. XRoar hangs the same way, and the trace diff holds the two
+  together for ten seconds. 4K machines shipped with BASIC 1.0 and 1.1.
+- **The Dragon 32 boots on the host**, the second wiring: Dragon BASIC
+  to its banner and `OK` in 1.29 guest seconds in 32 KB, and expanded to
+  64 KB. It answers `PRINT 2+3`, takes every letter, digit and shifted
+  symbol through its own matrix and prints them back, and gives
+  `PRINT MEM` 24871 (`test_boot`). Its field is XRoar's PAL one, 312
+  lines with the first 287 (`design.md` §13.1).
+- **The trace diff against XRoar runs through boot and typing.** Every
+  configuration, 4, 16, 32 and 64 KB, alone and with Extended, agrees
+  instruction for instruction, every register, for ten guest seconds:
+  1.9–2.2 million instructions each, through `PRINT 2+3` and `PRINT MEM`
+  typed. So do BASIC 1.1 in 4, 16, 32 and 64 KB, and the Dragon 32 in
+  16, 32 and 64 KB, and all twelve again for 1,500 fields through a typed
+  program (5.3–6.4 million instructions each). Fifty guest seconds of a
+  program counting to 20,000 also agree on the Dragon 32 in 32 KB (10.7
+  million instructions) and on BASIC 1.1 in 4 KB (10.9 million). Fifty guest seconds of a typed program printing `I;I*I;TIMER`
+  300 times also agree: 10.9 million instructions on 64 KB with Extended,
+  11.0 million on 16 KB. Typing goes in on both sides as XRoar's `-type`
+  puts it in: POLCAT returns each character and the 1 ms delay returns at
+  once, in no time. Each ROM's addresses are XRoar's for that image:
+  POLCAT is `$A1C1` in BASIC 1.1 and `$A1CB` in 1.3, and the Dragon's
+  are `$BBE5`, `$BBC5` and its key scan at `$851B`.
+- **What the trace diff settled**, each by a divergence and its cure
+  (`design.md` §7.1, §8.1, §8.3, §13.1, §18):
+
+  | First divergence | Cause | Now |
+  |---|---|---|
+  | `LDA 2,X` reading `$8000`, no Extended: `$27` against `$FF` | An empty socket reads the floating bus | The byte at `$FFFF`, as a dead cycle leaves it |
+  | Extended reading `$FF22`: PB0 high | Port B has no pull-ups | Undriven port B inputs read low |
+  | 4K reading `$FF20`: PA0 high | The cassette input | Low with no tape |
+  | Extended reading `$FF22`: PB1 low | The single-bit sound's feedback | High while silent (M8) |
+  | Dragon reading `$FF22`, 23 instructions in: PB0 and PB1 high | XRoar's absent printer is never busy; its sound feeds PB1 back only once it has updated | PB0 low; PB1 low until the first FS rise or the sound enabled, then high (M8) |
+  | The field interrupt an instruction early, then late | The CPU's latch at its last cycle, and tRS3 | Edges and rises seen a cycle late; tRS3 14 ticks |
+  | `TST 2,U` and `ROL 2,U` on `$FF02` as FS falls | A read in the edge's instruction clears its flag | PIA accesses brought up to their cycle (`io_at`) |
+  | Long runs, a read in an instruction's last cycle | The CPU has already latched the line | `mc6809_lines_late` |
+
+  Along the way, a one-cycle phase fitted to the field matched the
+  ten-second runs. It was tRS3 misread, and is gone. A filter in the
+  diff tool skipped XRoar's lines containing `[`, so indirect
+  instructions looked like divergences until it was dropped.
+- **Bugs planted one at a time**, each against the trace diff (16 KB
+  Extended, ten seconds, or the 50-second program) and the host tests:
+
+  | Bug | Trace diff | Host tests |
+  |---|---|---|
+  | FS a line early | parts at 125,092 | pass |
+  | No tRS3 | parts at 175,886 | pass |
+  | No last-cycle rule | agrees ten seconds; parts at 1,037,379 in the 50-second run | pass |
+  | Port B pulled up | parts at 124,839 | pass |
+  | V and W swapped in the harness's matrix | (not its concern) | `test_boot` fails, every size |
+  | The Dragon typed through the CoCo's matrix | (not its concern) | `test_boot` fails, the Dragon |
+  | The Dragon's first field full length | parts at 258,247 | `test_machine` fails |
+  | The Dragon on NTSC's field | parts at 258,173 | `test_machine` fails |
+  | PB1 fed back from power-on | parts at 23 on the Dragon; the CoCo agrees | pass |
+  | The Dragon's PB0 pulled up | parts at 23 | pass |
+  | The expanded Dragon's PIAs repeating | (BASIC does not look) | `test_machine` fails |
+
+  The PB1 plant shows why the Dragon earned its place in M3: no CoCo
+  ROM reads the pin before the first field ends.
+
+  Before the every-key line was added, the V and W swap passed
+  `test_boot`, since `PRINT 2+3` and `PRINT MEM` type neither.
+- **The host tests pass**, eight of eight: `test_machine`, with a
+  dozen-instruction test ROM, needing no real ROM, covers the SAM's 16
+  bit pairs, RAM through the SAM in 16K and 64K modes with the page bit
+  and map type, the slow path where no chip answers, sixty FS interrupts
+  in sixty fields with CB1 disabled as the control, 262 HS interrupts a
+  field with CA1 disabled as the control, the Dragon's 312-line field and
+  287-line first, its 50 FS and 3,120 HS interrupts, its PIA decode with
+  and without expansion, the keyboard's rows and columns through PIA0,
+  the copy and the run contract. `test_mc6821` covers the
+  PIA from its datasheet, each rule beside a control. `test_romset`
+  covers SHA-1, the table against `roms/README.md`, and each image found.
+  The oracle, the behaviour tests and the bench still pass with the CPU's
+  changes, and the bench's counts are unchanged.
+- **Power-on**: the warm-start flag is `$71` against `$55`, which zeros
+  fail; `RND`'s seed comes from the ROM. No seed is taken from RAM
+  (`design.md` §13.3).
+- Both firmware builds are clean with the machine in the core library.
+
+**On the board**, 2026-11-14, the owner's Pico Plus 2 W: the bench, with
+this milestone's CPU and the machine's RAM, 87.6 host cycles an
+instruction on basic and 113.9 on the mix (M2: 88.1 and 113.3), 12.4 %
+and 13.3 % of core 0, counts equal to the host's. So `io_at` and the
+last-cycle rule cost nothing measurable. Capture in `out/m3/`, not
+committed.
+
+**CI** on GitHub, 2026-11-14, PR #4: green on both builds. The host job
+(Ubuntu, GCC) ran all eight tests: `test_machine` passed on its test ROM,
+`test_romset` passed what it can check without images, the oracle ran
+against XRoar 1.13, and `test_boot` skipped, as it must with no ROMs.
+So the boot and the trace diff are checked on the workstation only. The
+firmware job built both images, with and without the UART. Green again
+after the Dragon and 4 KB work (`a9cfc32`), with the Dragon's field and
+decode in `test_machine`.
+
+**Review**, 2026-11-15: the owner's review of PR #4, ten findings.
+
+| Finding | Outcome |
+|---|---|
+| A SAM rate change partway through a slice overshoots it | Fixed: the instruction ends the slice (`mc6809_stop`). `test_machine` runs fast for 150 lines, then slow; unfixed, the first field ends 282,336 ticks in, not 238,944 |
+| A PIA control write within a slice does not shorten it | Fixed likewise, as is an edge that schedules a rise. `test_machine` enables CA1 partway through a slice; unfixed, 33 line interrupts in that field, not 260 |
+| The IRQ output ignores C2 once C1 is enabled | Taken from the datasheet: each flag gated by its enable. XRoar's `write_cr` behaves as the old code did; no trace tells them apart. `test_mc6821` covers both cases |
+| A rise due after its interrupt is disabled still comes | Fixed: it stays down, as the datasheet gates it. XRoar's rise comes regardless; no trace tells them apart. `test_mc6821` |
+| P1 applied in map type 1 | Kept as XRoar has it. The CoCo 2 service manual says P1 is unused on the machine and should be kept clear, so no software relies on it; recorded in `design.md` §18 |
+| An empty or short trace reports agreement | Fixed: either side empty, or XRoar's shorter than ours, fails |
+| The trace driver's breakpoint judged interrupts from the lines now, not the latched ones | Fixed: `mc6809_fetches_next`, the core's own boundary decision |
+| Fixed capacities written as literals | Moved to `config.h`: ROM, cartridge, PIA ports, the matrix |
+| `map()` translates every byte of every page | Nine translations a page: the translation is a bit map. `test_machine` holds it to the byte by byte check in every size, mode, page bit and map type; seven bits checked instead of eight fails 768 pages |
+| `romset_identify` reads as a per-image loop | Rewritten as a size check, one hash, one lookup |
+
+After the fixes, all twelve configurations agree with XRoar for 1,500
+fields with typing and a program, and the 50-second programs on 64 KB
+Extended (10.9 million instructions), the Dragon 32 (12.9 million) and
+4 KB BASIC 1.1 (10.9 million).
+
+The stop costs on the board, measured on the owner's Pico Plus 2 W
+against a control in the same sitting: a flag checked each step gave
+90.1 and 116.0 host cycles an instruction on basic and the mix, the
+control 87.6 and 113.2; the run's limit as a field the machine zeroes
+gives 88.1 and 114.8, which is kept. Captures in `out/review/`, not
+committed.
+
+**Not checked:**
+
+- What the MC6883 does with P1 set in map type 1 (above): unused on the
+  CoCo 2, by its service manual.
+- The Dragon's PAL field against its schematic: it is XRoar's
+  placement, held by the trace diff (M14). Likewise PIA1 PB0 and the
+  start of PB1's feedback, which are XRoar's behaviour.
+- The Dragon's arrows, CLEAR and BREAK, as the CoCo's (M5).
+- BASIC 1.0, and `dplus49b.rom` (DOSplus 4.9B, in XRoar's list), which
+  is in `roms/` but not in the table until DragonDOS (M14).
+- The SAM's fast rates (R0's address-dependent one runs at rate 0; M11)
+  and its video counter (M4); open bus after the indexed modes whose last
+  cycle before the access is not a dead one; PIA C2 pulse modes.
+- Keyboard ghosting and the column lines driven back by rows; the
+  arrows, CLEAR, BREAK, hold and gap (M5).
+- HALT released with a line raised while halted (from M1).
+
 ## M2: the gate, the CPU alone on the board
 
 On branch `m2`, 2026-11-14 (`design.md` §7.5, §17).
