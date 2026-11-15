@@ -135,7 +135,9 @@ committed.
 `test_romset` passed what it can check without images, the oracle ran
 against XRoar 1.13, and `test_boot` skipped, as it must with no ROMs.
 So the boot and the trace diff are checked on the workstation only. The
-firmware job built both images, with and without the UART.
+firmware job built both images, with and without the UART. Green again
+after the Dragon and 4 KB work (`a9cfc32`), with the Dragon's field and
+decode in `test_machine`.
 
 **Not checked:**
 
