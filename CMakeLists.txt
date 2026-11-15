@@ -15,6 +15,8 @@ option(PICO_COCO_HOST "Build the portable core and its host tests, with no Pico 
 set(PICO_COCO_CORE_SOURCES
     src/core/bus.c
     src/core/coco.c
+    src/core/keymap_picocalc.c
+    src/core/keymatrix.c
     src/core/mc6809.c
     src/core/mc6821.c
     src/core/mc6847.c

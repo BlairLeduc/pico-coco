@@ -43,6 +43,22 @@
 #define COCO_KEY_COLS           8
 #define COCO_KEY_ROWS           7
 
+/* The held-key set (§11.1, keymatrix.h). */
+#define COCO_KEY_EVENT_QUEUE   64u  /* southbridge FIFO holds 31 (HW §6.2) */
+#define COCO_KEY_HELD_MAX       8u  /* keys down at once                   */
+#define COCO_KEY_TEXT_EVENTS    4u  /* one ASCII byte: a modifier around a key */
+
+/* The replay's pace (§11.1, §18). Color BASIC scans the keyboard in
+ * the foreground, not on an interrupt, so a key is seen only while BASIC
+ * waits for one. Executed 2026-11-15 (test_keyboard): 1.3 and Extended
+ * 1.1 take a key held 2 fields from every phase against the field, 1.1
+ * needs 3, and all three need a field with the key up before it is typed
+ * again; none repeats a held key. The replay holds and gaps a field
+ * longer than the slowest ROM needs, for the line BASIC is busy storing
+ * when the next key comes (test_keyboard's long program). */
+#define COCO_KEY_MIN_FIELDS     4u
+#define COCO_KEY_GAP_FIELDS     2u
+
 /* ---- The picture (design.md §9.6, D11) ------------------------------- */
 
 #define COCO_PIC_W            256u
