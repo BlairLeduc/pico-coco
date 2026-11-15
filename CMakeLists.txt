@@ -17,8 +17,13 @@ set(PICO_COCO_CORE_SOURCES
     src/core/coco.c
     src/core/mc6809.c
     src/core/mc6821.c
+    src/core/mc6847.c
+    src/core/mc6847_font.c
+    src/core/present.c
     src/core/romset.c
+    src/core/sam6883.c
     src/core/sha1.c
+    src/core/snappool.c
 )
 
 set(PICO_COCO_WARNINGS -Wall -Wextra -Werror)

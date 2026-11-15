@@ -639,13 +639,38 @@ it from the SAM's mode: how many bytes a row has, and after how many
 scanlines the address advances (every 12, 3, 2 or 1). When the two chips
 agree this reduces to the Atom's nine modes. When they do not, the result
 is what the hardware shows: the semigraphics 8, 12 and 24 modes are a
-text-mode VDG fed a new row of bytes every 4, 3 or 1 scanlines.
+text-mode VDG fed a new row of bytes every 3, 2 or 1 scanlines (SAM
+modes 2, 4 and 6; this read "4, 3 or 1" until M4 executed it).
 
 The text generator gains the CoCo's wiring (§3.4): semigraphics 4 as
 well as 6, chosen by GM0; inverse on bit 6; the character set from the
 Atom's verified table, with its layout asserted against the data
 (EL §5.5). The MC6847T1's lower case, for later CoCo 2s, is a variant
 table and a machine option (§20).
+
+**As built in M4** (2026-11-15). A row source of "bytes a row, and lines
+before it advances" cannot describe the mismatched pairs exactly, so the
+SAM's **video address counter** is modelled instead (`sam6883.c`): B15–B0
+as a ripple counter, loaded from F at FS's rise, clocked by the VDG's
+fetches, with the X divider between B3 and B4 and the Y divider between
+B4 and B5 chosen by V, and B1–B4 or B1–B3 cleared at each fall of HS. The
+divisions and clears are the datasheet's table; the edges are XRoar's
+model, from Stewart Orchard's research for the SAMx4 (§18). The VDG
+fetches 32 bytes a line or 16 by its own mode, and in XRoar it goes on
+fetching through the right border, 42 or 22 in all, which the counter
+counts: in some mismatched pairs that moves the X divider (§18). The
+renderer then decodes **one line of fetched bytes** at a time, the row
+within a text cell being the line modulo 12; every pair of modes renders
+through the one path. A change of V while the counter runs, and the
+glitches XRoar models for it, is not modelled (§9.4). The VDG's address
+takes neither the page bit nor the second bank, as XRoar's fetch has it
+(§18).
+
+The wiring of a byte (§3.4) is as listed: bit 7 to A/S, bit 6 to INV, and
+INT/EXT from GM0. With INT/EXT high and A/S low there is no external
+character ROM on these machines, and the VDG shows the byte's own bits
+as the row, as XRoar has it. The alphanumeric ink with CSS high is the
+datasheet's "bright orange", a twelfth colour index; drawn as orange.
 
 ### 9.3 The snapshot
 
@@ -659,6 +684,22 @@ Published at the end of each field, **where the next active line begins**
 
 The pool is three such buffers, about 19 KB. Copying 6 KB costs core 0
 tens of microseconds a field.
+
+**As built in M4** (2026-11-15): `coco_frame_t` holds the VDG's mode, the
+SAM's mode and display offset, the field number, and **for each of the
+192 active lines the 32 bytes the VDG fetched on it** (16 used in the
+16-byte modes, the rest zero): 6,144 bytes, filled by
+`coco_video_snapshot` walking the counter of §9.2 a 16-byte run at a
+time, from RAM as it is where the next active line begins. The status
+bytes come with the status line (M7). `present.c` is the presenter's
+plan, in the core so the host can test it: a change of the VDG's mode,
+or `present_invalidate` from the caller when the palette, dark
+background or artefacts change, repaints every band; otherwise a band
+is sent across the columns whose bytes changed. `snappool.c` is
+pico-oric's pool. The port's half, core 1 drawing into the panel, is
+M7's. Before BASIC sets PIA1 port B's direction the VDG reads its mode
+pins low, as XRoar's PIA has an undriven input, so the first field is
+alphanumeric.
 
 **The mode belongs in the shadow** (EL §5.3): the presenter compares the
 snapshot's modes with the presented ones first, and a change marks every
@@ -680,6 +721,12 @@ heartbeat and in the archive run. Whether to render split fields, with a
 table per region, is decided by that count, not by expectation
 (EL §4.2).
 
+**As built in M4** (2026-11-15): the count, not yet the list. A write to
+PIA1 port B or to the SAM's V or F that changes the video bits while the
+VDG is on an active line, by the tick of the write, marks the field, and
+`coco_t.split_fields` counts the fields so marked. The list of changes is
+built if the archive run's count asks for split rendering.
+
 ### 9.5 Colour, artefacts and the border
 
 - The palette is the Atom's `mc6847_palette`, with the mono palette from
@@ -695,6 +742,19 @@ table per region, is decided by that count, not by expectation
   which do not show it.
   XRoar's finer table, which looks across byte boundaries, is not built
   (§20).
+  **As built in M4** (2026-11-15): XRoar's simple renderer's rule. Each
+  pair of pixels from the line's start, both black or white, is black,
+  blue, red or white by the pattern 00, 01, 10, 11 (left then right),
+  and the two phases are XRoar's two composite inputs, KBRW (that order,
+  XRoar's default for NTSC machines) and KRBW. Only RG6 with CSS high has
+  single pixels to pair, so only its table takes them; the mono palette
+  shows none. The colours are XRoar's simple table's, a sky blue and an
+  orange. The setting itself comes with the menu (M9).
+- **The backgrounds.** XRoar's VDG, and so this one, gives dark green
+  behind alphanumeric cells with CSS low, dark orange with it high, and
+  dark green behind the two-colour graphics modes with CSS low; black
+  with CSS high and behind semigraphics. A setting draws the dark colours
+  as such or as black (the Atom's), black by default.
 - **The border** is drawn only when its colour changes (EL §5.4).
 
 ### 9.6 Geometry, status, pages
@@ -958,6 +1018,14 @@ A guest loop on the host must see FS low and escape once a field, and a
 redraw begun at the field interrupt must be complete in every snapshot,
 with the wrong field shape as a control that fails (EL §5.6).
 
+**As built in M4** (2026-11-15): `coco_run_field` runs on past FS's rise
+to the next field's first active line (line 38; on the Dragon's PAL field
+63, 25 held and 38 of the VDG's), and the snapshot is taken there; the
+first field after power-on runs from tick 0. `test_video` holds the
+rules above with a guest loop and a 58-line redraw, and snapshots taken
+where FS rises as the control. The trace diff agrees as before, since the
+split adds a boundary and moves no instruction.
+
 ### 13.2 Clocks
 
 One master oscillator per machine: 14.31818 MHz on NTSC machines, and
@@ -1124,6 +1192,10 @@ booted on the host from M3, because its different ROM and matrix are a
 cheap check that the wiring is data and not assumption, but nothing waits
 for it, and it reaches the device in M14.
 
+**The Dragon is frozen until M14** (the owner, 2026-11-15): no milestone
+before it adds to the Dragon 32 or 64. What M3 built stays, and its tests
+keep passing.
+
 | M | What | Done when |
 |---|---|---|
 | **M0** | Repository, the two-target build, `config.h`, CI, `CLAUDE.md`, `milestones.md`; the siblings' files sorted into §5's lists | CI green on both builds; an SDK include in a core header shown to fail the host build (EL §2.1) |
@@ -1163,10 +1235,10 @@ configuration; once settled, it is a constant.
 | Lines a field and their layout on PAL machines; where FS and the field interrupt fall | 312, the extra lines inserted by a circuit outside the VDG. **M3, the Dragon 32**: XRoar's placement (§13.1), which the trace diff holds through boot, typing and 50 guest seconds of a program; the schematic not yet read | Low | Dragon 32 schematic and service manual |
 | Ticks a line and the active line's start | 57 CPU cycles; the datasheet's. **M3**: 912 ticks a line, 262 a field, FS falling as line 230 begins, held to XRoar's field interrupts by the trace diff | Medium | MC6847 datasheet |
 | PIA IRQ response time tRS3 (§8.3) | 1 µs, 14 ticks as XRoar counts it; **M3**: the trace diff needs it | Medium | MC6821 datasheet figure 13 |
-| The SAM's bit pairs, its address-counter rule for each video mode, its rate rules and the stretched cycle (§8.2) | As §3.2, §8.2. **M3**: the bit pairs, and RAM's row and column in 4K, 16K and 64K modes for 4K, 16K, 32K and 64K chips as XRoar models them, held through boot in every size by the trace diff; the video counter (M4) and rates (M11) not yet. P1 in map type 1: XRoar's model, and so this core, applies it in both map types, so in all-RAM mode with P1 set the two halves of $0000-$7FFF alias; the M3 review read the datasheet as map type 0 only. The Color Computer 2 service manual says P1 "controls a feature which is not used in the Color Computer 2" and "should be cleared at all times" (2026-11-15), so no software for the machine relies on it either way; XRoar's behaviour is kept. The datasheet would settle the chip's behaviour | Medium | MC6883 datasheet; XRoar's traces |
+| The SAM's bit pairs, its address-counter rule for each video mode, its rate rules and the stretched cycle (§8.2) | As §3.2, §8.2. **M3**: the bit pairs, and RAM's row and column in 4K, 16K and 64K modes for 4K, 16K, 32K and 64K chips as XRoar models them, held through boot in every size by the trace diff; rates (M11) not yet. **M4**: the video counter (§9.2), XRoar's model of its dividers and HS clears, held pixel for pixel to XRoar's MC6883 feeding its MC6847 in every pairing of the eight SAM modes with the ten VDG modes, in both colour sets (`test_vdg_oracle`), and the matched pairs to the addresses the datasheet's modes imply (`test_video`). P1 in map type 1: XRoar's model, and so this core, applies it in both map types, so in all-RAM mode with P1 set the two halves of $0000-$7FFF alias; the M3 review read the datasheet as map type 0 only. The Color Computer 2 service manual says P1 "controls a feature which is not used in the Color Computer 2" and "should be cleared at all times" (2026-11-15), so no software for the machine relies on it either way; XRoar's behaviour is kept. The datasheet would settle the chip's behaviour | Medium | MC6883 datasheet; XRoar's traces |
 | What unpopulated memory and unused I/O read (§8.1) | **M3**: absent RAM `$FF`; empty sockets and unused I/O the byte at `$FFFF` (§8.1), as XRoar's trace needs | Medium | Schematics; neither assumed `$FF` |
 | The PIA wiring of §3.3, bit for bit, on each machine | As listed. **M3, the CoCo**: IRQ from PIA0, FIRQ from PIA1; the RAM strap on PIA1 PB2 (low on 4K, high on 16K, linked to PIA0 PB6 on 32K and 64K); port B's undriven inputs low; PB1 reading the silent sound high; PA0 the cassette, low; PA7 the comparator; PIAs repeating over 32 bytes. Each one the boot trace needs (§15.2). **M3, the Dragon 32**: PIA1 PB0, the printer's BUSY, read low, as XRoar's absent printer is never busy, over the pull-up; PB2 high with 4K or 16K chips and low with larger; the PIAs repeating with 32 KB and answering only with A2 low above it. PB1 reads low until XRoar's sound first updates (the first FS rise, or PB1 or CB2 enabling the sound) and the silent sound high after: the Dragon reads it 23 instructions after reset, the CoCos only after the first field. That and PB0 are XRoar's behaviour, not yet the hardware's | Medium | Schematics; the ROMs executed |
-| VDG data wiring: bit 7 A/S, bit 6 INV, INT/EXT from GM0 (§3.4) | As listed | Medium | Schematics; the ROM's own screen, executed |
+| VDG data wiring: bit 7 A/S, bit 6 INV, INT/EXT from GM0 (§3.4); the mode on PIA1 PB3–PB7 (§3.3) | As listed. **Settled in M4** (2026-11-15), the ROMs executed: PB7 A/G, PB6–PB4 GM2–GM0 and PB3 CSS by Extended Color BASIC's PMODE 0–4 under SCREEN 1,0 and 1,1, each giving the datasheet's matched VDG and SAM modes (`test_screen`); bit 7 A/S and bit 6 INV by BASIC's own screen, read back from the snapshot as the text guest_row reads from RAM, and SET drawing semigraphics 4. INT/EXT from GM0 is XRoar's wiring, held by the VDG oracle; no ROM run selects it | High; INT/EXT medium | The ROMs executed; schematics for INT/EXT |
 | Both keyboard matrices (§11.2) | **M3, the CoCo**: every letter, digit and shifted symbol typed through the matrix and printed back by Color BASIC 1.3 and Extended 1.1 (`test_boot`); the arrows, CLEAR and BREAK not yet (M5). **M3, the Dragon 32**: the same keys, by the same test through Dragon BASIC, on XRoar's table (the CoCo's rows turned by two, the digits first) | — | Each ROM executed |
 | Key hold and gap for each ROM (§11.1) | A few fields | Low | Each ROM executed |
 | The ROMs' tape block routines, their entry bytes and what they leave (§12.3) | Unwritten | — | The ROMs read and executed |
@@ -1177,7 +1249,10 @@ configuration; once settled, it is a constant.
 | VDK and JVC header rules | Community descriptions | Low | A corpus of real files (EL §8.8) |
 | Seeds and flags in RAM at power-on (§13.3) | **M3, the CoCo**: none taken from RAM; the warm-start flag `$71`/`$55` fails on zeros (§13.3) | High | Both ROMs read |
 | What the Dragon 64's ROM needs of the 6551 at boot (§8.4) | Idle registers | Low | The ROM executed |
-| Artefact colours: which pair gives which colour in each phase (§9.5) | Blue and red, swapped by phase | Low | XRoar's table; photographs of a real set |
+| Artefact colours: which pair gives which colour in each phase (§9.5) | Blue and red, swapped by phase. **M4**: XRoar's simple renderer's rule, its colours, and its two phases, KBRW its NTSC default; held to that rule applied to XRoar's VDG output by the oracle; no photograph compared | Low | XRoar's table; photographs of a real set |
+| The VDG's fetches on a line (§9.2) | **M4**: 42 bytes in the 32-byte modes and 22 in the 16-byte ones, on to the right border, each counted by the SAM; XRoar's VDG | Medium | MC6847 datasheet's timing; a mismatched pair on a real machine |
+| The VDG's address through the multiplexer (§9.2) | **M4**: no page bit P, and the first bank, as XRoar's fetch; only a machine with two banks or P set could tell | Low | MC6883 datasheet |
+| The VDG's mode pins while PIA1 port B is an input (§9.3) | **M4**: low, as XRoar's PIA has an undriven pin; seen only before BASIC sets the port's direction | Low | Schematics |
 
 **Settled in M1**, 2026-11-14:
 

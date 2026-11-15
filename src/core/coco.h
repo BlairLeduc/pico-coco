@@ -2,8 +2,9 @@
  *
  * The CPU, the page table it reaches memory through, the SAM, the two
  * PIAs, RAM, the ROMs and the keyboard matrix, and the field loop that
- * runs them in master-oscillator ticks (§8.2, §13). The VDG arrives in M4,
- * audio in M8, the card and cartridges in M9.
+ * runs them in master-oscillator ticks (§8.2, §13), and the snapshot of
+ * what the VDG shows (§9.3). Audio arrives in M8, the card and
+ * cartridges in M9.
  *
  * The bus's slow path is bus.c's, and it decodes this machine. A host test
  * that runs the CPU alone on its own memory (test_mc6809_*, the bench)
@@ -23,6 +24,7 @@
 #include "config.h"
 #include "mc6809.h"
 #include "mc6821.h"
+#include "mc6847.h"
 #include "sam6883.h"
 
 /* Exactly two pointers, as the siblings' (EL §4.1). A NULL read pointer
@@ -42,6 +44,17 @@ typedef struct {
     coco_machine_t machine;
     unsigned       ram_k;      /* 4, 16, 32 or 64                          */
 } coco_config_t;
+
+/* What the VDG shows in a field (§9.3): its mode and the SAM's, and for
+ * each active line the bytes the VDG fetched on it, COCO_VDG_LINE_BYTES
+ * apart, the first 16 or 32 of them used by the mode. */
+typedef struct {
+    uint8_t  mode;        /* the VDG's, packed (mc6847.h)               */
+    uint8_t  sam_v;       /* the SAM's video mode                        */
+    uint16_t base;        /* the display offset, F x 512                 */
+    uint32_t field;       /* coco_t.fields when taken                    */
+    uint8_t  lines[COCO_SNAP_VRAM_MAX];
+} coco_frame_t;
 
 /* The CPU's interrupt sources (mc6809.h). */
 #define COCO_IRQ_PIA0   0x01u
@@ -70,11 +83,19 @@ typedef struct coco_s {
     uint32_t fields;
     bool     sound_fed;        /* the sound has fed PIA1 PB1 back (coco.c) */
 
+    /* §9.4: the video bits (the VDG's mode and the SAM's V and F) as last
+     * seen, whether they changed during this field's active lines, and how
+     * many fields so far have had such a change. */
+    uint32_t video_bits;
+    bool     video_split;
+    uint32_t split_fields;
+
     /* The field's shape, computed at power-on (§13.1, §18: medium). */
     uint32_t line_ticks;       /* 57 E cycles of 16 ticks               */
     uint32_t field_lines;      /* 262 on NTSC, 312 on PAL               */
     uint32_t fs_fall_line;     /* FS falls as this line begins          */
     uint32_t field_lead;       /* PAL: lines the first field lacks      */
+    uint32_t active_line;      /* the first active line                 */
     uint32_t hs_low_ticks;     /* HS is low this long from a line's start */
 
     /* RAM: the chips' organisation, from the size (§8.1). */
@@ -119,8 +140,20 @@ void     coco_reset(coco_t *m);
  * count, and the caller carries the overshoot (§6, EL §2.2). */
 uint32_t coco_run(coco_t *m, uint32_t ticks);
 
-/* One field, split where FS falls (§13.1). Returns its ticks. */
+/* One field, split where FS falls and where it rises (§13.1), ending
+ * where the next field's first active line begins, which is where the
+ * caller takes the snapshot (EL §5.6). The first after power-on runs from
+ * tick 0. Returns its ticks. */
 uint32_t coco_run_field(coco_t *m);
+
+/* What the VDG will show in the field whose active lines begin now
+ * (§9.3): its mode as PIA1 port B drives it, and each line's bytes as the
+ * SAM's counter fetches them in the SAM's mode, from RAM as it is now.
+ * Called after coco_run_field. */
+void     coco_video_snapshot(const coco_t *m, coco_frame_t *out);
+
+/* The VDG's mode as PIA1 port B drives it now. */
+uint8_t  coco_vdg_mode(const coco_t *m);
 
 /* The time now, in ticks. */
 uint64_t coco_ticks(const coco_t *m);
@@ -135,6 +168,10 @@ void     coco_copy(coco_t *dst, const coco_t *src);
 /* Where an address in the RAM space is in `ram`, through the SAM's row
  * and column and the chips' organisation; -1 where no chip answers. */
 int32_t  coco_ram_index(const coco_t *m, uint16_t a);
+
+/* The same for the VDG's address: no page bit, and the first bank, as
+ * XRoar has it (§18). */
+int32_t  coco_vram_index(const coco_t *m, uint16_t a);
 
 /* The slow path's decode, for bus.c. */
 uint8_t  coco_slow_read(coco_t *m, uint16_t a);

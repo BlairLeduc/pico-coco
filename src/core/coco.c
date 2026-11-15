@@ -40,7 +40,7 @@ static void set_ram_org(coco_t *m) {
  * medium): 4K and 16K modes take a second bank on A12 or A14 and force the
  * high row and column bit for the first; 64K mode takes the page bit P as
  * the column's top bit. */
-int32_t coco_ram_index(const coco_t *m, uint16_t a) {
+static int32_t ram_index(const coco_t *m, uint16_t a, bool video) {
     static const uint16_t row_mask[4]  = { 0x7Fu, 0x7Fu, 0xFFu, 0xFFu };
     static const uint8_t  col_shift[4] = { 6, 7, 8, 8 };
     static const uint16_t col_mask[4]  = { 0x3Fu, 0x7Fu, 0xFFu, 0xFFu };
@@ -48,16 +48,27 @@ int32_t coco_ram_index(const coco_t *m, uint16_t a) {
 
     unsigned msize = sam6883_m(&m->sam);
     unsigned ras1 = msize < 2 ? 0x80u : 0u;
-    unsigned page = (msize >= 2 && sam6883_p(&m->sam)) ? 0x80u : 0u;
+    unsigned page = (!video && msize >= 2 && sam6883_p(&m->sam)) ? 0x80u : 0u;
     unsigned extra = (a & ras1_bit[msize]) ? 0u : ras1;
     unsigned row = (a & row_mask[msize]) | extra;
     unsigned col = ((a >> col_shift[msize]) & col_mask[msize]) | extra | page;
-    unsigned bank = (ras1 && (a & ras1_bit[msize])) ? 1u : 0u;
+    unsigned bank = (!video && ras1 && (a & ras1_bit[msize])) ? 1u : 0u;
     if (bank >= m->ram_banks) return -1;
 
     unsigned r = m->ram_row_bits, c = (unsigned)m->ram_addr_bits - r;
     unsigned idx = (row & ((1u << r) - 1u)) | ((col & ((1u << c) - 1u)) << r);
     return (int32_t)((bank << m->ram_addr_bits) | idx);
+}
+
+int32_t coco_ram_index(const coco_t *m, uint16_t a) {
+    return ram_index(m, a, false);
+}
+
+/* The VDG's fetch goes through the same multiplexer, but XRoar's takes
+ * neither the page bit nor the second bank (its VRAM_TRANSLATE and the
+ * fetch from bank 0; §18). */
+int32_t coco_vram_index(const coco_t *m, uint16_t a) {
+    return ram_index(m, a, true);
 }
 
 /* ---- the page table (§8.1) -------------------------------------------- */
@@ -234,6 +245,31 @@ static void before_pia(coco_t *m) {
     bring_up(m, t);
 }
 
+/* ---- the video bits (§9.4) -------------------------------------------- */
+
+/* PIA1 PB3-PB7 drive CSS, GM0-GM2 and A/G (§3.3). An input nothing drives
+ * reads low, as XRoar's PIA has it for the VDG too, so before BASIC sets
+ * the port's direction the VDG is in its first alphanumeric mode. */
+uint8_t coco_vdg_mode(const coco_t *m) {
+    const mc6821_port_t *b = &m->pia1.b;
+    return mc6847_mode_from_pb((uint8_t)(b->out & b->ddr));
+}
+
+static uint32_t video_bits(const coco_t *m) {
+    return ((uint32_t)coco_vdg_mode(m) << 16) | (m->sam.reg & (SAM_V_MASK | SAM_F_MASK));
+}
+
+/* After a write that may change the video bits: if they changed while the
+ * VDG was showing an active line, this field shows more than one mode,
+ * which the snapshot cannot (§9.4), and it is counted. */
+static void note_video(coco_t *m, uint64_t t) {
+    uint32_t bits = video_bits(m);
+    if (bits == m->video_bits) return;
+    m->video_bits = bits;
+    uint64_t line = (t - m->field_start) / m->line_ticks;
+    if (line >= m->active_line && line < m->active_line + COCO_PIC_H) m->video_split = true;
+}
+
 /* ---- the PIAs' pins (§3.3) -------------------------------------------- */
 
 /* PIA0 port A: the keyboard's rows, low where a pressed key's column is
@@ -358,8 +394,9 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
     if (off < 0x40u) {
         if (!pia_selected(m, a)) return;
         before_pia(m);
-        mc6821_write(&m->pia1, reg, v);   /* M4: VDG mode; M8: sound */
+        mc6821_write(&m->pia1, reg, v);   /* M8: sound */
         note_sound(m);
+        note_video(m, access_tick(m));
         update_irq(m);
         if (reg & 1u) mc6809_stop(&m->cpu);
         return;
@@ -368,6 +405,7 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         uint16_t changed = sam6883_write(&m->sam, a);
         if (changed & SAM_MAP_BITS) map(m);
         if (changed & SAM_R_MASK) retime(m);
+        if (changed & (SAM_V_MASK | SAM_F_MASK)) note_video(m, access_tick(m));
     }
 }
 
@@ -411,6 +449,7 @@ void coco_init(coco_t *m, const coco_config_t *cfg) {
     m->line_ticks = 57u * 16u;
     m->field_lines = 262u;
     m->fs_fall_line = 13u + 25u + 192u;
+    m->active_line = 13u + 25u;
     m->hs_low_ticks = 64u;
     if (cfg->machine == COCO_MACHINE_DRAGON32) {
         /* The Dragon's PAL field, as XRoar's vdg_pal.c makes it (§13.1,
@@ -421,6 +460,7 @@ void coco_init(coco_t *m, const coco_config_t *cfg) {
          * the leading 25. */
         m->field_lines = 262u + 50u;
         m->fs_fall_line = 25u + m->fs_fall_line;
+        m->active_line = 25u + m->active_line;
         m->field_lead = 25u;
     }
 
@@ -473,7 +513,10 @@ void coco_power_on(coco_t *m) {
     m->field_start = 0u - (uint64_t)m->field_lead * m->line_ticks;
     m->fields = 0;
     m->sound_fed = false;
+    m->video_split = false;
+    m->split_fields = 0;
     coco_reset(m);
+    m->video_bits = video_bits(m);
 }
 
 /* A slice ends at the target, or a cycle after a PIA's interrupt output
@@ -513,7 +556,9 @@ uint32_t COCO_HOT2(coco_run)(coco_t *m, uint32_t ticks) {
 }
 
 /* FS falls at its line, set at the first boundary at or after it (or
- * sooner, by an access to a PIA), and rises as the next field begins. */
+ * sooner, by an access to a PIA), and rises as the next field begins; the
+ * run goes on to that field's first active line, where the snapshot is
+ * taken (EL §5.6). */
 uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
     uint64_t start = coco_ticks(m);
     uint64_t fall = m->field_start + (uint64_t)m->fs_fall_line * m->line_ticks;
@@ -532,7 +577,55 @@ uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
 
     m->field_start = end;
     m->fields++;
+    if (m->video_split) m->split_fields++;
+    m->video_split = false;
+
+    uint64_t active = end + (uint64_t)m->active_line * m->line_ticks;
+    now = coco_ticks(m);
+    if (now < active) (void)coco_run(m, (uint32_t)(active - now));
     return (uint32_t)(coco_ticks(m) - start);
+}
+
+/* ---- the snapshot (§9.3) ---------------------------------------------- */
+
+/* The VDG fetches through the right border as well, 42 bytes a line in
+ * its 32-byte modes and 22 in its 16-byte ones, and the SAM's counter
+ * counts them all; the picture shows the first 32 or 16. XRoar's VDG
+ * (§18: medium). In matched modes the extra bytes change nothing; in
+ * some mismatched ones they move the X divider. Only the active lines
+ * fetch, and HS clears part of the counter before each. */
+void coco_video_snapshot(const coco_t *m, coco_frame_t *out) {
+    uint8_t mode = coco_vdg_mode(m);
+    const mc6847_mode_info_t *info = mc6847_mode_info(mode);
+    unsigned shown = info->bytes_per_line;
+    unsigned fetched = shown == 32u ? 42u : 22u;
+
+    out->mode = mode;
+    out->sam_v = (uint8_t)sam6883_v(&m->sam);
+    out->base = sam6883_display_base(&m->sam);
+    out->field = m->fields;
+
+    sam6883_vc_t vc;
+    sam6883_vc_load(&vc, &m->sam);
+    for (unsigned y = 0; y < COCO_PIC_H; y++) {
+        uint8_t *dst = &out->lines[y * COCO_VDG_LINE_BYTES];
+        sam6883_vc_hsync(&vc);
+        unsigned got = 0;
+        while (got < fetched) {
+            uint16_t a;
+            unsigned n = sam6883_vc_fetch(&vc, fetched - got, &a);
+            if (got < shown) {
+                unsigned k = n < shown - got ? n : shown - got;
+                /* Sixteen bytes from a 16-byte boundary lie in order in
+                 * the chips: the low four address bits are row bits. */
+                int32_t i = coco_vram_index(m, a);
+                if (i < 0) memset(dst + got, 0xFF, k);
+                else       memcpy(dst + got, &m->ram[i], k);
+            }
+            got += n;
+        }
+        if (shown < COCO_VDG_LINE_BYTES) memset(dst + shown, 0, COCO_VDG_LINE_BYTES - shown);
+    }
 }
 
 void coco_key_set(coco_t *m, int row, int col, bool down) {

@@ -52,11 +52,18 @@
 #define COCO_PANEL_W          320u
 #define COCO_PANEL_H          320u
 
-/* ---- The snapshot pool (design.md §9.3, EL §2.4) --------------------- */
+/* ---- The VDG and the snapshot pool (design.md §9, EL §2.4) ----------- */
 
+/* The VDG fetches 32 bytes on an active line, or 16, and the snapshot
+ * keeps 32 a line for each of the 192 (§9.3). */
+#define COCO_VDG_LINE_BYTES    32u
 #define COCO_SNAP_BUFFERS       3u
-/* The most bytes the SAM fetches in a field: 32 bytes a row, a new row
- * every scanline, 192 rows. */
-#define COCO_SNAP_VRAM_MAX   6144u
+#define COCO_SNAP_VRAM_MAX   (COCO_PIC_H * COCO_VDG_LINE_BYTES)   /* 6144 */
+/* The graphics table's widest entry: a byte of a 16-byte mode is 16
+ * pixels (§9.2). */
+#define COCO_LUT_PX_MAX        16u
+/* The presenter's dirty bands, in lines (§9.3, EL §5.3). */
+#define COCO_BAND_ROWS          8u
+#define COCO_BANDS           (COCO_PIC_H / COCO_BAND_ROWS)
 
 #endif /* PICO_COCO_CONFIG_H */
