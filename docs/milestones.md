@@ -4,6 +4,97 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M5: the keyboard, on the host
+
+On branch `m5`, 2026-11-15 (`design.md` §11, §17). Host only.
+
+**Built.** `src/core/keymatrix.c` and `keymatrix.h`, pico-oric's held-key
+set adapted to the CoCo: the queue that never loses a release, canonical
+codes, the binding fixed at press, the replay paced for the ROM, the
+Alt layer, the menu's requests and the text path for the UART. What
+changed is the guest's: an entry may take the guest's SHIFT away
+(`KM_NOSHIFT`) as well as add it, the latest key down that says anything
+about SHIFT decides it, held keys are kept in the order they went down,
+both Shifts are the one SHIFT, and Ctrl reaches nothing. The guest's
+SHIFT changes a field ahead of the key that changes it.
+`src/core/keymap_picocalc.c`, the table, written from the sweep below
+(§11.3). `config.h` gains the queue's sizes and the replay's 4 fields
+held and 2 up. The host harness types on a CoCo through PicoCalc events
+and `keymatrix_field` a field, as the firmware will, and on a Dragon by
+M3's table, straight into the matrix. `test_keymap` (no ROM) and
+`test_keyboard` (the ROMs) are new. No layout code was copied: layouts
+come with the keyboard joystick in M12.
+
+**Checked on the workstation** (macOS, Apple clang 21.0.0; the owner's
+ROMs):
+
+- **The matrix, by the ROMs** (§11.2, §18). Every one of the 56 cells
+  pressed at the prompt, alone and with SHIFT, in Color BASIC 1.1, Color
+  BASIC 1.3 and Extended Color BASIC 1.1 in 64 KB, and what POLCAT
+  (through its vector at $A000) returned read back. The three ROMs agree
+  in every cell. Letters are the same with SHIFT in upper case; SHIFT+@
+  is $13; SHIFT+0 returns nothing and flips CASFLG at $011A; the arrows
+  are $5E $0A $08 $09, and with SHIFT $5F $5B $15 $5D; CLEAR is $0C, and
+  $5C with SHIFT; BREAK is $03 either way. The four cells of row 6
+  without a key decode bytes past the ROM's table. Kept as the sweep in
+  `test_keyboard`.
+- **Every table entry typed through the replay into each ROM**: the 111
+  entries with a cell, each as the PicoCalc would send it (inside Shift
+  where the PicoCalc shifts it, inside Alt for the Alt layer), and POLCAT
+  returned exactly the one code the table means; Alt+0 returned nothing
+  and flipped CASFLG. On the screen: Backspace rubs out, End and
+  Alt+Left erase the line, Tab clears the screen, Esc stops a running
+  program with `BREAK IN 10`, and Alt+0 twice turns lower case on and
+  off.
+- **The hold and the gap** (§11.1). "AABBAB112" typed straight into the
+  matrix from 240 phases a thousand ticks apart: 1.3 types it at 2 fields
+  held and 1 up, 1.1 and Extended need 3 held. The controls fail: a field
+  fewer held, and no field up. 48 phases at 5,000 ticks found Extended's
+  need as 2; the window where it loses a key is a few thousand ticks
+  wide. A key held 300 fields types once. Through the replay a line of 10
+  keys arriving in one poll takes 59 fields, 5.9 a key.
+- **The long program.** 60 lines of `n PRINT n*n`, each line arriving in
+  one poll, through the replay: all 60 stored in each ROM (counted along
+  the line links from TXTTAB at $19), and `RUN` printed through 3600.
+  Straight into the matrix at each ROM's minimum it stored 60, 60 and 59
+  (Extended, typed at 2 fields, below its 3); at the replay's 4 and 2, 60;
+  at 1 field held, the control, 7, 8 and 10.
+- **Type-ahead**: XYZ typed during a loop, then `INKEY$` twice reads Z
+  and nothing, and the prompt is empty. The BREAK check keeps the last
+  key it saw.
+- **The tests bite.** Planted one at a time: `[` on UP failed both tests;
+  `@` without `KM_NOSHIFT` failed both; no lead before a key that changes
+  SHIFT failed `test_keymap` (8) and passed `test_keyboard`, as the ROMs
+  at the prompt never caught a scan straddling the field boundary; the
+  replay at 2 held failed `test_keyboard` (4); no gap failed it (12); Ctrl
+  ignored failed `test_keymap`. Removing a held key out of order failed
+  neither, until a test of three keys held and the first let go was
+  added to `test_keymap`, which then failed.
+- **The trace diff still agrees**: Extended Color BASIC in 64 KB through
+  `PRINT 2+3`, 2,187,479 instructions (its typing is XRoar's, not the
+  replay).
+- All 16 host tests pass. Both firmware builds are clean and unchanged
+  in size (22,772 and 20,940 bytes of text): the image does not yet run
+  the machine or link the keyboard. The new sources compile under the Arm
+  GCC 15.2 with `-Wall -Wextra -Werror`, but for `guest.c`, whose
+  `dirent.h` newlib lacks, as before.
+
+**The Dragon is frozen until M14** (the owner, 2026-11-15). M5's "the
+Dragon's matrix as a second table" moved to M14; `test_boot` still types
+into the Dragon 32 by M3's table, and passes.
+
+**Not checked:**
+
+- Anything on a device: the southbridge's events through the queue from
+  core 1, and a person typing (M6, M7). That Alt+0 and Alt+`@` arrive as
+  `0` and `@` with Alt held is read from the MCU's source, not seen.
+- What games read: SHIFT alone, keys held together, a scan between the
+  field's boundary and the key's lead. The joystick buttons sharing the
+  rows (M12).
+- Lower case typed: Alt+0 is shown to flip CASFLG, not letters typed in
+  lower case afterwards.
+- Disk BASIC's and other ROMs' keyboard routines (M13).
+
 ## M4: video, on the host
 
 On branch `m4`, 2026-11-15 (`design.md` §9, §13.1, §15.2, §17). Host

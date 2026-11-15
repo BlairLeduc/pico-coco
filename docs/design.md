@@ -822,6 +822,22 @@ it, with a control that loses keys, and by typing a long program and
 counting the lines stored (EL §7.1). Modifier presses go a field ahead of
 their key, and releases wait the same minimum.
 
+**Settled in M5** (2026-11-15, `test_keyboard`). Color BASIC scans the
+keyboard in the foreground, while it waits for a key, not on an
+interrupt, and does not repeat a held key. Typed straight into the
+matrix from 240 phases across the field, Color BASIC 1.3 takes a key
+held 2 fields, and 1.1 and Extended Color BASIC 1.1 need 3; all three
+need a field with the key up before it is typed again. Of the phases,
+only a few thousand ticks lose a key held a field too few: 48 phases
+missed Extended's. The replay holds a key 4 fields and leaves 2 up, a
+field more of each than the slowest ROM needs (`config.h`), about 10
+keys a second. A 60-line program typed through it is stored whole in
+each ROM; typed at each ROM's bare minimum it was stored whole too (59
+of 60 in Extended at 2 fields), so BASIC storing a line and scrolling
+costs no key here, unlike the Oric's; at 1 field held, the control, 7 to
+10 lines were stored. While a program runs, BASIC's BREAK check keeps
+the last key it saw for `INKEY$`, and nothing reaches the prompt after.
+
 ### 11.2 The matrix
 
 Eight columns driven from PIA0 port B, seven rows read on port A. The
@@ -834,25 +850,43 @@ that types every table entry through the real ROM.
 ### 11.3 The mapping
 
 Data, one row per PicoCalc code: row, column and flags (EL §7.2), checked
-by a host test. The points particular to these machines:
+by a host test. The points particular to these machines, as built in
+M5 (`keymap_picocalc.c` holds the table and its reasons):
 
 - **Typing is by character.** The PicoCalc sends `"` and the guest types
   it as SHIFT+2: each such entry asserts or removes the guest's SHIFT
-  while the key is down.
+  while the key is down. `:` and `@`, which the PicoCalc shifts and the
+  CoCo does not, take SHIFT away; `=`, `*` and `+` add it. The latest key
+  down that says anything about SHIFT decides it, and a key that changes
+  it waits a field behind the change. `^` and `_` are UP and SHIFT+UP,
+  the codes BASIC reads; `[`, `]` and `\` are SHIFT with DOWN, RIGHT and
+  CLEAR. `{`, `}`, `|`, `` ` `` and `~` have no key.
 - **Lower case.** These machines have upper case only, shown inverse when
   "lower case" is toggled (SHIFT+0). PicoCalc letters type the guest's
   letters whatever their case.
-- **BREAK** is Esc, and **CLEAR** a plain key (proposed: Tab). Neither
-  may depend on a Shift chord the southbridge swallows (HW §6.3).
+- **BREAK** is Esc, and **CLEAR** is Tab, plain keys that no swallowed
+  Shift chord can take (HW §6.3). Backspace and Del are ←.
 - **The guest's arrows** are the PicoCalc's. The guest's shifted arrows
   (SHIFT+← erases a line on the CoCo) cannot come from Shift+arrow, which
-  sends nothing for Left and Right, so they get Alt-layer keys.
+  sends nothing for Left and Right, so **Alt with an arrow** is SHIFT
+  with it; Alt+0 is SHIFT+0 (lower case) and Alt+`@` SHIFT+@ (pause a
+  listing). The keys the PicoCalc sends only with Shift are their base
+  key's cell with SHIFT: End is SHIFT+←, PgUp and PgDn SHIFT+↑ and ↓,
+  Home SHIFT+CLEAR, Insert SHIFT+ENTER, Break SHIFT+BREAK. Either Shift
+  alone is SHIFT, for games. Ctrl reaches nothing, and a key pressed
+  with it types nothing: the CoCo 1 and 2 have no CTRL. That Alt+0
+  arrives as `0` with Alt held is read from the MCU's source, not yet
+  seen on a device (M7).
 - **The emulator's keys** are on Alt and the function keys, which the
   guest lacks, and the Alt layer cannot be taken by a game layout
   (EL §7.2).
 - **Game layouts** are overlays, built-in ones generic and named by
   shape, per-title ones text files on the card (EL §7.3). The built-ins
-  are chosen by surveying the archive, not guessed (EL §7.3).
+  are chosen by surveying the archive, not guessed (EL §7.3). They come
+  with the keyboard joystick in M12; M5 copied no layout code.
+- **The Dragon's arrangement** reaches the mapping in M14. Until then
+  the host harness types into a Dragon by M3's table, straight into the
+  matrix (§17: the Dragon is frozen).
 
 ### 11.4 Joysticks
 
@@ -1203,7 +1237,7 @@ keep passing.
 | **M2** | **The gate**: the CPU alone on the board (§7.5) | Host cycles per instruction measured; board counts equal the host's; a projected share of core 0 under 60 %, or the levers applied and the result taken to the owner |
 | **M3** | The machine on the host: bus, SAM, PIAs, field loop; a CoCo with Color BASIC alone and with Extended | The CoCo boots its real ROMs to `OK` in each RAM size and answers a typed sum, read from video RAM; the trace diff against XRoar runs through boot and typing; a Dragon 32 boots on the host as the second wiring |
 | **M4** | Video: the VDG through the SAM, every mode and the mismatched pairs, artefact colours, the presenter | Golden images looked at and agreeing with XRoar's rendering; the dirty-band test with its control |
-| **M5** | Keyboard: the CoCo's matrix, the mapping table, hold and gap; the Dragon's matrix as a second table | Every table entry typed through Color BASIC; the long-program test stores every line |
+| **M5** | Keyboard: the CoCo's matrix, the mapping table, hold and gap; the Dragon's matrix as a second table (moved to M14 by the freeze) | Every table entry typed through Color BASIC; the long-program test stores every line |
 | **M6** | Board bring-up from the copied drivers, each stage its smoke test (EL §13.3) | Test pattern, keys logged, card read, on a Plus 2 W and a Pico 2 W |
 | **M7** | **The CoCo boots on the device**, timer-paced | Extended Color BASIC's banner and `OK` on the panel, a typed program run; the 150-field list equals the host's; the owner has typed on it |
 | **M8** | Audio: the level filter, the multiplexer, pacing on the queue | Every sample to 1 LSB on the host; `SOUND` and `PLAY` at pitch on the device; zero underruns; the late path forced |
@@ -1239,8 +1273,8 @@ configuration; once settled, it is a constant.
 | What unpopulated memory and unused I/O read (§8.1) | **M3**: absent RAM `$FF`; empty sockets and unused I/O the byte at `$FFFF` (§8.1), as XRoar's trace needs | Medium | Schematics; neither assumed `$FF` |
 | The PIA wiring of §3.3, bit for bit, on each machine | As listed. **M3, the CoCo**: IRQ from PIA0, FIRQ from PIA1; the RAM strap on PIA1 PB2 (low on 4K, high on 16K, linked to PIA0 PB6 on 32K and 64K); port B's undriven inputs low; PB1 reading the silent sound high; PA0 the cassette, low; PA7 the comparator; PIAs repeating over 32 bytes. Each one the boot trace needs (§15.2). **M3, the Dragon 32**: PIA1 PB0, the printer's BUSY, read low, as XRoar's absent printer is never busy, over the pull-up; PB2 high with 4K or 16K chips and low with larger; the PIAs repeating with 32 KB and answering only with A2 low above it. PB1 reads low until XRoar's sound first updates (the first FS rise, or PB1 or CB2 enabling the sound) and the silent sound high after: the Dragon reads it 23 instructions after reset, the CoCos only after the first field. That and PB0 are XRoar's behaviour, not yet the hardware's | Medium | Schematics; the ROMs executed |
 | VDG data wiring: bit 7 A/S, bit 6 INV, INT/EXT from GM0 (§3.4); the mode on PIA1 PB3–PB7 (§3.3) | As listed. **Settled in M4** (2026-11-15), the ROMs executed: PB7 A/G, PB6–PB4 GM2–GM0 and PB3 CSS by Extended Color BASIC's PMODE 0–4 under SCREEN 1,0 and 1,1, each giving the datasheet's matched VDG and SAM modes (`test_screen`); bit 7 A/S and bit 6 INV by BASIC's own screen, read back from the snapshot as the text guest_row reads from RAM, and SET drawing semigraphics 4. INT/EXT from GM0 is XRoar's wiring, held by the VDG oracle; no ROM run selects it | High; INT/EXT medium | The ROMs executed; schematics for INT/EXT |
-| Both keyboard matrices (§11.2) | **M3, the CoCo**: every letter, digit and shifted symbol typed through the matrix and printed back by Color BASIC 1.3 and Extended 1.1 (`test_boot`); the arrows, CLEAR and BREAK not yet (M5). **M3, the Dragon 32**: the same keys, by the same test through Dragon BASIC, on XRoar's table (the CoCo's rows turned by two, the digits first) | — | Each ROM executed |
-| Key hold and gap for each ROM (§11.1) | A few fields | Low | Each ROM executed |
+| Both keyboard matrices (§11.2) | **M3, the CoCo**: every letter, digit and shifted symbol typed through the matrix and printed back by Color BASIC 1.3 and Extended 1.1 (`test_boot`). **Settled in M5** for the CoCo (2026-11-15): all 56 cells pressed at the prompt alone and with SHIFT in Color BASIC 1.1, 1.3 and Extended 1.1, and what POLCAT returned read back; the three agree in every cell, the four empty cells of row 6 decoding whatever follows the ROM's table (`test_keyboard`, `keymap_picocalc.c`). **M3, the Dragon 32**: the same keys, by the same test through Dragon BASIC, on XRoar's table (the CoCo's rows turned by two, the digits first) | — | Each ROM executed |
+| Key hold and gap for each ROM (§11.1) | **Settled in M5** for the CoCo (2026-11-15): 2 fields down in Color BASIC 1.3, 3 in 1.1 and Extended 1.1, 1 up in all, no repeat; the replay's 4 and 2 (§11.1). The Dragon's: M14 | High (CoCo) | Each ROM executed |
 | The ROMs' tape block routines, their entry bytes and what they leave (§12.3) | Unwritten | — | The ROMs read and executed |
 | Tape bit timing as each ROM reads and writes it | Two tones, about 1200 and 2400 Hz | Low | The ROMs read; a save recorded |
 | ROM file names, sizes and SHA-1s (§12.1) | **Settled** 2026-11-14 (M3) for `bas13.rom`, `extbas11.rom`, `disk11.rom`, `bas11.rom` and `d32.rom`, the owner's images, each matching XRoar 1.13's CRC-32 (`roms/README.md`); the Dragon 64's and other CoCo versions to come | High | The owner's images; XRoar's ROM list |

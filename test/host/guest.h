@@ -6,9 +6,12 @@
  * staging directory, and recognises images by SHA-1 whatever they are
  * called (romset.h).
  *
- * Typing goes straight into the matrix by the machine's rows and columns,
- * a key held and released over whole fields. M5 replaces it with the
- * firmware's path, PicoCalc events through the mapping table (§11).
+ * Typing on a CoCo takes the firmware's path: PicoCalc events, as
+ * keymap_picocalc_text makes them, through the held-key set and the
+ * mapping table into the matrix, one keymatrix_field a field (§11). On a
+ * Dragon it goes straight into the matrix by M3's table, a key held and
+ * released over whole fields, until M14 brings the Dragon's arrangement
+ * to the mapping (the Dragon is frozen until then, §17).
  */
 #ifndef PICO_COCO_TEST_GUEST_H
 #define PICO_COCO_TEST_GUEST_H
@@ -18,10 +21,12 @@
 #include <stdio.h>
 
 #include "coco.h"
+#include "keymatrix.h"
 #include "romset.h"
 
 typedef struct {
-    coco_t   m;
+    coco_t      m;
+    keymatrix_t k;
     /* Ticks from power-on until "OK" first showed, to within a field; 0
      * if it never did. */
     uint64_t ok_ticks;
@@ -47,12 +52,23 @@ void guest_build_as(guest_t *g, coco_machine_t machine, unsigned ram_k, rom_id_t
  * guest seconds. True if it showed. */
 bool guest_boot(guest_t *g);
 
+/* Fields, each after a keymatrix_field on a CoCo. */
 void guest_fields(guest_t *g, int n);
 
-/* Type a string a key at a time, SHIFT held where the keyboard needs it,
- * through the machine's own matrix; '\n' is ENTER. Then a few fields for
- * the ROM to act. */
+/* Type a string. On a CoCo each byte is the PicoCalc events that type it
+ * (keymap_picocalc_text), letters in lower case, which types the same
+ * capitals with fewer events (§11.3), each byte's events given once the
+ * last byte's have all reached the matrix. On a Dragon, a key at a time
+ * with SHIFT where the keyboard needs it; '\n' is ENTER. Then a few
+ * fields for the ROM to act. */
 void guest_type(guest_t *g, const char *s);
+
+/* One PicoCalc key pressed and released, inside Shift or Alt, on a CoCo;
+ * then fields until it has reached the matrix and gone. */
+void guest_press(guest_t *g, uint8_t code, bool shift, bool alt);
+
+/* Fields until the held-key set is idle, up to `max`; true if it is. */
+bool guest_settle(guest_t *g, int max);
 
 /* The text on one of the 16 rows of the 32-column screen, as ASCII,
  * read from where the SAM's display offset says: semigraphics cells as
