@@ -34,6 +34,18 @@ void board_temp_init(void);
 int  board_temp_c(void);
 
 void board_identify(board_info_t *info);
+
+/* Each core's stack: its size and the most of it ever used, in bytes. */
+typedef struct {
+    uint32_t size[2], used[2];
+} board_stack_t;
+
+/* Paint core 1's whole stack and core 0's below the caller (design.md
+ * §16, hardware-notes.md §2.3). Call from main(), before core 1 starts. */
+void board_stacks_paint(void);
+
+/* The high-water marks: read the paint. Either core may call it. */
+void board_stack_use(board_stack_t *s);
 void board_log_banner(const board_info_t *info);
 
 #endif /* PICO_COCO_BOARD_H */

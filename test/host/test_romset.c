@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "config.h"
 #include "guest.h"
 #include "romset.h"
 #include "sha1.h"
@@ -30,7 +31,7 @@ static void to_hex(const uint8_t *d, char *out) {
     for (unsigned i = 0; i < SHA1_DIGEST_LEN; i++) sprintf(out + 2 * i, "%02x", d[i]);
 }
 
-#define CARD_CHUNK 512u   /* a card sector, as the firmware reads (M9) */
+#define CARD_CHUNK COCO_CARD_CHUNK   /* a card sector, as card.c reads it */
 
 static uint8_t buf[16384];
 
@@ -105,7 +106,7 @@ int main(void) {
               romset_images[i].file);
         CHECK(romset_identify(img, size - 1) == ROM_UNKNOWN, "%s one byte short passed",
               romset_images[i].file);
-        /* Hashed a sector at a time, as the firmware will read the card. */
+        /* Hashed a sector at a time, as card.c reads the card. */
         sha1_t s;
         uint8_t d[SHA1_DIGEST_LEN];
         sha1_init(&s);

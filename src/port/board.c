@@ -132,3 +132,33 @@ void board_log_banner(const board_info_t *info) {
            (unsigned long)(div ? info->clk_sys_hz / div / 1000u : 0u), info->vreg_mv);
 #endif
 }
+
+/* ---- The two stacks (design.md §16, hardware-notes.md §2.3) ----------- */
+
+/* The SDK's linker script: core 0's stack at the top of SCRATCH_Y, core
+ * 1's at the top of SCRATCH_X, each [bottom, top). */
+extern uint32_t __StackBottom, __StackTop, __StackOneBottom, __StackOneTop;
+
+#define STACK_PAINT 0xC0C0C0C0u
+
+void board_stacks_paint(void) {
+    /* Core 1 is not running: its stack is all paint. */
+    for (uint32_t *p = &__StackOneBottom; p < &__StackOneTop; p++) *p = STACK_PAINT;
+    /* Core 0's, from the bottom to a margin below this frame. */
+    uint32_t *limit = (uint32_t *)((uintptr_t)__builtin_frame_address(0) - 256u);
+    for (uint32_t *p = &__StackBottom; p < limit; p++) *p = STACK_PAINT;
+}
+
+/* The paint left above the bottom: what the deepest use has not reached. */
+static uint32_t untouched(const uint32_t *bottom, const uint32_t *top) {
+    const uint32_t *p = bottom;
+    while (p < top && *p == STACK_PAINT) p++;
+    return (uint32_t)((const uint8_t *)p - (const uint8_t *)bottom);
+}
+
+void board_stack_use(board_stack_t *s) {
+    s->size[0] = (uint32_t)((uint8_t *)&__StackTop - (uint8_t *)&__StackBottom);
+    s->size[1] = (uint32_t)((uint8_t *)&__StackOneTop - (uint8_t *)&__StackOneBottom);
+    s->used[0] = s->size[0] - untouched(&__StackBottom, &__StackTop);
+    s->used[1] = s->size[1] - untouched(&__StackOneBottom, &__StackOneTop);
+}
