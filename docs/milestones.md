@@ -95,6 +95,13 @@ into the Dragon 32 by M3's table, and passes.
   lower case afterwards.
 - Disk BASIC's and other ROMs' keyboard routines (M13).
 
+**CI** on GitHub, 2026-11-15, PR #6: green on both builds. The host job
+(Ubuntu, GCC) ran all 16 tests: `test_keymap` ran, and `test_keyboard`,
+`test_boot` and `test_screen` skipped, as they must with no ROMs. So the
+sweep, the hold and gap and the long program are checked on the
+workstation only. The firmware job built both images, with and without
+the UART.
+
 ## M4: video, on the host
 
 On branch `m4`, 2026-11-15 (`design.md` §9, §13.1, §15.2, §17). Host
