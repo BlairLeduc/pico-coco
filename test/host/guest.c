@@ -8,14 +8,13 @@
 
 #define SCREEN_ROWS 16
 #define SCREEN_COLS 32
-#define ROM_MAX     0x4000u
 
 /* Typing: whole fields held, and whole fields between keys. Generous until
  * M5 settles each ROM's hold and gap (§11.1, §18). */
 #define HOLD_FIELDS 4
 #define GAP_FIELDS  4
 
-static uint8_t images[ROM_IMAGE_COUNT][ROM_MAX];
+static uint8_t images[ROM_IMAGE_COUNT][COCO_ROM_IMAGE_MAX];
 static bool    have[ROM_IMAGE_COUNT];
 
 static void scan_roms(const char *dir) {
@@ -27,7 +26,7 @@ static void scan_roms(const char *dir) {
         snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
         FILE *f = fopen(path, "rb");
         if (!f) continue;
-        static uint8_t buf[ROM_MAX + 1];
+        static uint8_t buf[COCO_ROM_IMAGE_MAX + 1];
         size_t n = fread(buf, 1, sizeof buf, f);
         fclose(f);
         rom_id_t r = romset_identify(buf, n);
@@ -62,7 +61,7 @@ void guest_build_as(guest_t *g, coco_machine_t machine, unsigned ram_k, rom_id_t
     cfg.ram_k = ram_k;
     coco_init(&g->m, &cfg);
     uint32_t size = romset_images[basic].size;
-    coco_load_rom(&g->m, size == 0x4000u ? 0x8000u : 0xA000u, images[basic], size);
+    coco_load_rom(&g->m, size == COCO_ROM_SIZE ? 0x8000u : 0xA000u, images[basic], size);
     if (extended && have[ROM_COCO_EXTBAS11])
         coco_load_rom(&g->m, 0x8000u, images[ROM_COCO_EXTBAS11],
                       romset_images[ROM_COCO_EXTBAS11].size);

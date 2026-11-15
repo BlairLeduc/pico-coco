@@ -62,6 +62,24 @@ int32_t coco_ram_index(const coco_t *m, uint16_t a) {
 
 /* ---- the page table (§8.1) -------------------------------------------- */
 
+/* Do the page at `base` (a multiple of 256) and its 256 bytes lie in order
+ * in one bank? coco_ram_index is a bit map: each index bit is one address
+ * bit or a constant, and the address bits that pick the bank and the
+ * extra row and column bit are all above bit 7, so constant over a page.
+ * So the page lies in order exactly when the base's index has its low
+ * eight bits clear and each low address bit moves the index by itself
+ * alone: nine translations, not 256. test_machine holds this to the byte
+ * by byte check in every mode and size. */
+static bool page_in_order(const coco_t *m, uint16_t base, int32_t *first) {
+    int32_t i0 = coco_ram_index(m, base);
+    if (i0 < 0 || (i0 & 0xFF)) return false;
+    for (unsigned k = 0; k < 8u; k++)
+        if (coco_ram_index(m, (uint16_t)(base | (1u << k))) != i0 + (int32_t)(1u << k))
+            return false;
+    *first = i0;
+    return true;
+}
+
 /* Rebuilt when a bit that chooses the map changes: the SAM's M, P and TY,
  * and a ROM loaded. A RAM page takes the fast path when its 256 bytes lie
  * in order in one chip bank; otherwise every byte is translated on the
@@ -72,18 +90,16 @@ static void map(coco_t *m) {
         page_t *pg = &m->page[p];
         uint16_t base = (uint16_t)(p << 8);
         if (p < 0x80u || ty) {
-            int32_t i0 = coco_ram_index(m, base);
-            bool flat = i0 >= 0;
-            for (unsigned i = 1; flat && i < COCO_PAGE_SIZE; i++)
-                flat = coco_ram_index(m, (uint16_t)(base + i)) == i0 + (int32_t)i;
+            int32_t i0 = 0;
+            bool flat = page_in_order(m, base, &i0);
             pg->read = flat ? &m->ram[i0] : NULL;
             pg->write = flat ? &m->ram[i0] : NULL;
         } else if (p < 0xC0u) {
-            unsigned half = (p - 0x80u) >> 5;
-            pg->read = m->rom_present[half] ? &m->rom[(p - 0x80u) << 8] : NULL;
+            unsigned half = (p - 0x80u) / (COCO_ROM_HALF / COCO_PAGE_SIZE);
+            pg->read = m->rom_present[half] ? &m->rom[(p - 0x80u) * COCO_PAGE_SIZE] : NULL;
             pg->write = NULL;
         } else {
-            pg->read = m->cart_present ? &m->cart[(p - 0xC0u) << 8] : NULL;
+            pg->read = m->cart_present ? &m->cart[(p - 0xC0u) * COCO_PAGE_SIZE] : NULL;
             pg->write = NULL;
         }
     }
@@ -104,6 +120,9 @@ static void retime(coco_t *m) {
     m->tick0 = coco_ticks(m);
     m->cyc0 = m->cpu.cycles;
     m->tpc = (sam6883_r(&m->sam) & 2u) ? 8u : 16u;
+    /* The slice was sized in cycles at the old rate: end it after this
+     * instruction, so the run recomputes it in ticks (coco_run). */
+    mc6809_stop(&m->cpu);
 }
 
 /* ---- interrupts ------------------------------------------------------- */
@@ -132,21 +151,23 @@ static mc6821_port_t *pia_port(coco_t *m, unsigned i) {
 
 /* C1 of port `i` takes `level` at tick `t`. */
 static void c1_edge(coco_t *m, unsigned i, bool level, uint64_t t) {
-    if (mc6821_set_c1(pia_port(m, i), level) && !m->irq_due[i])
+    if (mc6821_set_c1(pia_port(m, i), level) && !m->irq_due[i]) {
         m->irq_due[i] = t + TRS3_TICKS;
+        mc6809_stop(&m->cpu);   /* a new stop point for the slice (coco_run) */
+    }
 }
 
 static void raise_due(coco_t *m, uint64_t t) {
-    for (unsigned i = 0; i < 4u; i++)
+    for (unsigned i = 0; i < COCO_PIA_PORTS; i++)
         if (m->irq_due[i] && m->irq_due[i] <= t) {
-            mc6821_raise(pia_port(m, i));
+            mc6821_raise_c1(pia_port(m, i));   /* only C1s are wired */
             m->irq_due[i] = 0;
         }
 }
 
 static uint64_t next_due(const coco_t *m) {
     uint64_t d = UINT64_MAX;
-    for (unsigned i = 0; i < 4u; i++)
+    for (unsigned i = 0; i < COCO_PIA_PORTS; i++)
         if (m->irq_due[i] && m->irq_due[i] < d) d = m->irq_due[i];
     return d;
 }
@@ -285,7 +306,7 @@ static void note_sound(coco_t *m) {
  * before the access is another (,R reads PC, an indirect reads the
  * pointer) are not modelled. */
 static uint8_t open_bus(const coco_t *m) {
-    return m->rom_present[1] ? m->rom[0x3FFFu] : 0xFFu;
+    return m->rom_present[1] ? m->rom[COCO_ROM_SIZE - 1u] : 0xFFu;
 }
 
 /* The CoCo's PIAs, and an unexpanded Dragon 32's, ignore A2 and repeat
@@ -319,7 +340,7 @@ static uint8_t io_read(coco_t *m, uint16_t a) {
         return v;
     }
     if (off >= 0xE0u)   /* the vectors, from the BASIC ROM whatever the map */
-        return m->rom_present[1] ? m->rom[0x3FE0u + (off - 0xE0u)] : open_bus(m);
+        return m->rom_present[1] ? m->rom[COCO_ROM_SIZE - 0x20u + (off - 0xE0u)] : open_bus(m);
     return open_bus(m);  /* M13: cartridge I/O at $FF40; the rest unused */
 }
 
@@ -331,6 +352,7 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         before_pia(m);
         mc6821_write(&m->pia0, reg, v);
         update_irq(m);
+        if (reg & 1u) mc6809_stop(&m->cpu);   /* CA1's enable moves the slice's end */
         return;
     }
     if (off < 0x40u) {
@@ -339,6 +361,7 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         mc6821_write(&m->pia1, reg, v);   /* M4: VDG mode; M8: sound */
         note_sound(m);
         update_irq(m);
+        if (reg & 1u) mc6809_stop(&m->cpu);
         return;
     }
     if (off >= 0xC0u && off < 0xE0u) {
@@ -407,14 +430,14 @@ void coco_init(coco_t *m, const coco_config_t *cfg) {
 }
 
 bool coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len) {
-    if (base == 0x8000u && len == 0x4000u) {
+    if (base == 0x8000u && len == COCO_ROM_SIZE) {
         memcpy(m->rom, data, len);
         m->rom_present[0] = m->rom_present[1] = true;
-    } else if ((base == 0x8000u || base == 0xA000u) && len == 0x2000u) {
+    } else if ((base == 0x8000u || base == 0xA000u) && len == COCO_ROM_HALF) {
         unsigned half = base == 0xA000u;
-        memcpy(&m->rom[half * 0x2000u], data, len);
+        memcpy(&m->rom[half * COCO_ROM_HALF], data, len);
         m->rom_present[half] = true;
-    } else if (base == 0xC000u && len > 0 && len <= 0x4000u) {
+    } else if (base == 0xC000u && len > 0 && len <= COCO_CART_SIZE) {
         memset(m->cart, 0xFF, sizeof(m->cart));   /* M9: mirrors */
         memcpy(m->cart, data, len);
         m->cart_present = true;
@@ -455,7 +478,9 @@ void coco_power_on(coco_t *m) {
 
 /* A slice ends at the target, or a cycle after a PIA's interrupt output
  * is due to rise, or at HS's edge while its interrupt is enabled, which
- * BASIC leaves disabled (§8.3). After each, a rise is seen if it came
+ * BASIC leaves disabled (§8.3); and early, after the instruction that
+ * changes one of those (mc6809_stop: a PIA control write, a new rise
+ * due, the SAM's rate). After each, a rise is seen if it came
  * before the last instruction's last cycle, as the CPU latches its lines
  * (mc6809.h). */
 uint32_t COCO_HOT2(coco_run)(coco_t *m, uint32_t ticks) {

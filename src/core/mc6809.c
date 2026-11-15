@@ -1059,9 +1059,18 @@ INLINE uint32_t step(coco_t *m, uint32_t remaining) {
 }
 
 uint32_t COCO_HOT2(mc6809_run)(coco_t *m, uint32_t cycles) {
+    /* The limit is a field, so the machine can end the run by zeroing it
+     * (mc6809_stop): one load a step, measured cheaper than a flag. */
     uint32_t done = 0;
-    while (done < cycles) done += step(m, cycles - done);
+    m->cpu.run_limit = cycles;
+    while (done < m->cpu.run_limit) done += step(m, m->cpu.run_limit - done);
     return done;
+}
+
+bool mc6809_fetches_next(const mc6809_t *c) {
+    if (c->halt || c->wait != MC6809_RUNNING) return false;
+    uint8_t avail = c->stale ? c->active : lines(c);
+    return (avail & unmasked(c->cc)) == 0;
 }
 
 /* One step is a run of one cycle: the first step meets it. Not a second

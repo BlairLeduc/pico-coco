@@ -31,18 +31,37 @@ static void data_write(mc6821_port_t *port, uint8_t v) {
     else                           port->ddr = v;
 }
 
-/* The flags are read only; the rest is written. Enabling an interrupt
- * whose flag is set raises the output at once; disabling both lowers it. */
+static bool c1_enabled(const mc6821_port_t *port) {
+    return (port->cr & MC6821_CR_C1_IRQ) != 0;
+}
+
+static bool c2_enabled(const mc6821_port_t *port) {
+    return (port->cr & (MC6821_CR_C2_OUT | MC6821_CR_C2_B3)) == MC6821_CR_C2_B3;
+}
+
+/* The flags are read only; the rest is written. The output is then each
+ * flag gated by its enable, as the datasheet's IRQ logic has it:
+ * (IRQ1 and CR0) or (IRQ2 and CR3, C2 an input). XRoar's write_cr instead
+ * keeps the output up when C1's enable is set and leaves C2 unexamined;
+ * no ROM booted so far tells the two apart (2026-11-15, §18). */
 static void cr_write(mc6821_port_t *port, uint8_t v) {
     port->cr = (uint8_t)((port->cr & (MC6821_CR_IRQ1 | MC6821_CR_IRQ2)) | (v & 0x3Fu));
     /* C2 made an output cannot keep an input's flag. */
     if (port->cr & MC6821_CR_C2_OUT) port->cr &= (uint8_t)~MC6821_CR_IRQ2;
-    if (port->cr & MC6821_CR_C1_IRQ)
-        port->irq_out |= (port->cr & MC6821_CR_IRQ1) != 0;
-    else if ((port->cr & (MC6821_CR_C2_OUT | MC6821_CR_C2_B3)) == MC6821_CR_C2_B3)
-        port->irq_out |= (port->cr & MC6821_CR_IRQ2) != 0;
-    else
-        port->irq_out = false;
+    port->irq_out = (c1_enabled(port) && (port->cr & MC6821_CR_IRQ1)) ||
+                    (c2_enabled(port) && (port->cr & MC6821_CR_IRQ2));
+}
+
+/* tRS3 after an enabled edge: the output rises if that line's interrupt
+ * is still enabled, even if a read has cleared the flag meanwhile, as
+ * XRoar's trace needs (§18); one disabled meanwhile stays down, as the
+ * datasheet's gating has it. */
+void COCO_HOT1(mc6821_raise_c1)(mc6821_port_t *port) {
+    if (c1_enabled(port)) port->irq_out = true;
+}
+
+void mc6821_raise_c2(mc6821_port_t *port) {
+    if (c2_enabled(port)) port->irq_out = true;
 }
 
 void COCO_HOT1(mc6821_write)(mc6821_t *p, unsigned reg, uint8_t v) {

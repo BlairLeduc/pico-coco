@@ -590,7 +590,20 @@ The wiring of §3.3 is a table in `coco.c` on top. Three points:
   flag first. Settled in M3 by the trace diff: the field interrupt's
   timing under Extended BASIC is the edge plus tRS3 plus the CPU's latch
   (§7.1). A one-cycle phase fitted first matched the same runs and was
-  this delay, misread.
+  this delay, misread. The output itself is each flag gated by its
+  enable, as the datasheet's IRQ logic has it: a control write sets it to
+  (IRQ1 and CR0) or (IRQ2 and CR3, C2 an input), and a rise due after an
+  interrupt was disabled does not come. XRoar's `write_cr` keeps the
+  output up while C1's enable is set and leaves C2 unexamined, and its
+  rise comes regardless; no ROM run so far tells the two apart, and the
+  datasheet is taken (review of M3, 2026-11-15).
+- **A slice ends early when its stop points move.** A slice is sized
+  from the SAM's rate, CA1's enable and the next rise due; an
+  instruction that changes any of them (a rate change, a PIA control
+  write, an edge that schedules a rise) ends it, and the run sizes the
+  next (`mc6809_stop`, §6). Measured on the board against a control in
+  the same sitting: 88.1 and 114.8 host cycles an instruction on the
+  bench, against 87.6 and 113.2 without it (2026-11-15).
 - **One register, several meanings** (EL §4.2): PIA1's port B carries
   the VDG mode with the single-bit sound and a strap. The machine compares
   the bits that matter to each consumer.
@@ -1150,7 +1163,7 @@ configuration; once settled, it is a constant.
 | Lines a field and their layout on PAL machines; where FS and the field interrupt fall | 312, the extra lines inserted by a circuit outside the VDG. **M3, the Dragon 32**: XRoar's placement (§13.1), which the trace diff holds through boot, typing and 50 guest seconds of a program; the schematic not yet read | Low | Dragon 32 schematic and service manual |
 | Ticks a line and the active line's start | 57 CPU cycles; the datasheet's. **M3**: 912 ticks a line, 262 a field, FS falling as line 230 begins, held to XRoar's field interrupts by the trace diff | Medium | MC6847 datasheet |
 | PIA IRQ response time tRS3 (§8.3) | 1 µs, 14 ticks as XRoar counts it; **M3**: the trace diff needs it | Medium | MC6821 datasheet figure 13 |
-| The SAM's bit pairs, its address-counter rule for each video mode, its rate rules and the stretched cycle (§8.2) | As §3.2, §8.2. **M3**: the bit pairs, and RAM's row and column in 4K, 16K and 64K modes for 4K, 16K, 32K and 64K chips as XRoar models them, held through boot in every size by the trace diff; the video counter (M4) and rates (M11) not yet | Medium | MC6883 datasheet; XRoar's traces |
+| The SAM's bit pairs, its address-counter rule for each video mode, its rate rules and the stretched cycle (§8.2) | As §3.2, §8.2. **M3**: the bit pairs, and RAM's row and column in 4K, 16K and 64K modes for 4K, 16K, 32K and 64K chips as XRoar models them, held through boot in every size by the trace diff; the video counter (M4) and rates (M11) not yet. **Open**: whether P1 applies in map type 1. XRoar's model, and so this core, applies it in both map types, so in all-RAM mode with P1 set the two halves of $0000-$7FFF alias; the M3 review reads the datasheet as map type 0 only. To settle from the MC6883 datasheet before changing | Medium | MC6883 datasheet; XRoar's traces |
 | What unpopulated memory and unused I/O read (§8.1) | **M3**: absent RAM `$FF`; empty sockets and unused I/O the byte at `$FFFF` (§8.1), as XRoar's trace needs | Medium | Schematics; neither assumed `$FF` |
 | The PIA wiring of §3.3, bit for bit, on each machine | As listed. **M3, the CoCo**: IRQ from PIA0, FIRQ from PIA1; the RAM strap on PIA1 PB2 (low on 4K, high on 16K, linked to PIA0 PB6 on 32K and 64K); port B's undriven inputs low; PB1 reading the silent sound high; PA0 the cassette, low; PA7 the comparator; PIAs repeating over 32 bytes. Each one the boot trace needs (§15.2). **M3, the Dragon 32**: PIA1 PB0, the printer's BUSY, read low, as XRoar's absent printer is never busy, over the pull-up; PB2 high with 4K or 16K chips and low with larger; the PIAs repeating with 32 KB and answering only with A2 low above it. PB1 reads low until XRoar's sound first updates (the first FS rise, or PB1 or CB2 enabling the sound) and the silent sound high after: the Dragon reads it 23 instructions after reset, the CoCos only after the first field. That and PB0 are XRoar's behaviour, not yet the hardware's | Medium | Schematics; the ROMs executed |
 | VDG data wiring: bit 7 A/S, bit 6 INV, INT/EXT from GM0 (§3.4) | As listed | Medium | Schematics; the ROM's own screen, executed |

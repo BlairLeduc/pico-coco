@@ -90,6 +90,9 @@ typedef struct {
      * that cycle first (§7.2, EL §4.3). */
     uint8_t  io_at;
 
+    /* The current run's length in cycles; mc6809_stop zeroes it. */
+    uint32_t run_limit;
+
     /* Undocumented opcodes and indexed postbytes: trapped and counted
      * (D12, §7.1). An opcode is consumed as a NOP; a postbyte is decoded
      * as the chip decodes it. */
@@ -109,11 +112,23 @@ void     mc6809_reset(struct coco_s *m);
  * Returns the cycles taken. */
 uint32_t mc6809_step(struct coco_s *m);
 
-/* Whole instructions until at least `cycles` have passed; returns the true
- * count, and the caller carries the debt (§6, EL §2.2). A wait or HALT
- * that nothing can end before the slice does is skipped in one go: lines
- * change only between slices (§7.1, EL §3.4). */
+/* Whole instructions until at least `cycles` have passed, or sooner if
+ * the machine calls mc6809_stop during one; returns the true count, and
+ * the caller carries the debt (§6, EL §2.2). A wait or HALT that nothing
+ * can end before the slice does is skipped in one go: lines change only
+ * between slices (§7.1, EL §3.4). */
 uint32_t mc6809_run(struct coco_s *m, uint32_t cycles);
+
+/* End the run after the current instruction: something the slice's length
+ * was computed from has changed (the SAM's rate, a PIA's interrupt
+ * enables, an interrupt now due; coco.c, §6). */
+static inline void mc6809_stop(mc6809_t *c) { c->run_limit = 0; }
+
+/* Will the next step fetch an instruction? False when it will take an
+ * interrupt, wait or halt instead: the boundary's own decision, on the
+ * lines latched before it where the chip acts on those (stale). For a
+ * breakpoint, which fires only before a fetch (tools/trace). */
+bool     mc6809_fetches_next(const mc6809_t *c);
 
 /* Interrupt lines. IRQ and FIRQ are level-sensitive per source; NMI is
  * edge-triggered: a false-to-true transition latches. */

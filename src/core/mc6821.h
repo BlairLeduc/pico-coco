@@ -8,7 +8,7 @@
  * the data register; IRQA and IRQB out. An enabled edge sets its flag at
  * once and raises the IRQ output tRS3 later (the datasheet's figure 13,
  * 1 us), which the machine times (coco.c): the output is a state, cleared
- * by a read of the data register, and raised by mc6821_raise even if
+ * by a read of the data register, and raised by mc6821_raise_c1 even if
  * that read came first, as XRoar models it (§18). What the pins are wired to is the
  * machine's (coco.c), which sets each port's inputs before a read and
  * reads its outputs after a write.
@@ -60,7 +60,9 @@ void    mc6821_write(mc6821_t *p, unsigned reg, uint8_t v);
 bool    mc6821_set_c1(mc6821_port_t *port, bool level);
 bool    mc6821_set_c2(mc6821_port_t *port, bool level);
 
-static inline void mc6821_raise(mc6821_port_t *port) { port->irq_out = true; }
+/* tRS3 after an edge for which set_c1 or set_c2 returned true. */
+void    mc6821_raise_c1(mc6821_port_t *port);
+void    mc6821_raise_c2(mc6821_port_t *port);
 
 /* The port's output pins: the latch where the bit is an output, high
  * (pulled up) where it is an input. */

@@ -2,11 +2,13 @@
  *
  * A test ROM of a dozen instructions stands in for BASIC, so this runs in
  * CI. It checks the SAM's bit pairs, the RAM through the SAM in each size,
- * the page table's slow path where the chips do not answer, the field
+ * the page table against the SAM byte by byte in every mode, the page
+ * table's slow path where the chips do not answer, the field
  * interrupt (FS on PIA0 CB1, sixty in sixty fields, with CB1 disabled as
  * the control), the line interrupt (HS on PIA0 CA1, 262 a field, the run
  * sliced at each line), the Dragon's PAL field (312 lines, the first 287)
- * and its PIA decode, the keyboard's rows and columns through PIA0, the
+ * and its PIA decode, a slice ended by a change within it (the SAM's rate,
+ * CA1's enable), the keyboard's rows and columns through PIA0, the
  * copy, and the run contract.
  */
 
@@ -130,6 +132,36 @@ int main(void) {
               "32K chips in map type 1: $8123 does not repeat $0123");
     }
 
+    /* ---- the page table against the SAM, byte by byte ---------------- */
+    {
+        /* map() tests a page's order in nine translations; here every byte
+         * of every page, in each size, memory mode, page bit and map type,
+         * so a page is fast exactly when its bytes lie in order. */
+        static const unsigned sizes[] = { 4, 16, 32, 64 };
+        unsigned bad = 0, fast = 0;
+        for (size_t z = 0; z < sizeof sizes / sizeof sizes[0]; z++)
+            for (unsigned mode = 0; mode < 16u; mode++) {
+                machine(&ma, sizes[z]);
+                bus_write(&ma, (uint16_t)(0xFFDAu + ((mode & 1u) ? 1u : 0u)), 0);   /* M0 */
+                bus_write(&ma, (uint16_t)(0xFFDCu + ((mode & 2u) ? 1u : 0u)), 0);   /* M1 */
+                bus_write(&ma, (uint16_t)(0xFFD4u + ((mode & 4u) ? 1u : 0u)), 0);   /* P  */
+                bus_write(&ma, (uint16_t)(0xFFDEu + ((mode & 8u) ? 1u : 0u)), 0);   /* TY */
+                for (unsigned pg = 0; pg < COCO_IO_PAGE; pg++) {
+                    if (pg >= 0x80u && !(mode & 8u)) continue;
+                    uint16_t base = (uint16_t)(pg << 8);
+                    int32_t i0 = coco_ram_index(&ma, base);
+                    bool flat = i0 >= 0;
+                    for (unsigned i = 1; flat && i < COCO_PAGE_SIZE; i++)
+                        flat = coco_ram_index(&ma, (uint16_t)(base + i)) == i0 + (int32_t)i;
+                    const uint8_t *want = flat ? &ma.ram[i0] : NULL;
+                    if (ma.page[pg].read != want || ma.page[pg].write != want) bad++;
+                    fast += flat;
+                }
+            }
+        CHECK(bad == 0, "%u pages whose fast path disagrees with the SAM byte by byte", bad);
+        CHECK(fast > 0, "no page took the fast path in any mode");
+    }
+
     /* ---- the field interrupt ----------------------------------------- */
     {
         unsigned n = count_irqs(0x05, 0x04, false, 60);
@@ -186,6 +218,58 @@ int main(void) {
         bus_write(&ma, 0xFF25, 0x00);
         CHECK(bus_read(&ma, 0xFF21) == 0x34, "a write with A2 set reached an expanded Dragon's PIA1");
         which = COCO_MACHINE_COCO;
+    }
+
+    /* ---- a change within a slice ends it ----------------------------- */
+    {
+        /* The SAM's rate: fast for about 150 lines, then slow again, with
+         * FS's interrupt on. Unended, the slice that was sized at the slow
+         * rate ends early at the fast one, the next is sized fast, and the
+         * return to slow runs it on past FS and the field's end. */
+        static const uint8_t rate_code[] = {
+            0x10, 0xCE, 0x0F, 0x00,     /* LDS  #$0F00                   */
+            0xB7, 0xFF, 0xDD,           /* STA  $FFDD  (M1: 64K)         */
+            0x86, 0x05,                 /* LDA  #$05                     */
+            0xB7, 0xFF, 0x03,           /* STA  $FF03  CRB: FS's IRQ on  */
+            0x1C, 0xEF,                 /* ANDCC #$EF                    */
+            0xB7, 0xFF, 0xD9,           /* STA  $FFD9  R1: fast          */
+            0x8E, 0x08, 0x59,           /* LDX  #$0859: ~150 lines fast  */
+            0x30, 0x1F,                 /* LEAX -1,X                     */
+            0x26, 0xFC,                 /* BNE  the LEAX                 */
+            0xB7, 0xFF, 0xD8,           /* STA  $FFD8  R1: slow          */
+            0x20, 0xFE,                 /* BRA  *                        */
+        };
+        build_rom(0x04, 0x04, false);
+        memcpy(rom, rate_code, sizeof rate_code);
+        machine(&ma, 64);
+        (void)coco_run_field(&ma);
+        uint64_t first = coco_ticks(&ma);
+        CHECK(first < 262u * 912u + 20u * 16u,
+              "a slice sized fast ran on slow: the first field ended at %llu, not 262 lines in",
+              (unsigned long long)first);
+        (void)coco_run_field(&ma);
+        (void)coco_run_field(&ma);
+        CHECK(counter(&ma) == 3, "FS interrupts in three fields with a rate change: %u", counter(&ma));
+
+        /* CA1's interrupt enabled within a slice that was to run to FS: the
+         * line interrupts start at the next line, not at FS. */
+        static const uint8_t ca1_code[] = {
+            0x10, 0xCE, 0x0F, 0x00,     /* LDS  #$0F00                   */
+            0xB7, 0xFF, 0xDD,           /* STA  $FFDD  (M1: 64K)         */
+            0x1C, 0xEF,                 /* ANDCC #$EF                    */
+            0x8E, 0x00, 0x40,           /* LDX  #$0040                   */
+            0x30, 0x1F,                 /* LEAX -1,X                     */
+            0x26, 0xFC,                 /* BNE  the LEAX                 */
+            0x86, 0x05,                 /* LDA  #$05                     */
+            0xB7, 0xFF, 0x01,           /* STA  $FF01  CRA: HS's IRQ on  */
+            0x20, 0xFE,                 /* BRA  *                        */
+        };
+        build_rom(0x04, 0x04, true);
+        memcpy(rom, ca1_code, sizeof ca1_code);
+        machine(&ma, 64);
+        (void)coco_run_field(&ma);
+        CHECK(counter(&ma) >= 250, "HS interrupts in the field CA1 was enabled in: %u, not ~260",
+              counter(&ma));
     }
 
     /* ---- the keyboard through PIA0 ----------------------------------- */

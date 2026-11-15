@@ -139,8 +139,36 @@ firmware job built both images, with and without the UART. Green again
 after the Dragon and 4 KB work (`a9cfc32`), with the Dragon's field and
 decode in `test_machine`.
 
+**Review**, 2026-11-15: the owner's review of PR #4, ten findings.
+
+| Finding | Outcome |
+|---|---|
+| A SAM rate change partway through a slice overshoots it | Fixed: the instruction ends the slice (`mc6809_stop`). `test_machine` runs fast for 150 lines, then slow; unfixed, the first field ends 282,336 ticks in, not 238,944 |
+| A PIA control write within a slice does not shorten it | Fixed likewise, as is an edge that schedules a rise. `test_machine` enables CA1 partway through a slice; unfixed, 33 line interrupts in that field, not 260 |
+| The IRQ output ignores C2 once C1 is enabled | Taken from the datasheet: each flag gated by its enable. XRoar's `write_cr` behaves as the old code did; no trace tells them apart. `test_mc6821` covers both cases |
+| A rise due after its interrupt is disabled still comes | Fixed: it stays down, as the datasheet gates it. XRoar's rise comes regardless; no trace tells them apart. `test_mc6821` |
+| P1 applied in map type 1 | Open: XRoar applies it in both map types, as this core does; recorded in `design.md` §18, to settle from the MC6883 datasheet |
+| An empty or short trace reports agreement | Fixed: either side empty, or XRoar's shorter than ours, fails |
+| The trace driver's breakpoint judged interrupts from the lines now, not the latched ones | Fixed: `mc6809_fetches_next`, the core's own boundary decision |
+| Fixed capacities written as literals | Moved to `config.h`: ROM, cartridge, PIA ports, the matrix |
+| `map()` translates every byte of every page | Nine translations a page: the translation is a bit map. `test_machine` holds it to the byte by byte check in every size, mode, page bit and map type; seven bits checked instead of eight fails 768 pages |
+| `romset_identify` reads as a per-image loop | Rewritten as a size check, one hash, one lookup |
+
+After the fixes, all twelve configurations agree with XRoar for 1,500
+fields with typing and a program, and the 50-second programs on 64 KB
+Extended (10.9 million instructions), the Dragon 32 (12.9 million) and
+4 KB BASIC 1.1 (10.9 million).
+
+The stop costs on the board, measured on the owner's Pico Plus 2 W
+against a control in the same sitting: a flag checked each step gave
+90.1 and 116.0 host cycles an instruction on basic and the mix, the
+control 87.6 and 113.2; the run's limit as a field the machine zeroes
+gives 88.1 and 114.8, which is kept. Captures in `out/review/`, not
+committed.
+
 **Not checked:**
 
+- Whether P1 applies in map type 1 (above).
 - The Dragon's PAL field against its schematic: it is XRoar's
   placement, held by the trace diff (M14). Likewise PIA1 PB0 and the
   start of PB1's feedback, which are XRoar's behaviour.

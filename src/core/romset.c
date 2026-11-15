@@ -26,13 +26,13 @@ const rom_info_t romset_images[ROM_IMAGE_COUNT] = {
 };
 
 rom_id_t romset_identify(const uint8_t *data, size_t len) {
-    for (int i = 0; i < ROM_IMAGE_COUNT; i++) {
-        if (len != romset_images[i].size) continue;
-        uint8_t d[SHA1_DIGEST_LEN];
-        sha1(data, len, d);
-        return romset_identify_digest(d, len);
-    }
-    return ROM_UNKNOWN;
+    /* Hash only a length some image has; then the digest decides. */
+    bool size_known = false;
+    for (int i = 0; i < ROM_IMAGE_COUNT; i++) size_known |= len == romset_images[i].size;
+    if (!size_known) return ROM_UNKNOWN;
+    uint8_t d[SHA1_DIGEST_LEN];
+    sha1(data, len, d);
+    return romset_identify_digest(d, len);
 }
 
 rom_id_t romset_identify_digest(const uint8_t digest[SHA1_DIGEST_LEN], size_t len) {

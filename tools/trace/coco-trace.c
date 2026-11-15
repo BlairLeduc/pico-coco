@@ -49,15 +49,6 @@ static uint16_t rd(coco_t *m, uint16_t a) {
     return (uint16_t)((coco_slow_read(m, a) << 8) | coco_slow_read(m, (uint16_t)(a + 1u)));
 }
 
-/* What the CPU will do at this boundary: take an interrupt? Then a
- * breakpoint does not fire, as XRoar checks them only before a fetch. */
-static bool interrupt_due(const mc6809_t *c) {
-    if (c->wait != MC6809_RUNNING) return true;
-    if (c->nmi_pending && c->nmi_armed) return true;
-    if (c->firq && !(c->cc & MC6809_CC_F)) return true;
-    return c->irq && !(c->cc & MC6809_CC_I);
-}
-
 static void rts(coco_t *m) {
     m->cpu.pc = rd(m, m->cpu.s);
     m->cpu.s = (uint16_t)(m->cpu.s + 2u);
@@ -71,7 +62,9 @@ static void hook(coco_t *m) {
                t.pc, c->cc, c->a, c->b, c->dp, c->x, c->y, c->u, c->s);
     }
     /* XRoar's breakpoints, while typing. */
-    while (t.type && !interrupt_due(c)) {
+    /* A breakpoint fires only before a fetch, as XRoar checks them; the
+     * core's own decision says whether one comes next (mc6809.h). */
+    while (t.type && mc6809_fetches_next(c)) {
         if (c->pc == t.at.polcat) {
             c->a = 0;
             c->cc |= MC6809_CC_Z;

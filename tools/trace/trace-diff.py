@@ -7,9 +7,12 @@ EL §11.4).
 Each side is a line per instruction: its address, then every register
 after it. XRoar's -trace lines carry the bytes and the mnemonic between,
 which are kept for the report; its vector lines ([RESET], [IRQ] ...),
-which carry no registers, and everything else are skipped. Compared up to the shorter of the two; the
-first instruction that differs, in address or in any register, is
-reported with what led to it. Exit 0 if they agree, 1 if not.
+which carry no registers, and everything else are skipped. Every line
+of ours is compared: the first instruction that differs, in address or
+in any register, is reported with what led to it. XRoar is run for longer
+than this core, so a XRoar trace shorter than ours, or either side
+empty, means a run that stopped early and checked less than it should,
+and fails. Exit 0 if they agree, 1 if not.
 """
 import re
 import sys
@@ -34,6 +37,9 @@ def main():
         print(__doc__.strip().splitlines()[2].strip(), file=sys.stderr)
         return 2
     xr, ours = load(sys.argv[1]), load(sys.argv[2])
+    if not xr or not ours:
+        print(f"no trace: XRoar {len(xr)} lines, ours {len(ours)}")
+        return 1
     n = min(len(xr), len(ours))
     for i in range(n):
         if xr[i][:2] != ours[i][:2]:
@@ -43,6 +49,10 @@ def main():
             print(f"xr {xr[i][0]}  {xr[i][2]:<28} {xr[i][1]}")
             print(f"us {ours[i][0]}  {'':<28} {ours[i][1]}")
             return 1
+    if len(xr) < len(ours):
+        print(f"agree for {n}, but XRoar's trace stopped early "
+              f"(XRoar {len(xr)}, ours {len(ours)})")
+        return 1
     print(f"agree: {n} instructions (XRoar {len(xr)}, ours {len(ours)})")
     return 0
 

@@ -47,10 +47,6 @@ typedef struct {
 #define COCO_IRQ_PIA0   0x01u
 #define COCO_FIRQ_PIA1  0x01u
 
-/* Keyboard matrix: eight columns, seven rows (§11.2). */
-#define COCO_KEY_COLS   8
-#define COCO_KEY_ROWS   7
-
 typedef struct coco_s {
     mc6809_t cpu;
     page_t   page[COCO_PAGE_COUNT];
@@ -70,7 +66,7 @@ typedef struct coco_s {
                                 * 2^64: before tick 0 on a PAL machine,
                                 * whose first field is short (coco.c)    */
     uint64_t hs_seen;          /* HS edges are accounted up to here     */
-    uint64_t irq_due[4];       /* PIA0 A, B, PIA1 A, B: an output's rise */
+    uint64_t irq_due[COCO_PIA_PORTS]; /* PIA0 A, B, PIA1 A, B: a rise due */
     uint32_t fields;
     bool     sound_fed;        /* the sound has fed PIA1 PB1 back (coco.c) */
 
@@ -97,8 +93,8 @@ typedef struct coco_s {
     void    *hook_ctx;
 
     uint8_t  ram[COCO_ADDR_SPACE];
-    uint8_t  rom[0x4000];      /* $8000-$BFFF                           */
-    uint8_t  cart[0x4000];     /* $C000-$FEFF                           */
+    uint8_t  rom[COCO_ROM_SIZE];      /* $8000-$BFFF                    */
+    uint8_t  cart[COCO_CART_SIZE];    /* $C000-$FEFF                    */
 } coco_t;
 
 /* A CoCo with 64 KB (D6). */

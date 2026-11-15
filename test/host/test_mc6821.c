@@ -3,11 +3,12 @@
  *
  * Reset; register select and the DDR; the latch apart from the pins; C1's
  * edge, its polarity and the flag cleared by a data read and not by a
- * control read; the IRQ output raised by mc6821_raise after an enabled
- * edge (tRS3, timed by the machine), cleared by a data read, raised at
- * once by enabling with the flag set and lowered by disabling; C2 as an
- * input with its own flag, and as an output set by hand. Each rule beside
- * its control.
+ * control read; the IRQ output raised by mc6821_raise_c1 after an
+ * enabled edge (tRS3, timed by the machine), cleared by a data read,
+ * raised at once by enabling with the flag set and lowered by disabling,
+ * and not raised if disabled before tRS3; the output as each flag gated
+ * by its enable, C1's and C2's; C2 as an input with its own flag, and as
+ * an output set by hand. Each rule beside its control.
  */
 
 #include "mc6821.h"
@@ -53,7 +54,7 @@ int main(void) {
     p.b.c1 = true;
     CHECK(mc6821_set_c1(&p.b, false), "an enabled edge did not ask to raise IRQ");
     CHECK(!mc6821_irq(&p.b), "IRQ rose at the edge, not tRS3 after it");
-    mc6821_raise(&p.b);
+    mc6821_raise_c1(&p.b);
     CHECK(mc6821_irq(&p.b), "IRQ not raised");
     (void)mc6821_read(&p, 2);
     CHECK(!mc6821_irq(&p.b), "a data read did not lower IRQ");
@@ -84,6 +85,31 @@ int main(void) {
     CHECK(mc6821_c2_out(&p.a), "C2 set high by hand reads low");
     mc6821_write(&p, 1, MC6821_CR_DATA | MC6821_CR_C2_OUT | MC6821_CR_C2_B4);
     CHECK(!mc6821_c2_out(&p.a), "C2 set low by hand reads high");
+
+    /* ---- disabled before tRS3: the output stays down ----------------- */
+    mc6821_reset(&p);
+    mc6821_write(&p, 3, MC6821_CR_DATA | MC6821_CR_C1_IRQ);
+    p.b.c1 = true;
+    CHECK(mc6821_set_c1(&p.b, false), "an enabled edge did not ask to raise IRQ");
+    mc6821_write(&p, 3, MC6821_CR_DATA);
+    mc6821_raise_c1(&p.b);
+    CHECK(!mc6821_irq(&p.b), "IRQ rose tRS3 after its interrupt was disabled");
+    mc6821_write(&p, 3, MC6821_CR_DATA | MC6821_CR_C1_IRQ);   /* control */
+    CHECK(mc6821_irq(&p.b), "re-enabling with the flag still set did not raise IRQ");
+
+    /* ---- the output is each flag gated by its enable ----------------- */
+    mc6821_reset(&p);
+    mc6821_write(&p, 1, MC6821_CR_DATA | MC6821_CR_C2_B3);    /* C2 falling, enabled */
+    p.a.c2 = true;
+    mc6821_set_c2(&p.a, false);
+    mc6821_raise_c2(&p.a);
+    CHECK(mc6821_irq(&p.a), "an enabled C2 edge did not raise IRQ");
+    mc6821_write(&p, 1, MC6821_CR_DATA | MC6821_CR_C1_IRQ);   /* C1 on, C2 off */
+    CHECK(!mc6821_irq(&p.a), "IRQ stayed up with C2 disabled and C1's flag clear");
+    mc6821_write(&p, 1, MC6821_CR_DATA | MC6821_CR_C1_IRQ | MC6821_CR_C2_B3);
+    CHECK(mc6821_irq(&p.a), "enabling C2 with its flag set, C1 also on, did not raise IRQ");
+    mc6821_write(&p, 1, MC6821_CR_DATA | MC6821_CR_C2_B3);    /* control: C2 alone */
+    CHECK(mc6821_irq(&p.a), "C2 enabled with its flag set: IRQ low");
 
     TEST_DONE();
 }
