@@ -12,12 +12,16 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M3 is built** (`docs/design.md` §17): the CoCo on the host.
-The MC6809 core, the SAM, the PIAs and the field loop boot Color BASIC
-1.3 and Extended 1.1 in 16 to 64 KB, Color BASIC 1.1 in 4 KB, and the
-Dragon 32, the second wiring. The trace diff holds every instruction to
-XRoar 1.13's through boot and typing. The emulator image
-does not run the machine until M7. The record of each milestone (what was
+**Status: M4 is built** (`docs/design.md` §17): the CoCo on the host,
+with its picture. The MC6809 core, the SAM, the PIAs and the field loop
+boot Color BASIC 1.3 and Extended 1.1 in 16 to 64 KB and Color BASIC
+1.1 in 4 KB, and the trace diff holds every instruction to XRoar 1.13's
+through boot and typing. The SAM's video counter, the VDG and the
+snapshot are held pixel for pixel to XRoar's MC6883 and MC6847 by
+`test_vdg_oracle`. **The Dragon is frozen until M14** (the owner,
+2026-11-15): M3's Dragon 32 stays and its tests keep passing, but
+nothing is added to it. The emulator image does not run the machine
+until M7. The record of each milestone (what was
 verified, on which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
 
@@ -108,6 +112,11 @@ tools/flash.sh build/uart0/pico-coco-bench.elf   # M2's gate: the CPU alone, tim
 tools/trace/trace-coco.sh -ram 64 -ext -fields 600 -type "$(printf 'PRINT 2+3\r')"
 tools/trace/trace-coco.sh -bas bas11 -ram 4 -fields 600   # a 4 KB CoCo
 tools/trace/trace-coco.sh -machine dragon32 -fields 500   # PAL: 50 fields a second
+
+# the golden images (design.md §9.6): look at every changed one before
+# committing it
+build/host/test/host/vdg-ppm out/golden      # to look at
+build/host/test/host/vdg-ppm test/golden     # regenerate the goldens
 ```
 
 Both targets build under `-Wall -Wextra -Werror`, and CI builds both on every
@@ -127,7 +136,8 @@ one: the core building clean without the SDK is what keeps SDK headers out of
 - **XRoar is a tool, never source** (D2, D8): `tools/trace/build-xroar.sh`
   clones it at the pinned release into `reference/` (gitignored) and builds
   it headless in `out/xroar`. Its CPU is linked only into
-  `test_mc6809_oracle`, which skips without the checkout; re-run cmake after
+  `test_mc6809_oracle`, and its MC6847 and MC6883 only into
+  `test_vdg_oracle`; both skip without the checkout; re-run cmake after
   fetching it. Plant a CPU bug in a scratch copy and run both
   `test_mc6809_oracle` and `test_mc6809_behaviour`: some bugs only one sees.
 

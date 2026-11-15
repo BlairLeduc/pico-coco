@@ -4,6 +4,120 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M4: video, on the host
+
+On branch `m4`, 2026-11-15 (`design.md` §9, §13.1, §15.2, §17). Host
+only.
+
+**Built.** `src/core/sam6883.c`, the SAM's video address counter, its
+dividers and its clears on HS (§9.2). `mc6847.c` and `mc6847.h`, adapted
+from pico-atom's for the CoCo's wiring: semigraphics 4 and 6 by GM0, INV
+on bit 6, the external case showing the byte's own bits, the twelve
+colour indices in XRoar's order, the artefact colours by XRoar's simple
+rule in two phases, the mono palette and the dark backgrounds.
+`mc6847_font.c`, pico-atom's copy of XRoar's character ROM, unchanged
+(`THIRD-PARTY.md`). In `coco.c`: `coco_video_snapshot`, the 192 lines of
+fetched bytes through the counter (§9.3); `coco_run_field` running on to
+the next field's first active line, where the snapshot is taken (§13.1);
+the count of fields whose video bits changed during active lines
+(§9.4). `present.c`, the presenter's plan of dirty bands, and
+`snappool.c`, pico-oric's pool. On the host: `test_vdg_oracle` with its
+driver `xroar_vdg.c`, which links XRoar's `mc6847.c` and `mc6883.c` from
+the pinned checkout as the CPU oracle links its `mc6809.c`;
+`test_mc6847`, `test_video`, `test_present`, `test_screen`,
+`test_mc6847_golden` and `tools/vdg-ppm.c`, with 25 golden images in
+`test/golden/`.
+
+**Checked on the workstation** (macOS, Apple clang 21.0.0; XRoar 1.13,
+`af501b71`; the owner's ROMs):
+
+- **The picture agrees with XRoar's, pixel for pixel.** For each of the
+  eight SAM modes against each of the ten VDG modes (alphanumeric with
+  INT/EXT low and high, and the eight graphics modes), in both colour
+  sets, with random RAM, a random display offset (half of them wrapping
+  past $FFFF) and the page bit at random: the snapshot drawn by the
+  renderer, with a palette of its own indices, against XRoar's MC6847
+  fed by its MC6883 wired as XRoar's `dragon.c` wires them. 160 fields,
+  each of 49,152 pixels against both of XRoar's half-pixels, and none
+  differed. Then 20 more fields with artefacts in both phases, against
+  XRoar's simple renderer's rule applied to XRoar's VDG output: none
+  differed (`test_vdg_oracle`, 0.3 s).
+- **The oracle bites.** Planted one at a time, each failed it: V=1's X
+  divider as 2; V=4's Y divider as 3; the clear of B1–B3 without B3's
+  fall; the clear of B1–B4 without B4's fall; no fetches past the
+  picture's 32 or 16; INV ignored; SG6's colour from bits 6–5; SG4's
+  halves split at line 5; KRBW drawn as KBRW; the two-colour
+  background black with CSS low; the page bit in the VDG's address
+  (which passed until the test set P at random, and then failed); the
+  external case drawn from the font; RG3 fetched as a 32-byte mode. A
+  no-op planted the same way passed. Apple's make compares times to
+  the second, so a plant written and undone within one second left a
+  stale object and a false failure once; the script now waits.
+- **The ROMs settle the VDG's wiring** (§18): Extended Color BASIC 1.1,
+  64 KB, PMODE 0 to 4 under SCREEN 1,0 and 1,1 from a program, each
+  giving the datasheet's matched pair (RG2/3, CG3/4, RG3/5, CG6/6,
+  RG6/6), CSS as SCREEN's colour set, and page 1 at $0600. The boot
+  screen's snapshot is alphanumeric, SAM mode 0, at $0400, and each of its
+  16 rows reads as the text in RAM (`test_screen`).
+- **The field's shape** (EL §5.6): a guest loop waiting on FS escapes
+  once in each of 119 fields, and its 58-line redraw is complete in all
+  120 snapshots; snapshots taken where FS rises, the control, catch it
+  half done in 120 of 120. Planted: ending the field at FS's rise tore
+  snapshots (`test_video`).
+- **The counter's addresses**, read back through two snapshots, in the
+  nine matched modes and in semigraphics 8, 12 and 24 (a new row every
+  3, 2 and 1 lines), and RG6 from $FE00 reaching $0000 at line 16
+  (`test_video`). Planted: V=2's Y divider as 2 failed CG2 and SG8.
+- **§9.4's count**: CSS toggled throughout marks 10 of 10 fields; the
+  same bits rewritten, the control, none. Planted: not marking failed it.
+- **The presenter's plan**: a simulated panel updated from dirty bands
+  alone equals a full render after each of 1,000 random changes (bytes;
+  a third the mode or colour set; some a change of artefacts reported by
+  `present_invalidate`). The control, blind to the mode, left stale
+  pixels after 995. Planted: dropping the mode test, and dropping the
+  invalidation, each failed (`test_present`). The pool's transitions
+  and 100,000 random steps of both cores, as pico-oric's.
+- **Golden images looked at**: the 25 scenes, by Claude on 2026-11-15,
+  on a contact sheet. Every glyph plain and inverse, '@' in zeroed
+  cells, the semigraphics bytes; the external case's raw bits and SG6
+  in blue and red, magenta and orange; in each graphics mode the frame
+  on all four edges, the diagonal and the bars in the right colour set;
+  semigraphics 8, 12 and 24; artefact bands giving black, blue, red,
+  white, swapped in KRBW. A one-pixel change planted in RG6's scene
+  failed the test at that pixel. Screens drawn by BASIC were looked at
+  too: the boot screen, SET's semigraphics 4 in nine colours, PMODE 3 in
+  both colour sets, PMODE 4 with a circle and stripes plain and in both
+  artefact phases (`out/screens/`, not committed).
+- **The trace diff still agrees**: Extended Color BASIC in 64 KB through
+  `PRINT 2+3`, 2,187,479 instructions, and the Dragon 32 through boot,
+  2,188,868, with the field ending at the active line.
+- All 14 host tests pass; both firmware builds are clean and unchanged
+  in size (22,772 and 20,940 bytes of text), since the image does not yet
+  run the machine. The test sources were also compiled by the Arm GCC
+  15.2 under `-Wall -Wextra -Werror` to catch GCC-only warnings before
+  CI: two `%u` given a `uint32_t` were fixed.
+
+**The Dragon is frozen until M14** (the owner, 2026-11-15). M4 added
+nothing for it beyond keeping M3's field ending at its active line.
+
+**Not checked:**
+
+- Anything on a board: the snapshot's cost on core 0, the presenter on
+  the panel, the band and window costs (M7).
+- That the owner has looked at the golden images.
+- XRoar's own rendering, colour for colour: the oracle compares colour
+  indices, and the palette is a rendering choice (§9.5). Artefacts are
+  held to XRoar's simple rule, not its finer renderers, and to no
+  photograph of a real set.
+- A change of V within a field, and the counter's glitches XRoar models
+  for it; mid-line changes of CSS or mode, which XRoar renders and this
+  does not (§9.4). The list of changes within a field is not built,
+  only the count.
+- INT/EXT from GM0 by a ROM; the MC6847T1; the SAM's fast rates' effect
+  on video.
+- The PAL machines' picture (frozen).
+- CI, until the branch is pushed.
+
 ## M3: the machine on the host
 
 On branch `m3`, 2026-11-14 (`design.md` §8, §13, §15.2, §17). Host

@@ -183,12 +183,15 @@ int main(void) {
         which = COCO_MACHINE_DRAGON32;
         build_rom(0x05, 0x04, false);
         machine(&ma, 32);
-        /* Ticks from power-on, the reset's own cycles among them. */
+        /* Ticks from power-on, the reset's own cycles among them. A field
+         * runs on to the next one's first active line (§13.1): 63 lines
+         * into the Dragon's, 25 held and 38 of the VDG's. */
         (void)coco_run_field(&ma);
         uint64_t first = coco_ticks(&ma);
         uint32_t second = coco_run_field(&ma);
-        CHECK(first >= 287u * 912u && first < 287u * 912u + 20u * 16u,
-              "the Dragon's first field ended at %llu, not 287 lines in", (unsigned long long)first);
+        CHECK(first >= (287u + 63u) * 912u && first < (287u + 63u) * 912u + 20u * 16u,
+              "the Dragon's first field ended at %llu, not 287 + 63 lines in",
+              (unsigned long long)first);
         CHECK(second > 312u * 912u - 20u * 16u && second < 312u * 912u + 20u * 16u,
               "the Dragon's field ran %u ticks, not 312 lines", second);
         unsigned n = count_irqs(0x05, 0x04, false, 50);
@@ -200,8 +203,9 @@ int main(void) {
         machine(&ma, 64);
         (void)coco_run_field(&ma);
         first = coco_ticks(&ma);
-        CHECK(first >= 262u * 912u && first < 262u * 912u + 20u * 16u,
-              "the CoCo's first field ended at %llu, not 262 lines in", (unsigned long long)first);
+        CHECK(first >= (262u + 38u) * 912u && first < (262u + 38u) * 912u + 20u * 16u,
+              "the CoCo's first field ended at %llu, not 262 + 38 lines in",
+              (unsigned long long)first);
     }
 
     /* ---- the Dragon's PIA decode -------------------------------------- */
@@ -244,8 +248,8 @@ int main(void) {
         machine(&ma, 64);
         (void)coco_run_field(&ma);
         uint64_t first = coco_ticks(&ma);
-        CHECK(first < 262u * 912u + 20u * 16u,
-              "a slice sized fast ran on slow: the first field ended at %llu, not 262 lines in",
+        CHECK(first < (262u + 38u) * 912u + 20u * 16u,
+              "a slice sized fast ran on slow: the first field ended at %llu, not 262 + 38 lines in",
               (unsigned long long)first);
         (void)coco_run_field(&ma);
         (void)coco_run_field(&ma);
