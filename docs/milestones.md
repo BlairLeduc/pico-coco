@@ -100,6 +100,10 @@ release run. §17's row now says so.
 
 All 16 host tests pass.
 
+**CI** on GitHub, 2026-11-15, PR #7: green on both builds. The firmware
+job built both images, with and without the UART, with FatFs taken from
+the SDK checkout's TinyUSB submodule; the host job ran all 16 tests.
+
 ## M5: the keyboard, on the host
 
 On branch `m5`, 2026-11-15 (`design.md` §11, §17). Host only.
