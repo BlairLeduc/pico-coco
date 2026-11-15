@@ -147,7 +147,7 @@ decode in `test_machine`.
 | A PIA control write within a slice does not shorten it | Fixed likewise, as is an edge that schedules a rise. `test_machine` enables CA1 partway through a slice; unfixed, 33 line interrupts in that field, not 260 |
 | The IRQ output ignores C2 once C1 is enabled | Taken from the datasheet: each flag gated by its enable. XRoar's `write_cr` behaves as the old code did; no trace tells them apart. `test_mc6821` covers both cases |
 | A rise due after its interrupt is disabled still comes | Fixed: it stays down, as the datasheet gates it. XRoar's rise comes regardless; no trace tells them apart. `test_mc6821` |
-| P1 applied in map type 1 | Open: XRoar applies it in both map types, as this core does; recorded in `design.md` §18, to settle from the MC6883 datasheet |
+| P1 applied in map type 1 | Kept as XRoar has it. The CoCo 2 service manual says P1 is unused on the machine and should be kept clear, so no software relies on it; recorded in `design.md` §18 |
 | An empty or short trace reports agreement | Fixed: either side empty, or XRoar's shorter than ours, fails |
 | The trace driver's breakpoint judged interrupts from the lines now, not the latched ones | Fixed: `mc6809_fetches_next`, the core's own boundary decision |
 | Fixed capacities written as literals | Moved to `config.h`: ROM, cartridge, PIA ports, the matrix |
@@ -168,7 +168,8 @@ committed.
 
 **Not checked:**
 
-- Whether P1 applies in map type 1 (above).
+- What the MC6883 does with P1 set in map type 1 (above): unused on the
+  CoCo 2, by its service manual.
 - The Dragon's PAL field against its schematic: it is XRoar's
   placement, held by the trace diff (M14). Likewise PIA1 PB0 and the
   start of PB1's feedback, which are XRoar's behaviour.
