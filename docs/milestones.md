@@ -4,6 +4,106 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M6: board bring-up and the card
+
+On branch `m6`, 2026-11-15 (`design.md` §17). On the owner's board.
+
+**Built.** pico-oric's port drivers copied and renamed, unchanged since
+its own M6: `southbridge.*`, `kbd.*`, `log.*`, `lcd.*`, `sd.*`,
+`storage.*`, and `diskio.c` and `fatfs/ffconf.h` as its M6 had them (the
+shell's clock for file times comes with card writes). FatFs comes from
+the SDK's TinyUSB copy, as the Oric's does. Adapted from the Oric's M6:
+`display.*`, the corner-coded test pattern on the picture's 256×192 at
+(32, 64) and the blit timings; `card.*`, which lists `/coco/roms/`,
+hashes each file a sector at a time and names it by SHA-1, its FatFs
+objects static (below), its slot debounced for 500 ms (below); `core1.*`,
+southbridge, LCD, card, then the 30 Hz keyboard poll, the slot and the
+log, with a card that went in and found no volume tried again up to three
+times, 500 ms apart, while it stays in; `handoff.*`; and `main.c`, where
+core 0 logs every key event, from the keyboard or the UART, with the cell
+keymatrix would press, and a heartbeat. New: both stacks painted at boot
+and their high-water marks on the heartbeat (§16, `board.c`).
+`tools/uart-type.sh` copied. `test_romset` hashes in `COCO_CARD_CHUNK`
+pieces, the size `card.c` reads. `romset_identify_digest` was already here
+from M3.
+
+**Checked on the board**, 2026-11-15: the owner's Pimoroni Pico Plus 2 W
+(RP2350B, chip revision 2, `7458DC82A89AAC12`), 150 MHz, core rail
+~1100 mV, die 19–20 °C, the `-DPICO_COCO_UART_PORT=0` image (its DS3231
+holds GP4/GP5), Pico SDK 2.3.1, Arm GNU 15.2.Rel1, flashed over SWD and
+read over UART0. Captures in `out/m6/`, not committed.
+
+- **The test pattern**, by the owner's eye: the grey frame on all four
+  panel edges, the white border on the picture's rectangle, red, green,
+  blue and yellow in their corners.
+- **Every key**, pressed by the owner, alone, with Shift, on the Alt layer,
+  F1–F10, and some held: 654 events over 130 heartbeats, each counted by
+  core 1 and logged by core 0, and every release paired with a press of
+  the same physical key once letters, shifted punctuation and the
+  MCU's Shift chords are folded to their key, as `keymap_picocalc_canonical`
+  does. 72 physical keys; none left down. Holding Right or `n` sent more
+  presses and one release, and Shift and the F-keys sent held events, as
+  hardware-notes §6.2 has it. F7–F9, `` ` ``, `{ | } ~` and Caps Lock
+  reach no cell, as the table means.
+- **UART keys**, typed with `uart-type.sh` (`a A ! @ 0`, CR, Ctrl-A, F1,
+  Esc, `^`), arrive as the keyboard's own events, Shift and Ctrl around
+  the key, each logged with the cell keymatrix binds: `@` row 0 col 0
+  with SHIFT taken away, `A` row 0 col 1 with SHIFT taken away.
+- **The card.** With no `/coco/roms` it says so. With the owner's five
+  ROMs there, each was recognised by SHA-1 as its own image, at boot and
+  after each of two swaps without a reset, each swap seen as out then in.
+- **Zero I²C errors and zero ring overflows** in every run, the longest
+  being the owner's 650 s.
+
+**Measured** (one boot each unless given): an I²C register read 4.86 ms;
+an empty keyboard poll 4.85–4.86 ms; at 75 MHz, the 256×192 picture in one
+colour 11.48 ms, row by row 11.51 ms, one 256-pixel row 68 µs, the whole
+panel 23.90 ms; a cold mount 195–197 ms (three), a warm one 14.6–15.6 ms;
+an 8 KiB ROM opened, read and hashed 12.4–12.8 ms, the 16 KiB one
+21.1–21.6 ms. Stack high-water marks: core 0 892 of 2,048 bytes, core 1
+780 with no ROM directory and 824 hashing five files. Images: 53,756 bytes
+of text and 8,952 of bss with the UART (either port), 50,016 and 6,880
+without.
+
+**Found and fixed on the board:**
+
+- **Core 1's stack reached 1,660 of its 2,048 bytes** on a run that
+  opened no file. `card.c` had a `FIL` (with its 512-byte sector), a
+  `DIR` and a `FILINFO` as locals, and the compiler inlined the helpers
+  that declare them into the job's frame. Made static, 780; with five
+  files hashed, 824. hardware-notes §2.3.
+- **The first swap failed**: the card was seen out and in, and the job
+  250 ms after card detect settled found no volume (`FR_NOT_READY` after
+  3.8 ms: no reply to ten `CMD0`s). Card detect did not move again. The
+  debounce is now 500 ms, which hardware-notes §7.1 had found reliable on
+  later drivers, and two swaps after it mounted first time.
+- **The key log looked keys up by canonical code**, so `@` showed as the
+  CoCo's `2`. keymatrix binds a press by its code; the log does too.
+- **The first poll of a boot read 16 stale events** in 83.6 ms: presses
+  made while M2's bench image, which never polls, was running.
+  hardware-notes §6.1.
+
+**The board.** §17 asked for a Plus 2 W and a Pico 2 W. The owner,
+2026-11-15: the Plus 2 W is the one board, and the second board is M16's
+release run. §17's row now says so.
+
+**Not checked:**
+
+- A Pico 2 W, and the default UART1 build on any board (M16).
+- The build without the UART on the board (it builds).
+- The card retry: with the 500 ms debounce no swap needed it, so the path
+  that tries a silent card again has not run.
+- A card pulled during a job; card writes, which nothing does yet (M9).
+- `lcd_init` sleeps on core 1, harmless while core 0 waits at boot, as
+  it does here; it must stay before the guest starts (M7).
+- The presenter, the status and perf lines, the guest (M7); audio (M8).
+
+All 16 host tests pass.
+
+**CI** on GitHub, 2026-11-15, PR #7: green on both builds. The firmware
+job built both images, with and without the UART, with FatFs taken from
+the SDK checkout's TinyUSB submodule; the host job ran all 16 tests.
+
 ## M5: the keyboard, on the host
 
 On branch `m5`, 2026-11-15 (`design.md` §11, §17). Host only.

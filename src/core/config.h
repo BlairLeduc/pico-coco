@@ -47,6 +47,7 @@
 #define COCO_KEY_EVENT_QUEUE   64u  /* southbridge FIFO holds 31 (HW §6.2) */
 #define COCO_KEY_HELD_MAX       8u  /* keys down at once                   */
 #define COCO_KEY_TEXT_EVENTS    4u  /* one ASCII byte: a modifier around a key */
+#define COCO_KEY_RING          COCO_KEY_EVENT_QUEUE  /* core 1 to core 0 (kbd.c) */
 
 /* The replay's pace (§11.1, §18). Color BASIC scans the keyboard in
  * the foreground, not on an interrupt, so a key is seen only while BASIC
@@ -81,5 +82,23 @@
 /* The presenter's dirty bands, in lines (§9.3, EL §5.3). */
 #define COCO_BAND_ROWS          8u
 #define COCO_BANDS           (COCO_PIC_H / COCO_BAND_ROWS)
+
+/* DMA ping-pong line buffers, the panel's width so that the status and
+ * perf lines can use them too (HW §4.6). */
+#define COCO_LINEBUF_COUNT      2u
+#define COCO_LINEBUF_PIXELS  COCO_PANEL_W
+
+/* ---- Port buffers (design.md §6, §16) -------------------------------- */
+
+/* Core 0's log, drained by core 1 (EL §2.3): the ring, a power of two,
+ * and the longest line formatted onto core 0's stack. */
+#define COCO_LOG_RING        2048u
+#define COCO_LOG_LINE         512u
+
+/* ---- The card (design.md §12.1, §12.6) ------------------------------- */
+
+#define COCO_PATH_MAX         128u  /* a path on the card, with its NUL    */
+#define COCO_ROM_DIR     "/coco/roms"
+#define COCO_CARD_CHUNK       512u  /* a file read a sector at a time      */
 
 #endif /* PICO_COCO_CONFIG_H */

@@ -251,6 +251,18 @@ of Doom II unseen at 300 MHz, about 1 KB short of core 1's stack. Paint
 both stacks from bring-up and report both high-water marks; a core 0 at its
 whole room has already run into core 1's.
 
+**The SDK gives each core a 2 KiB stack** (`PICO_STACK_SIZE`,
+`PICO_CORE1_STACK_SIZE`, in SCRATCH_Y and SCRATCH_X), and FatFs's objects
+are big for it: a `FIL` carries a 512-byte sector buffer unless
+`FF_FS_TINY` is set, and a `FILINFO` with long names is about 270 bytes.
+Paint both stacks at boot and report the high-water marks. Measured on a
+Plus 2 W, 2026-11-15, GCC 15.2 at `-O3`: a card job with a `FIL`, a `DIR`
+and a `FILINFO` as locals took core 1 to **1,660 of 2,048 bytes** even
+on a run where it opened no file, because the compiler had inlined the
+static helpers that declare them into the job's frame, which reserved them
+all on entry. Made static, the same job, now hashing five files, peaked
+at 824 bytes.
+
 ### 2.4 PSRAM — Plus 2 W only
 
 8 MB, on QMI chip select 1 (GPIO 47). With a matching board definition and
@@ -911,6 +923,11 @@ polled-DMA ping-pong of §4.6 in one window, eight runs each:
 
 That is the floor any renderer adds its own cost to.
 
+The same again on the same board, 2026-11-15, one run each at boot:
+256×192 in one colour with the read address held **11.48 ms**, row by row
+from two line buffers 11.51 ms, one 256-pixel row in a window of its own
+68 µs (55 µs on the wire), and the whole panel in one colour 23.90 ms.
+
 **A 320×240 indexed frame read from PSRAM presents at the wire's pace.**
 Measured on a **Pimoroni Pico Plus 2 W (RP2350B), 2026-10-29**, clk_sys
 300 MHz, SPI 75 MHz configured, PSRAM at 100 MHz: core 1 presenting
@@ -1466,6 +1483,13 @@ but it cannot get around the swallowed Shift+arrow chords.
 - **Drain more than one FIFO entry per poll.** The FIFO holds 31 entries and a
   held key produces an event every 100 ms on top of press/release pairs; a
   one-event-per-tick consumer falls behind and the machine feels laggy.
+- **The FIFO outlives the program.** Keys pressed while a program that
+  never polls is running (a benchmark, say) wait in the MCU, and the next
+  program's first poll drains them. Seen on a Plus 2 W, 2026-11-15: 16
+  events left by a benchmark image were read in the next image's first
+  poll, 17 transactions in **83.6 ms**, against 4.85 ms for an empty
+  poll. Expect stale events at boot, and leave the first poll out of a
+  "longest poll" figure or say that it is in.
 - **The MCU resets its own I²C bus** if it sees no transaction for 2.5 s (after
   the first 10 s of uptime). A game that stops polling for seconds will come
   back to a slave that has just re-initialised.
@@ -1777,6 +1801,19 @@ debugger attached the core halts at the panic's breakpoint, with no fault
 recorded. Seen on a Plus 2 W, 2026-11-07, with about 4 KB of heap free and
 32 KB clusters. Wrapping `ff_memalloc()` so it returns NULL for a request
 that does not fit lets FatFs's own fallback run.
+
+**Measured** on a Plus 2 W, 2026-11-15, the same polled driver: a cold
+mount after the card went in 195–197 ms (three), a warm one after an SWD
+reset 14.6–15.6 ms; an 8 KiB file opened, read in 512-byte pieces and
+hashed with SHA-1 12.4–12.8 ms, a 16 KiB one 21.1–21.6 ms. **The 250 ms
+debounce failed once** on the same slot: the card pulled and pushed back
+read as out, then in, and the mount 250 ms after card detect settled
+failed with `FR_NOT_READY` after 3.8 ms, which at 400 kHz is the 74
+wake-up clocks and ten `CMD0`s with no reply. Card detect did not change
+again, so a retry waiting for the next change would never have run. With
+the debounce at 500 ms, two more swaps mounted first time. Debounce for
+500 ms, and while the card stays in, try a failed mount again a few times
+rather than waiting for card detect to move.
 
 **Prefer the card to internal flash for anything the application writes**,
 such as settings. A text file on the card is one source of truth the user can

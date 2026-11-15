@@ -12,8 +12,8 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M5 is built** (`docs/design.md` §17): the CoCo on the host,
-with its picture and its keyboard. The MC6809 core, the SAM, the PIAs and
+**Status: M6 is done** (`docs/design.md` §17): the CoCo on the host,
+with its picture and its keyboard, and the board brought up. The MC6809 core, the SAM, the PIAs and
 the field loop boot Color BASIC 1.3 and Extended 1.1 in 16 to 64 KB and
 Color BASIC 1.1 in 4 KB, and the trace diff holds every instruction to
 XRoar 1.13's through boot and typing. The SAM's video counter, the VDG and
@@ -22,8 +22,11 @@ the snapshot are held pixel for pixel to XRoar's MC6883 and MC6847 by
 `keymatrix.c` and the table in `keymap_picocalc.c`, settled by sweeping
 the ROMs (`test_keyboard`). **The Dragon is frozen until M14** (the owner,
 2026-11-15): M3's Dragon 32 stays and its tests keep passing, but
-nothing is added to it. The emulator image does not run the machine
-until M7. The record of each milestone (what was
+nothing is added to it. On the board, the image brings up the
+southbridge, the panel's test pattern and the card, lists `/coco/roms/` by
+SHA-1 and logs every key event with its cell, on the owner's Plus 2 W (the
+only board; it needs the UART0 build). It does not run the machine until
+M7. The record of each milestone (what was
 verified, on which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
 
