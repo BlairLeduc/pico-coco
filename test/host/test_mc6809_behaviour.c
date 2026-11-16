@@ -315,36 +315,81 @@ static int test_halt(void) {
     return 0;
 }
 
-/* ---- the trap -------------------------------------------------------- */
+/* ---- the count ------------------------------------------------------- */
 
-static int test_trap(void) {
+/* Undocumented instructions run as the chip runs them (the oracle holds
+ * what they do) and each is counted once, with its PC and opcode (D12):
+ * a page-1 opcode, a prefix falling through to page 1, an undocumented
+ * postbyte, a TFR of mixed sizes; and the controls, which are not. */
+static int test_count(void) {
     memset(ram, 0x12, sizeof ram);
-    PUT(0x1000, 0x01,                             /* page 1, undocumented */
-                0x10, 0x00,                       /* page 2, undocumented */
-                0x11, 0x86,                       /* page 3, undocumented */
-                0x86, 0x01,                       /* LDA #1: control       */
+    PUT(0x1000, 0x01, 0x40,                       /* NEG <$40, undocumented  */
+                0x10, 0x00, 0x40,                 /* page 2: NEG <$40        */
+                0x11, 0x86, 0x05,                 /* page 3: LDA #5          */
+                0x86, 0x01,                       /* LDA #1: control         */
                 0xA6, 0x87,                       /* LDA A,X with $x7: undocumented postbyte */
-                0x1F, 0x81,                       /* TFR A,X: mixed sizes  */
-                0x1F, 0x12);                      /* TFR X,Y: control      */
+                0x1F, 0x81,                       /* TFR A,X: mixed sizes    */
+                0x1F, 0x12,                       /* TFR X,Y: control        */
+                0x10, 0x10, 0x8E, 0x12, 0x34);    /* LDY # after two prefixes */
     boot(&ma, 0x1000);
     uint32_t n = mc6809_step(&ma);
     CHECK(ma.cpu.undoc_count == 1 && ma.cpu.undoc_pc == 0x1000 && ma.cpu.undoc_op == 0x01 &&
-          ma.cpu.pc == 0x1001 && n == 2u, "page 1 trap: count %u op %04X PC %04X, %u cycles",
-          ma.cpu.undoc_count, ma.cpu.undoc_op, ma.cpu.pc, n);
+          ma.cpu.pc == 0x1002 && n == 6u && ram[0x40] == 0xEE,
+          "$01: count %u op %04X PC %04X, %u cycles, $40=%02X", ma.cpu.undoc_count,
+          ma.cpu.undoc_op, ma.cpu.pc, n, ram[0x40]);
     n = mc6809_step(&ma);
-    CHECK(ma.cpu.undoc_count == 2 && ma.cpu.undoc_pc == 0x1001 && ma.cpu.undoc_op == 0x1000 &&
-          ma.cpu.pc == 0x1003 && n == 3u, "page 2 trap: op %04X PC %04X, %u cycles",
-          ma.cpu.undoc_op, ma.cpu.pc, n);
-    step_n(&ma, 1);
-    CHECK(ma.cpu.undoc_count == 3 && ma.cpu.undoc_op == 0x1186, "page 3 trap: op %04X", ma.cpu.undoc_op);
+    CHECK(ma.cpu.undoc_count == 2 && ma.cpu.undoc_pc == 0x1002 && ma.cpu.undoc_op == 0x1000 &&
+          ma.cpu.pc == 0x1005 && n == 7u && ram[0x40] == 0x12,
+          "$1000: count %u op %04X PC %04X, %u cycles, $40=%02X", ma.cpu.undoc_count,
+          ma.cpu.undoc_op, ma.cpu.pc, n, ram[0x40]);
+    n = mc6809_step(&ma);
+    CHECK(ma.cpu.undoc_count == 3 && ma.cpu.undoc_op == 0x1186 && ma.cpu.a == 5 && n == 3u,
+          "$1186: count %u op %04X A %02X, %u cycles", ma.cpu.undoc_count, ma.cpu.undoc_op,
+          ma.cpu.a, n);
     step_n(&ma, 1);
     CHECK(ma.cpu.undoc_count == 3 && ma.cpu.a == 1, "LDA # was counted or failed");
     step_n(&ma, 1);
-    CHECK(ma.cpu.undoc_count == 4 && ma.cpu.undoc_pc == 0x1007, "postbyte $87 not counted");
+    CHECK(ma.cpu.undoc_count == 4 && ma.cpu.undoc_pc == 0x100A, "postbyte $87 not counted");
     step_n(&ma, 1);
     CHECK(ma.cpu.undoc_count == 5 && ma.cpu.undoc_op == 0x1F, "TFR A,X not counted");
     step_n(&ma, 1);
     CHECK(ma.cpu.undoc_count == 5, "TFR X,Y counted");
+    n = mc6809_step(&ma);
+    CHECK(ma.cpu.undoc_count == 6 && ma.cpu.undoc_op == 0x108E && ma.cpu.y == 0x1234 && n == 5u,
+          "$10 $10 $8E: count %u op %04X Y %04X, %u cycles", ma.cpu.undoc_count,
+          ma.cpu.undoc_op, ma.cpu.y, n);
+    return 0;
+}
+
+/* ---- HCF ------------------------------------------------------------- */
+
+/* $14 locks the CPU: no interrupt is taken, HALT changes nothing, and
+ * only RESET ends it (D12). */
+static int test_hcf(void) {
+    memset(ram, 0x12, sizeof ram);
+    PUT(0x1000, 0x1C, 0x00, 0x14);                /* ANDCC #0; HCF */
+    boot(&ma, 0x1000);
+    step_n(&ma, 2);
+    CHECK(ma.cpu.wait == MC6809_HCF && ma.cpu.pc == 0x1003, "HCF: wait %u PC %04X",
+          ma.cpu.wait, ma.cpu.pc);
+    mc6809_set_irq(&ma.cpu, 1u, true);
+    mc6809_set_firq(&ma.cpu, 1u, true);
+    uint64_t c0 = ma.cpu.cycles;
+    uint32_t got = mc6809_run(&ma, 1000);
+    CHECK(ma.cpu.pc == 0x1003 && ma.cpu.s == 0 && got >= 1000u && ma.cpu.cycles - c0 == got,
+          "locked: PC %04X S %04X, %u cycles", ma.cpu.pc, ma.cpu.s, got);
+    mc6809_set_halt(&ma.cpu, true);
+    mc6809_run(&ma, 10);
+    mc6809_set_halt(&ma.cpu, false);
+    mc6809_run(&ma, 100);
+    CHECK(ma.cpu.wait == MC6809_HCF && ma.cpu.pc == 0x1003, "HALT released the lock: wait %u PC %04X",
+          ma.cpu.wait, ma.cpu.pc);
+    mc6809_set_irq(&ma.cpu, 1u, false);
+    mc6809_set_firq(&ma.cpu, 1u, false);
+    mc6809_reset(&ma);
+    step_n(&ma, 1);
+    CHECK(ma.cpu.wait == MC6809_RUNNING && ma.cpu.pc == 0x1002, "after RESET: wait %u PC %04X",
+          ma.cpu.wait, ma.cpu.pc);
     return 0;
 }
 
@@ -460,7 +505,7 @@ int main(void) {
     if (test_sync()) return 1;
     if (test_cwai()) return 1;
     if (test_halt()) return 1;
-    if (test_trap()) return 1;
+    if (test_count() || test_hcf()) return 1;
     if (test_rmw()) return 1;
     if (test_skip()) return 1;
     TEST_DONE();

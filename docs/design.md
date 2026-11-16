@@ -121,7 +121,7 @@ word before the milestone that depends on them.
 | D9 | 2026-11-14 | Licence **GPL-3.0**, as pico-atom and pico-oric, whose code this starts from. XRoar is GPL-3.0-or-later, so compiling its CPU into a test tool is compatible. | Settled by the owner |
 | D10 | 2026-11-14 | No ROMs shipped; identified on the card by SHA-1 (§12.1). No internal flash writes (EL §8.7). | Settled by the owner |
 | D11 | 2026-11-14 | The picture is 256×192 at 1:1 at (32, 64), as the Atom's (EL §5.4). | Settled by the owner |
-| D12 | 2026-11-14 | 6809 undocumented opcodes are **trapped and counted** first; the archive run decides whether any is implemented (EL §3.1, §11.6). | Settled by the owner |
+| D12 | 2026-11-14 | 6809 undocumented opcodes are **trapped and counted** first; the archive run decides whether any is implemented (EL §3.1, §11.6). **Decided 2026-11-16 from M11's archive run**: every undocumented opcode is executed as the NMOS chip executes it, XRoar's model held by the oracle, and still counted (§7.1, §15.4). | Settled by the owner |
 | D13 | 2026-11-14 | The project is named **pico-coco**, after its first machine as the siblings are, with the card folder `/coco/`. The owner renamed the repository directory from `picocalc-xroar` when its GitHub origin was set up. | Settled by the owner |
 | D14 | 2026-11-14 | PicoCalc findings go into `hardware-notes.md`, and what generalises into `emulator-lessons.md`, as learned, each written to stand alone (EL §14.1). One branch and pull request per milestone, CI green on both builds. | Settled by the owner |
 
@@ -366,8 +366,12 @@ behaviour software leans on is modelled:
   whether an edge or a PIA access made in that last cycle, counts from
   the boundary after (`mc6809_lines_late`), and the machine ends a run
   slice a cycle after each edge so this falls out.
-- **Undocumented opcodes trapped and counted**, with the count and the
-  last PC on the heartbeat (D12).
+- **Undocumented opcodes executed as the NMOS chip executes them** and
+  counted, with the count and the last PC on the heartbeat (D12). Until
+  M11 they were consumed as NOPs; the archive run found titles that rely
+  on the chip's behaviour in normal play (§15.4), and the owner decided
+  on 2026-11-16 to implement them all as XRoar does. The oracle holds
+  every byte of pages 1, 2 and 3, the prefixes chained, and HCF (M11).
 - **The interrupt latch, as XRoar models it** (settled in M1 by the
   oracle, 2026-11-14). In SYNC and CWAI the CPU polls once a cycle through
   a one-cycle latch: a line that rises during the wait is latched by the
@@ -392,6 +396,24 @@ of the result xor the new C (hoglet67's measurement, which XRoar cites);
 sizes, and with unused register codes, do what tlindner measured and XRoar
 implements, and are counted as undocumented. So are the undocumented
 indexed postbytes, which are decoded as the chip decodes them.
+
+**The undocumented opcodes, as built in M11** (2026-11-16), each XRoar's,
+whose sources are hoglet67's measurements and Ciaran Anscomb's 1994
+notes: `$x1` is NEG, `$x5` LSR; `$x2` is NGC, NEG with the carry in;
+`$xB` a DEC that sets C when it borrows; `$4E` and `$5E` a CLR that leaves
+C; `$1B` a NOP; `$38` an ANDCC a cycle longer; `$18` shifts CC left under
+a mask from the next byte, which it does not consume; `$3E` stacks every
+register with E as it stands and takes the RESET vector, masking nothing;
+`$87` and `$C7` take an immediate byte and set N, clearing Z and V; `$8F`
+and `$CF` store X's or U's low byte over the byte after their operand;
+`$14`, `$15` and `$CD` lock the CPU until RESET (HCF), interrupts and HALT
+ignored. After `$10` or `$11` the first prefix chooses the page and each
+further prefix is a cycle; an opcode the page lacks runs as page 1's, a
+cycle later for each prefix, except `$1020` (LBRA), `$108D` and `$118D`
+(LBRA), `$103E` and `$113E` (`$3E` with the SWI2 and FIRQ vectors),
+`$10C3`-`$10F3` (ADDD setting only the flags) and `$11C3`-`$11F3` (the
+same on U with its high byte set), and a list of each page's that is a
+dead cycle (`mc6809.c`).
 
 ### 7.2 Implementation
 
@@ -729,6 +751,17 @@ PIA1 port B or to the SAM's V or F that changes the video bits while the
 VDG is on an active line, by the tick of the write, marks the field, and
 `coco_t.split_fields` counts the fields so marked. The list of changes is
 built if the archive run's count asks for split rendering.
+
+**Decided from M11's archive run** (the owner, 2026-11-16): split
+rendering is built in M12. Of 1,059 titles run for a minute each, 655
+changed the video bits on an active line at least once, nearly all for
+a field or two at a change of screen, and 17 did so in 60 fields or
+more once the undocumented opcodes ran as the chip runs them (D12):
+Maths Invaders (the display offset, nearly every field), Dragon Fire
+(the cartridge and both tapes), Dark Star and Rommel's Revenge (every
+field, near lines 9-17), Defend, Desert Rider, Glaxxons, Model
+Rocketry, Superkid, Kids on Keys (cartridge and tape), Cave Fighter and
+Eliminator (§15.4; `docs/milestones.md`, M11).
 
 ### 9.5 Colour, artefacts and the border
 
@@ -1362,6 +1395,19 @@ instructions before the first (D12); fields with more than one video mode
 whether CAS files come gzipped; the largest file, which sizes the
 buffers. Failures are classified before any is fixed.
 
+**As built in M11** (2026-11-16): the Color Computer Archive's
+cartridges and cassettes (colorcomputerarchive.com/repo/, the owner's
+choice), fetched by `tools/fetch-archive.sh`, its CoCo 3 titles and
+WAV-only zips left out: 106 cartridges and 953 tapes. A living archive
+has no one checksum, so each file's SHA-1 goes to a manifest beside it.
+`tools/coco-corpus.c` runs each on a 64 KB CoCo with Extended Color BASIC
+for 3,600 fields, the tape served by the trap as `tapeio.c` serves it,
+and replays any field that reached an undocumented opcode or changed the
+video bits on an active line a step at a time from a copy, for the
+lead-in and which bits changed; `tools/archive-run.sh` and
+`archive-summary.py` report. The keys and joysticks titles read are left
+to M12's layouts. What it found is in `docs/milestones.md`, M11.
+
 ### 15.5 On the board
 
 The gate (§7.5); the registers and tick count at the end of each of the
@@ -1440,7 +1486,7 @@ keep passing.
 | **M9** | Card, settings, the menu, the Machine page, ROM cartridges, the tape trap | A game loaded from CAS and from a cartridge image and played; `CSAVE` and `CLOAD` round-trip; the trap's state held to the ROM's own routine |
 | **M10** | Snapshots | Restored mid-program into a machine doing something else, identical straight after and 150 fields on |
 | **M11** | The perf pass with SRAM tiers; the archive run; the soak | Each feature's cost against a control; D12 and §9.4 decided from the archive; a clean 30-minute soak on both builds |
-| **M12** | The tape signal, turbo, recording, the keyboard joystick and game layouts | Edge-for-edge against the ROM's own save; a recording loads in XRoar; a joystick game played by the owner |
+| **M12** | The tape signal, turbo, recording, the keyboard joystick and game layouts; split-field rendering (§9.4, the owner, 2026-11-16) | Edge-for-edge against the ROM's own save; a recording loads in XRoar; a joystick game played by the owner; the routine split titles of M11's archive run drawn by region and looked at |
 | **M13** | Discs for the CoCo: the WD1793, the RS-DOS controller with its HALT pacing, Disk BASIC, JVC/DSK images | Disk BASIC runs `DIR`, `LOAD`, `SAVE`, `DSKINI` and `BACKUP` on the host and the device; the CoCo disc archive held to XRoar by screen |
 | **M14** | The Dragons on the device: Dragon 32; Dragon 64 with its ROM switch, 64 KB map and the serial chip's idle registers; DragonDOS on the WD2797, VDK images | Both boot on the panel, the 64 in both modes; DragonDOS runs its commands; the Dragon archive run |
 | **M15** | HD6309 | Its oracle passes in both modes; a 6309 program runs on the device |
@@ -1459,7 +1505,7 @@ configuration; once settled, it is a constant.
 |---|---|---|---|
 | Host cycles per 6809 instruction (§7.5) | 200–350 | **Settled** 2026-11-14 (M2): 88.1 on a BASIC-shaped loop and 113.3 on a random mix, at tier 2 with the decoder out of line; 99.5 and 863.7 from flash | M2, on the board |
 | 6809 cycle counts, flags, interrupt sequencing | Datasheet; **settled in M1** | High | MC6809E datasheet; the oracle; see below |
-| The NMOS 6809's undocumented opcodes and what software reaches them | Trapped | Low | The archive run (D12) |
+| The NMOS 6809's undocumented opcodes and what software reaches them | Trapped. **M11** (2026-11-16): reached by 37 of 1,059 archive titles (§15.4); implemented as XRoar's model, held by the oracle over every byte of the three pages, the chained prefixes and HCF (§7.1). XRoar's model is hoglet67's measurements; no chip measured here | Medium | A real 6809 run against the oracle's trials |
 | A published 6809 functional test of standing exists | **None found** (M1, 2026-11-14) | — | Searched in M1; see below |
 | The master oscillator on PAL Dragons and PAL CoCos | 14.218 MHz against NTSC's 14.31818 | Low | Schematics; XRoar counts every machine in 14.31818 MHz ticks |
 | Lines a field and their layout on PAL machines; where FS and the field interrupt fall | 312, the extra lines inserted by a circuit outside the VDG. **M3, the Dragon 32**: XRoar's placement (§13.1), which the trace diff holds through boot, typing and 50 guest seconds of a program; the schematic not yet read | Low | Dragon 32 schematic and service manual |
@@ -1564,6 +1610,6 @@ configuration; once settled, it is a constant.
   Cartridge), the multi-pak: the Oric's AY-3-8912 is there to take.
 - **Printer output to a file; the serial ports**.
 - **WAV tapes**; **importing XRoar snapshots** (EL §8.8).
-- **Split-field rendering** (§9.4) and **implemented undocumented
-  opcodes** (D12): each decided by the archive run.
+- **Split-field rendering** (§9.4): decided by the archive run, and
+  built in M12 (the owner, 2026-11-16).
 - **300 MHz**: if the gate asks, or as a user's opt-in later (EL §9.4).

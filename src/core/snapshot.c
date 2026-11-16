@@ -319,7 +319,7 @@ static bool plausible(const uint8_t st[SNAP_STATE_LEN]) {
     if (st[S_MACHINE] > COCO_MACHINE_DRAGON32 || (st[S_FITTED] & ~M_ALL)) return false;
     if ((st[S_FITTED] & M_AUTOSTART) && !(st[S_FITTED] & M_CART)) return false;
     if (st[S_CPU_FLAGS] & ~(C_NMI_LINE | C_NMI_PENDING | C_NMI_ARMED | C_HALT | C_STALE)) return false;
-    if (st[S_WAIT] > MC6809_CWAI || (st[S_M_FLAGS] & ~(F_SOUND_FED | F_VIDEO_SPLIT))) return false;
+    if (st[S_WAIT] > MC6809_HCF || (st[S_M_FLAGS] & ~(F_SOUND_FED | F_VIDEO_SPLIT))) return false;
     if ((st[S_LATCH] | st[S_ACTIVE]) & ~(MC6809_LINE_IRQ | MC6809_LINE_FIRQ | MC6809_LINE_NMI))
         return false;
     for (unsigned i = 0; i < COCO_PIA_PORTS; i++)

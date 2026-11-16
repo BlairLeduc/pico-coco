@@ -9,9 +9,14 @@
  * which has the dummy cycles besides, so the core reads nothing the chip
  * does not. This is the cycle table asserted by execution (EL §3.3).
  *
- *   instructions  every documented opcode, 2048 trials each over random
- *                 registers; an indexed opcode's postbyte runs through all
- *                 256 values eight times, TFR's and EXG's likewise
+ *   instructions  every opcode on each page, documented or not, 2048
+ *                 trials each over random registers; an indexed opcode's
+ *                 postbyte runs through all 256 values eight times, TFR's
+ *                 and EXG's likewise
+ *   chains        every opcode after two prefixes, in each of the four
+ *                 orders, 64 trials each
+ *   hcf           $14, $15 and $CD lock the CPU until RESET, interrupts
+ *                 asserted
  *   flat          a sample again with our core on the page table's fast
  *                 path over a real 64 KB, memory compared whole
  *   interrupts    IRQ, FIRQ and NMI against masks and NMI's arming
@@ -19,9 +24,10 @@
  *                 cycle of the wait, each instruction boundary compared
  *   reset         the reset sequence
  *
- * Undocumented opcodes are trapped by the core and implemented by XRoar,
- * so they are left out (D12); undocumented indexed postbytes and TFR/EXG
- * register pairs are decoded by both, and compared.
+ * Undocumented opcodes, indexed postbytes and TFR/EXG register pairs are
+ * executed by both, as the NMOS chip executes them, and compared (D12;
+ * the owner, 2026-11-16). SYNC and CWAI reached through a prefix are
+ * left to test_waits, which takes them on page 1.
  *
  * Without XRoar's checkout this test is built as a skip; a skip is an
  * unverified CPU (§15.1).
@@ -256,8 +262,13 @@ static bool has_indexed(uint16_t op) {
     uint8_t lo = (uint8_t)op;
     if ((op >> 8) == 0 && lo >= 0x30 && lo <= 0x33) return true;
     uint8_t hi = lo & 0xF0u;
-    if (hi == 0xA0u || hi == 0xE0u) return true;
-    return (op >> 8) == 0 && hi == 0x60u;
+    return hi == 0xA0u || hi == 0xE0u || hi == 0x60u;
+}
+
+/* What test_instructions enumerates on each page: every byte but the
+ * prefixes, which chain (test_chains), and SYNC and CWAI (test_waits). */
+static bool enumerated(uint8_t lo) {
+    return lo != 0x10 && lo != 0x11 && lo != 0x13 && lo != 0x3C;
 }
 
 static bool has_regpair(uint16_t op) { return op == 0x1E || op == 0x1F; }
@@ -285,8 +296,7 @@ static void test_instructions(void) {
     for (int page = 0; page < 3; page++) {
         for (int lo = 0; lo < 256; lo++) {
             uint16_t op = (uint16_t)((page == 0 ? 0 : page == 1 ? 0x1000 : 0x1100) | lo);
-            if (!mc6809_documented(op)) continue;
-            if (op == 0x13 || op == 0x3C) continue;      /* SYNC, CWAI: test_waits */
+            if (!enumerated((uint8_t)lo)) continue;
             ops++;
             for (int t = 0; t < TRIALS_PER_OP; t++) {
                 xr_regs_t start, o, th;
@@ -311,13 +321,99 @@ static void test_instructions(void) {
             }
         }
     }
-    printf("instructions: %d documented opcodes, %d trials each\n", ops, TRIALS_PER_OP);
+    printf("instructions: %d opcodes, %d trials each\n", ops, TRIALS_PER_OP);
     for (int page = 0; page < 3; page++)
         for (int lo = 0; lo < 256; lo++)
             if (per_op_failures[page][lo])
                 fprintf(stderr, "  $%s%02X: %d of %d trials differ\n",
                         page == 0 ? "" : page == 1 ? "10" : "11", lo,
                         per_op_failures[page][lo], TRIALS_PER_OP);
+}
+
+/* ---- prefixes chained ------------------------------------------------ */
+
+/* Two prefixes, then an opcode: the first chose the page, the second is
+ * a cycle (D12). */
+static void test_chains(void) {
+    static const uint8_t pre[4][2] = { { 0x10, 0x10 }, { 0x10, 0x11 }, { 0x11, 0x10 }, { 0x11, 0x11 } };
+    int n = 0;
+    for (int k = 0; k < 4; k++) {
+        for (int lo = 0; lo < 256; lo++) {
+            if (!enumerated((uint8_t)lo)) continue;
+            for (int t = 0; t < 64; t++) {
+                xr_regs_t start, o, th;
+                random_regs(&start);
+                both_start(rnd());
+                both_pre(start.pc, pre[k][0]);
+                both_pre((uint16_t)(start.pc + 1u), pre[k][1]);
+                both_pre((uint16_t)(start.pc + 2u), (uint8_t)lo);
+                both_pre((uint16_t)(start.pc + 3u), (uint8_t)rnd());
+
+                ours_load(&start, false, false, false);
+                xr_load(&start, false, false, false);
+                clear_logs();
+
+                unsigned long ocyc = run_ours_one();
+                unsigned long tcyc = xr_run(200, true);
+                ours_save(&o);
+                xr_save(&th);
+
+                char what[48];
+                snprintf(what, sizeof what, "chain $%02X%02X%02X trial %d", pre[k][0], pre[k][1], lo, t);
+                (void)compare(what, &start, &o, ocyc, &th, tcyc, true);
+                n++;
+            }
+        }
+    }
+    printf("chains: %d trials\n", n);
+}
+
+/* ---- HCF ------------------------------------------------------------- */
+
+/* After $14, $15 or $CD, alone or after a prefix, the CPU stands until
+ * RESET: a hundred cycles more with every interrupt line asserted, and
+ * the registers, the cycles and the bus as XRoar's (D12). */
+static void test_hcf(void) {
+    static const uint16_t ops[] = { 0x14, 0x15, 0xCD, 0x1014, 0x1115, 0x10CD };
+    int n = 0;
+    for (unsigned i = 0; i < sizeof ops / sizeof ops[0]; i++) {
+        for (int t = 0; t < 64; t++) {
+            xr_regs_t start, o, th;
+            random_regs(&start);
+            both_start(rnd());
+            place(start.pc, ops[i], -1);
+
+            ours_load(&start, false, false, false);
+            xr_load(&start, false, false, false);
+            clear_logs();
+            unsigned long ocyc = run_ours_one();
+            unsigned long tcyc = xr_run(200, true);
+            ours_save(&o);
+            xr_save(&th);
+            char what[48];
+            snprintf(what, sizeof what, "HCF $%04X trial %d", ops[i], t);
+            if (!compare(what, &start, &o, ocyc, &th, tcyc, true)) continue;
+
+            /* Locked: the lines asserted, a hundred cycles each. */
+            ours_load(&o, true, true, true);
+            ours.cpu.wait = MC6809_HCF;
+            mc6809_attn(&ours.cpu);
+            xr_lines(true, true, true);
+            clear_logs();
+            uint64_t before = ours.cpu.cycles;
+            mc6809_run(&ours, 100);
+            ocyc = (unsigned long)(ours.cpu.cycles - before);
+            tcyc = xr_run(tcyc + 100, false) - tcyc;
+            xr_regs_t o2, th2;
+            ours_save(&o2);
+            xr_save(&th2);
+            snprintf(what, sizeof what, "HCF $%04X locked, trial %d", ops[i], t);
+            (void)compare(what, &o, &o2, ocyc, &th2, tcyc, true);
+            if (o2.pc != o.pc && ++failures <= 12) fprintf(stderr, "FAIL %s: PC moved\n", what);
+            n++;
+        }
+    }
+    printf("hcf: %d trials\n", n);
 }
 
 /* ---- the fast path, over a real 64 KB -------------------------------- */
@@ -345,7 +441,7 @@ static void test_flat(void) {
     for (int page = 0; page < 3; page++) {
         for (int lo = 0; lo < 256; lo++) {
             uint16_t op = (uint16_t)((page == 0 ? 0 : page == 1 ? 0x1000 : 0x1100) | lo);
-            if (!mc6809_documented(op) || op == 0x13 || op == 0x3C) continue;
+            if (!enumerated((uint8_t)lo)) continue;
             for (int t = 0; t < 32; t++) {
                 xr_regs_t start, o, th;
                 random_regs(&start);
@@ -605,6 +701,8 @@ int main(void) {
     xr_open(&h);
 
     test_instructions();
+    test_chains();
+    test_hcf();
     test_flat();
     test_interrupts();
     test_waits(0x13);

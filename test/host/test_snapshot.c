@@ -351,7 +351,7 @@ int main(void) {
     if (refused(155, 8, SNAP_NOT_SNAPSHOT, "RAM of 8K")) return 1;
     if (refused(154, 7, SNAP_NOT_SNAPSHOT, "machine 7")) return 1;
     if (refused(156, 0x80, SNAP_NOT_SNAPSHOT, "an unknown fitting")) return 1;
-    if (refused(31, 3, SNAP_NOT_SNAPSHOT, "a wait of 3")) return 1;
+    if (refused(31, 4, SNAP_NOT_SNAPSHOT, "a wait of 4")) return 1;
     if (refused(30, 0x80, SNAP_NOT_SNAPSHOT, "an unknown CPU flag")) return 1;
     if (refused(80, 12, SNAP_NOT_SNAPSHOT, "12 ticks a cycle")) return 1;
     if (refused(80, 8, SNAP_NOT_SNAPSHOT, "the fast rate with the SAM slow")) return 1;
