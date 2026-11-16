@@ -190,7 +190,7 @@ int main(void) {
         for (int field = 0; field < 120; field++) {
             /* The control: a copy run only to where FS rises. */
             coco_copy(&m2, &m);
-            uint64_t rise = m2.field_start + (uint64_t)m2.field_lines * m2.line_ticks;
+            uint64_t rise = m2.field_start + (uint64_t)COCO_FIELD_LINES * COCO_LINE_TICKS;
             (void)coco_run(&m2, (uint32_t)(rise - coco_ticks(&m2)));
             coco_video_snapshot(&m2, &f);
             for (unsigned i = 1; i < 256u; i++)

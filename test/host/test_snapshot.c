@@ -135,7 +135,7 @@ static int refused(unsigned off, uint8_t v, snap_status_t want, const char *what
  * to the next field, and only it or a PIA access sees FS fall. */
 static bool step_to(coco_t *m, bool (*pred)(const coco_t *)) {
     for (int f = 0; f < 300; f++) {
-        uint64_t fall = m->field_start + (uint64_t)m->fs_fall_line * m->line_ticks;
+        uint64_t fall = m->field_start + (uint64_t)COCO_FS_FALL_LINE * COCO_LINE_TICKS;
         while (coco_ticks(m) < fall + 2000u) {
             coco_run(m, 1);
             if (pred(m)) return true;
@@ -350,8 +350,9 @@ int main(void) {
     /* ---- refusals: fields no running machine keeps, each with a good CRC -- */
     if (refused(155, 8, SNAP_NOT_SNAPSHOT, "RAM of 8K")) return 1;
     if (refused(154, 7, SNAP_NOT_SNAPSHOT, "machine 7")) return 1;
+    if (refused(154, 1, SNAP_NOT_SNAPSHOT, "a Dragon 32's, M3 to M11")) return 1;
     if (refused(156, 0x80, SNAP_NOT_SNAPSHOT, "an unknown fitting")) return 1;
-    if (refused(31, 3, SNAP_NOT_SNAPSHOT, "a wait of 3")) return 1;
+    if (refused(31, 4, SNAP_NOT_SNAPSHOT, "a wait of 4")) return 1;
     if (refused(30, 0x80, SNAP_NOT_SNAPSHOT, "an unknown CPU flag")) return 1;
     if (refused(80, 12, SNAP_NOT_SNAPSHOT, "12 ticks a cycle")) return 1;
     if (refused(80, 8, SNAP_NOT_SNAPSHOT, "the fast rate with the SAM slow")) return 1;
@@ -394,7 +395,7 @@ int main(void) {
         CHECK(mem_check(&snap, &h, &info, NULL) == SNAP_OTHER_RAM, "into 16K");
         CHECK(mem_load(&snap, &h) == SNAP_OTHER_RAM, "loaded into 16K");
         CHECK(snap_same(&before, &h, "16K"), "the 16K machine changed");
-        CHECK(info.ram_k == 64u && info.machine == COCO_MACHINE_COCO && info.rom_present[1] &&
+        CHECK(info.ram_k == 64u && info.rom_present[1] &&
               !info.rom_present[0] && info.rom[1] == ROM_UNKNOWN && !info.cart && info.tape_trap,
               "the info names the machine: %u K", info.ram_k);
         /* Powered on as the info says, it loads. */

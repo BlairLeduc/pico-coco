@@ -6,8 +6,8 @@
  * table's slow path where the chips do not answer, the field
  * interrupt (FS on PIA0 CB1, sixty in sixty fields, with CB1 disabled as
  * the control), the line interrupt (HS on PIA0 CA1, 262 a field, the run
- * sliced at each line), the Dragon's PAL field (312 lines, the first 287)
- * and its PIA decode, a slice ended by a change within it (the SAM's rate,
+ * sliced at each line), the field's length and the PIAs' decode
+ * repeating over their 32 bytes, a slice ended by a change within it (the SAM's rate,
  * CA1's enable), the keyboard's rows and columns through PIA0, the
  * copy, and the run contract.
  */
@@ -54,12 +54,9 @@ static void build_rom(uint8_t crb, uint8_t cra, bool hs_handler) {
     rom[0x1FFE] = 0xA0; rom[0x1FFF] = 0x00;                       /* RESET */
 }
 
-static coco_machine_t which = COCO_MACHINE_COCO;
-
 static void machine(coco_t *m, unsigned ram_k) {
     coco_config_t cfg;
     coco_config_default(&cfg);
-    cfg.machine = which;
     cfg.ram_k = ram_k;
     coco_init(m, &cfg);
     coco_load_rom(m, 0xA000, rom, sizeof rom);
@@ -178,50 +175,36 @@ int main(void) {
         CHECK(none == 0, "with CA1's interrupt disabled, %u interrupts", none);
     }
 
-    /* ---- the Dragon's PAL field --------------------------------------- */
+    /* ---- the field's length ------------------------------------------ */
     {
-        which = COCO_MACHINE_DRAGON32;
         build_rom(0x05, 0x04, false);
-        machine(&ma, 32);
+        machine(&ma, 64);
         /* Ticks from power-on, the reset's own cycles among them. A field
-         * runs on to the next one's first active line (§13.1): 63 lines
-         * into the Dragon's, 25 held and 38 of the VDG's. */
+         * runs on to the next one's first active line (§13.1): 38 lines
+         * into it. */
         (void)coco_run_field(&ma);
         uint64_t first = coco_ticks(&ma);
         uint32_t second = coco_run_field(&ma);
-        CHECK(first >= (287u + 63u) * 912u && first < (287u + 63u) * 912u + 20u * 16u,
-              "the Dragon's first field ended at %llu, not 287 + 63 lines in",
-              (unsigned long long)first);
-        CHECK(second > 312u * 912u - 20u * 16u && second < 312u * 912u + 20u * 16u,
-              "the Dragon's field ran %u ticks, not 312 lines", second);
-        unsigned n = count_irqs(0x05, 0x04, false, 50);
-        CHECK(n == 50, "the Dragon's FS interrupts in 50 fields: %u", n);
-        n = count_irqs(0x04, 0x05, true, 10);
-        CHECK(n == 3120, "the Dragon's HS interrupts in 10 fields: %u, not 312 a field", n);
-        which = COCO_MACHINE_COCO;
-        build_rom(0x05, 0x04, false);
-        machine(&ma, 64);
-        (void)coco_run_field(&ma);
-        first = coco_ticks(&ma);
         CHECK(first >= (262u + 38u) * 912u && first < (262u + 38u) * 912u + 20u * 16u,
-              "the CoCo's first field ended at %llu, not 262 + 38 lines in",
-              (unsigned long long)first);
+              "the first field ended at %llu, not 262 + 38 lines in", (unsigned long long)first);
+        CHECK(second > 262u * 912u - 20u * 16u && second < 262u * 912u + 20u * 16u,
+              "a field ran %u ticks, not 262 lines", second);
     }
 
-    /* ---- the Dragon's PIA decode -------------------------------------- */
+    /* ---- the PIAs' decode --------------------------------------------- */
     {
-        which = COCO_MACHINE_DRAGON32;
+        /* The CoCo's PIAs ignore A2 and repeat over their 32 bytes in
+         * every size (§8.1, §18). */
+        static const unsigned sizes[] = { 4, 16, 32, 64 };
         build_rom(0x04, 0x04, false);
-        machine(&ma, 32);
-        bus_write(&ma, 0xFF21, 0x34);
-        CHECK(bus_read(&ma, 0xFF25) == 0x34, "an unexpanded Dragon 32's PIA1 does not repeat with A2 set");
-        machine(&ma, 64);
-        bus_write(&ma, 0xFF21, 0x34);
-        CHECK(bus_read(&ma, 0xFF21) == 0x34 && bus_read(&ma, 0xFF25) != 0x34,
-              "an expanded Dragon's PIA1 answered with A2 set");
-        bus_write(&ma, 0xFF25, 0x00);
-        CHECK(bus_read(&ma, 0xFF21) == 0x34, "a write with A2 set reached an expanded Dragon's PIA1");
-        which = COCO_MACHINE_COCO;
+        for (unsigned z = 0; z < 4; z++) {
+            machine(&ma, sizes[z]);
+            bus_write(&ma, 0xFF21, 0x34);
+            CHECK(bus_read(&ma, 0xFF25) == 0x34 && bus_read(&ma, 0xFF3D) == 0x34,
+                  "%u KB: PIA1 does not repeat with A2 set", sizes[z]);
+            bus_write(&ma, 0xFF25, 0x30);
+            CHECK(bus_read(&ma, 0xFF21) == 0x30, "%u KB: a write with A2 set missed PIA1", sizes[z]);
+        }
     }
 
     /* ---- a change within a slice ends it ----------------------------- */

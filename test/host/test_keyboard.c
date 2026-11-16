@@ -502,7 +502,7 @@ int main(int argc, char **argv) {
             continue;
         }
         ran++;
-        guest_build_as(&g, COCO_MACHINE_COCO, 64, rc->basic, rc->extended);
+        guest_build_as(&g, 64, rc->basic, rc->extended);
         if (!guest_boot(&g)) {
             CHECK(false, "%s did not boot", label);
             continue;

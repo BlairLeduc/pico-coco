@@ -68,10 +68,12 @@ enum {
     S_VIDEO_BITS = 142, S_SPLIT_FIELDS = 146,
     S_M_FLAGS = 150,              /* F_ bits below                       */
     S_TAPE_HOT = 152,             /* the trap point page $A7 is slow for */
-    /* The machine it runs on: what a power-on chooses. */
+    /* The machine it runs on: what a power-on chooses. S_MACHINE is 0,
+     * the CoCo; M3 to M11 also wrote 1 for a Dragon 32 (D6). */
     S_MACHINE = 154, S_RAM_K = 155,
     S_FITTED = 156,               /* M_ bits below                       */
-    /* The field's shape (§13.1): the build's, from the machine. */
+    /* The field's shape (§13.1): the build's, config.h's constants.
+     * S_FIELD_LEAD is 0; it was a PAL field's (D6). */
     S_LINE_TICKS = 158,           /* 4 bytes                             */
     S_FIELD_LINES = 162, S_FS_FALL = 164, S_ACTIVE_LINE = 166,
     S_HS_LOW = 168, S_FIELD_LEAD = 170,
@@ -194,15 +196,15 @@ static void state_encode(const coco_t *m, uint8_t st[SNAP_STATE_LEN]) {
     st[S_M_FLAGS] = (uint8_t)((m->sound_fed ? F_SOUND_FED : 0) | (m->video_split ? F_VIDEO_SPLIT : 0));
     put16(st + S_TAPE_HOT, m->tape.hot);
 
-    st[S_MACHINE] = (uint8_t)m->cfg.machine;
+    st[S_MACHINE] = 0u;
     st[S_RAM_K] = (uint8_t)m->cfg.ram_k;
     st[S_FITTED] = fitted_of(m);
-    put32(st + S_LINE_TICKS, m->line_ticks);
-    put16(st + S_FIELD_LINES, (uint16_t)m->field_lines);
-    put16(st + S_FS_FALL, (uint16_t)m->fs_fall_line);
-    put16(st + S_ACTIVE_LINE, (uint16_t)m->active_line);
-    put16(st + S_HS_LOW, (uint16_t)m->hs_low_ticks);
-    put16(st + S_FIELD_LEAD, (uint16_t)m->field_lead);
+    put32(st + S_LINE_TICKS, COCO_LINE_TICKS);
+    put16(st + S_FIELD_LINES, COCO_FIELD_LINES);
+    put16(st + S_FS_FALL, COCO_FS_FALL_LINE);
+    put16(st + S_ACTIVE_LINE, COCO_ACTIVE_LINE);
+    put16(st + S_HS_LOW, COCO_HS_LOW_TICKS);
+    put16(st + S_FIELD_LEAD, 0u);
     rom_hashes(m, st);
 }
 
@@ -289,7 +291,6 @@ static snap_status_t read_header(snap_read_fn read, void *ctx, uint32_t *crc) {
 static void info_of(const uint8_t st[SNAP_STATE_LEN], snap_info_t *info) {
     if (!info) return;
     uint8_t f = st[S_FITTED];
-    info->machine = st[S_MACHINE] == COCO_MACHINE_DRAGON32 ? COCO_MACHINE_DRAGON32 : COCO_MACHINE_COCO;
     info->ram_k = st[S_RAM_K];
     info->rom_present[0] = (f & M_ROM_LO) != 0;
     info->rom_present[1] = (f & M_ROM_HI) != 0;
@@ -300,8 +301,7 @@ static void info_of(const uint8_t st[SNAP_STATE_LEN], snap_info_t *info) {
     info->tape_trap = (f & M_TAPE_TRAP) != 0;
 }
 
-/* A signed distance between two tick counts, which wrap at 2^64 (coco.h:
- * the first PAL field begins before tick 0). */
+/* A signed distance between two tick counts. */
 static int64_t dist(uint64_t a, uint64_t b) {
     return (int64_t)(a - b);
 }
@@ -316,10 +316,10 @@ static int64_t dist(uint64_t a, uint64_t b) {
 static bool plausible(const uint8_t st[SNAP_STATE_LEN]) {
     unsigned ram_k = st[S_RAM_K];
     if (ram_k != 4u && ram_k != 16u && ram_k != 32u && ram_k != 64u) return false;
-    if (st[S_MACHINE] > COCO_MACHINE_DRAGON32 || (st[S_FITTED] & ~M_ALL)) return false;
+    if (st[S_MACHINE] != 0u || (st[S_FITTED] & ~M_ALL)) return false;   /* a Dragon's is not ours */
     if ((st[S_FITTED] & M_AUTOSTART) && !(st[S_FITTED] & M_CART)) return false;
     if (st[S_CPU_FLAGS] & ~(C_NMI_LINE | C_NMI_PENDING | C_NMI_ARMED | C_HALT | C_STALE)) return false;
-    if (st[S_WAIT] > MC6809_CWAI || (st[S_M_FLAGS] & ~(F_SOUND_FED | F_VIDEO_SPLIT))) return false;
+    if (st[S_WAIT] > MC6809_HCF || (st[S_M_FLAGS] & ~(F_SOUND_FED | F_VIDEO_SPLIT))) return false;
     if ((st[S_LATCH] | st[S_ACTIVE]) & ~(MC6809_LINE_IRQ | MC6809_LINE_FIRQ | MC6809_LINE_NMI))
         return false;
     for (unsigned i = 0; i < COCO_PIA_PORTS; i++)
@@ -360,23 +360,20 @@ static bool plausible(const uint8_t st[SNAP_STATE_LEN]) {
     return true;
 }
 
-/* The field's shape a machine of this kind has, from coco_init. */
-static bool same_field(const coco_t *m, const uint8_t st[SNAP_STATE_LEN]) {
-    return get32(st + S_LINE_TICKS) == m->line_ticks && get16(st + S_FIELD_LINES) == m->field_lines &&
-           get16(st + S_FS_FALL) == m->fs_fall_line && get16(st + S_ACTIVE_LINE) == m->active_line &&
-           get16(st + S_HS_LOW) == m->hs_low_ticks && get16(st + S_FIELD_LEAD) == m->field_lead;
+/* The field's shape, the build's (config.h). */
+static bool same_field(const uint8_t st[SNAP_STATE_LEN]) {
+    return get32(st + S_LINE_TICKS) == COCO_LINE_TICKS && get16(st + S_FIELD_LINES) == COCO_FIELD_LINES &&
+           get16(st + S_FS_FALL) == COCO_FS_FALL_LINE && get16(st + S_ACTIVE_LINE) == COCO_ACTIVE_LINE &&
+           get16(st + S_HS_LOW) == COCO_HS_LOW_TICKS && get16(st + S_FIELD_LEAD) == 0u;
 }
 
 /* Would this state resume on this machine? The field first, which is
  * the build's: a state refused for anything after it resumes on a
- * machine powered on as its info says. Then the machine, the BASIC
- * ROMs, the RAM, and the cartridge, its CART line and the trap. A
- * machine of the other kind has another field, so it is compared before
- * the field, and is refused for itself. */
+ * machine powered on as its info says. Then the BASIC ROMs, the RAM,
+ * and the cartridge, its CART line and the trap. */
 static snap_status_t compatible(const coco_t *m, const uint8_t st[SNAP_STATE_LEN]) {
     if (!plausible(st)) return SNAP_NOT_SNAPSHOT;
-    if (st[S_MACHINE] != (uint8_t)m->cfg.machine) return SNAP_OTHER_MACHINE;
-    if (!same_field(m, st)) return SNAP_OTHER_FIELD;
+    if (!same_field(st)) return SNAP_OTHER_FIELD;
     static uint8_t mine[SNAP_STATE_LEN];
     rom_hashes(m, mine);
     uint8_t fitted = fitted_of(m);

@@ -98,7 +98,6 @@ typedef struct snap_media_s {
  * when it is none of ours, and the half's `present` false when the
  * machine had none there. */
 typedef struct {
-    coco_machine_t machine;
     unsigned       ram_k;
     bool           rom_present[2];   /* $8000, $A000                    */
     rom_id_t       rom[2];

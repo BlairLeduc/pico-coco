@@ -40,6 +40,7 @@ struct coco_s;
 #define MC6809_RUNNING 0u
 #define MC6809_SYNC    1u   /* waiting in SYNC for any interrupt line    */
 #define MC6809_CWAI    2u   /* stacked by CWAI, waiting for an unmasked one */
+#define MC6809_HCF     3u   /* locked by $14, $15 or $CD until RESET (D12) */
 
 /* Interrupt lines as the wait loop samples them (latch, active). */
 #define MC6809_LINE_IRQ  0x01u
@@ -93,9 +94,9 @@ typedef struct {
     /* The current run's length in cycles; mc6809_stop zeroes it. */
     uint32_t run_limit;
 
-    /* Undocumented opcodes and indexed postbytes: trapped and counted
-     * (D12, §7.1). An opcode is consumed as a NOP; a postbyte is decoded
-     * as the chip decodes it. */
+    /* Undocumented opcodes and indexed postbytes: executed as the NMOS
+     * chip executes them, XRoar's model held by the oracle, and counted
+     * (D12, §7.1; the owner, 2026-11-16, from M11's archive run). */
     uint32_t undoc_count;
     uint16_t undoc_pc;         /* the most recent one's instruction        */
     uint16_t undoc_op;         /* its opcode, $10xx and $11xx for pages 2, 3 */

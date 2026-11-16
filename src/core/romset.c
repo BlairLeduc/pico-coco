@@ -1,4 +1,4 @@
-/* romset.c — the ROM images the machines know (romset.h). */
+/* romset.c — the ROM images the CoCo knows (romset.h). */
 
 #include "romset.h"
 
@@ -6,7 +6,7 @@
 #include <string.h>
 
 /* The owner's images, 2026-11-14; XRoar 1.13's CRC-32s agree: $D8F4D15E,
- * $A82A6254, $0B9C5415, $6270955A and $E3879310 (§18). */
+ * $A82A6254, $0B9C5415 and $6270955A (§18). */
 const rom_info_t romset_images[ROM_IMAGE_COUNT] = {
     [ROM_COCO_BAS13] = { "bas13.rom", 8192u,
         { 0x28, 0xb9, 0x2b, 0xeb, 0xe3, 0x5f, 0xa4, 0xf0, 0x26, 0xa0,
@@ -20,9 +20,6 @@ const rom_info_t romset_images[ROM_IMAGE_COUNT] = {
     [ROM_COCO_BAS11] = { "bas11.rom", 8192u,
         { 0xce, 0xcb, 0x7c, 0x24, 0xff, 0x1e, 0x0a, 0xb5, 0x83, 0x6e,
           0x4a, 0x7a, 0x8e, 0xb1, 0xb8, 0xe0, 0x1f, 0x1f, 0xde, 0xd3 } },
-    [ROM_DRAGON32] = { "d32.rom", 16384u,
-        { 0xf2, 0xda, 0xb1, 0x25, 0x67, 0x3e, 0x65, 0x39, 0x95, 0xa8,
-          0x3b, 0xf6, 0xb7, 0x93, 0xe3, 0x39, 0x0e, 0xc7, 0xf6, 0x5a } },
 };
 
 rom_id_t romset_identify(const uint8_t *data, size_t len) {

@@ -94,7 +94,17 @@ void display_present(const coco_frame_t *f, display_stats_t *st) {
      * repaints every band, since every byte can stay while every pixel
      * changes (EL §5.3). */
     mc6847_set_mode(&s_vdg, f->mode);
-    s.border = fill_border(f->mode);
+    /* The border is 43,008 pixels to the picture's 49,152: with a full
+     * repaint it made a 22 ms present, over a field, and the pool
+     * superseded a snapshot (§17 M11's soak). A full repaint leaves the
+     * border to the next present, once, so it lags by a field at most. */
+    static bool s_border_deferred;
+    if (s.full && !s_border_deferred && s_vdg.col[mc6847_border(f->mode)] != s_border_rgb) {
+        s_border_deferred = true;
+    } else {
+        s.border = fill_border(f->mode);
+        s_border_deferred = false;
+    }
 
     present_band_t bands[COCO_BANDS];
     present_plan(&s_present, f, bands);

@@ -5,15 +5,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repository is
 
 A **Tandy Color Computer 1/2 emulator for the ClockworkPi PicoCalc**, in C
-against the Raspberry Pi Pico SDK, on RP2350 boards only, which will also run
-the **Dragon 32 and 64**. The guest is an MC6809E at about 0.89 MHz with an
+against the Raspberry Pi Pico SDK, on RP2350 boards only, and **for the CoCo
+only**: no Dragon, no PAL field (D6, revised 2026-11-16). The guest is an MC6809E at about 0.89 MHz with an
 MC6883 SAM, an MC6847 VDG, two MC6821 PIAs, BASIC ROMs and a cartridge port.
 It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M10 is done** (`docs/design.md` §17): save states in four
-slots in `/coco/snaps/`, loaded into the machine they name
+**Status: M11 is done** (`docs/design.md` §17): the perf pass (tier 2
+stays), the archive run over the Color Computer Archive
+(`tools/archive-run.sh`), and a clean 30-minute soak on the development
+and release builds (`tools/soak.sh`, `tools/swd-counters.py`). From it,
+**D12**: undocumented opcodes run as the NMOS chip runs them, held by the
+oracle; and split-field rendering is M12's (§9.4). M10: save states in
+four slots in `/coco/snaps/`, loaded into the machine they name
 (`snapshot.h`, `snapio.h`). Before it, M9: the CoCo on the host,
 with its picture, its keyboard and its sound, and on the board, with the
 menu, the settings file `/coco/coco.ini`, ROM cartridges from
@@ -26,9 +31,10 @@ XRoar 1.13's through boot and typing. The SAM's video counter, the VDG and
 the snapshot are held pixel for pixel to XRoar's MC6883 and MC6847 by
 `test_vdg_oracle`. PicoCalc key events reach the matrix through
 `keymatrix.c` and the table in `keymap_picocalc.c`, settled by sweeping
-the ROMs (`test_keyboard`). **The Dragon is frozen until M14** (the owner,
-2026-11-15): M3's Dragon 32 stays and its tests keep passing, but
-nothing is added to it. On the board (the owner's Plus 2 W, the only
+the ROMs (`test_keyboard`). **The Dragon and the PAL field are gone**
+(the owner, 2026-11-16): the field's shape is `config.h`'s constants,
+`coco_config_t` has no machine, and M14 is withdrawn. Do not add another
+machine or field back. On the board (the owner's Plus 2 W, the only
 board; it needs the UART0 build), core 1 loads Extended Color BASIC's
 ROMs off the card by SHA-1, or shows the page naming what is missing,
 and presents snapshots in dirty bands with the perf line; core 0 runs
@@ -45,11 +51,11 @@ verified, on which board, on what date, and what was not checked) is in
 **Settled decisions** (`docs/design.md` §2, D1–D14, 2026-11-14): a native
 emulator from pico-atom, not a port of XRoar (D1); a new CPU core held to
 XRoar's `mc6809.c` by an oracle, XRoar never copied into the tree (D2, D8);
-one `pico2` image at 150 MHz, no PSRAM (D3); **the CoCo comes first** and is
-the default machine, the Dragon second (D6); the family's menu and
+one `pico2` image at 150 MHz, no PSRAM (D3); **the CoCo 1/2 only**, NTSC at
+60 Hz (D6, revised 2026-11-16); the family's menu and
 `key = value` settings (D5); **ROMs from the SD card by SHA-1**, none shipped,
 no flash writes (D10); 256×192 at 1:1 at (32, 64) (D11); undocumented
-opcodes trapped and counted (D12); **GPL-3.0** (D9); one branch and pull
+opcodes executed as the chip does and counted (D12); **GPL-3.0** (D9); one branch and pull
 request per milestone (D14). Do not reopen these without the owner.
 
 ## The documents
@@ -138,7 +144,16 @@ build/host/test/host/page-ppm out/pages        # the missing-ROM pages, to look 
 # tools/trace/build-xroar.sh, the host build's coco-trace, ROMs in roms/
 tools/trace/trace-coco.sh -ram 64 -ext -fields 600 -type "$(printf 'PRINT 2+3\r')"
 tools/trace/trace-coco.sh -bas bas11 -ram 4 -fields 600   # a 4 KB CoCo
-tools/trace/trace-coco.sh -machine dragon32 -fields 500   # PAL: 50 fields a second
+
+# the archive run (design.md §15.4): the Color Computer Archive, fetched
+# politely into out/corpus, then run on the host and reported
+tools/fetch-archive.sh && tools/archive-run.sh   # out/m11/archive/report.txt
+
+# the soak (design.md §15.5): 30 minutes over the UART, and the release
+# build's over SWD once SOAK.CAS (test_soak --write DIR) is on the card
+# and CLOAD"SOAK" and RUN have been typed on the PicoCalc
+caffeinate -d tools/soak.sh build/uart0/pico-coco.elf 30 out/m11/soak
+caffeinate -d tools/swd-counters.py soak build/pico-release/pico-coco.elf --every 20
 
 # the golden images (design.md §9.6): look at every changed one before
 # committing it

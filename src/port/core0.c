@@ -171,6 +171,47 @@ static const char *power_text(void) {
     return text;
 }
 
+/* The counters, where a debugger can read them (handoff.h). The
+ * updates count is written last, so a reader that sees it move knows
+ * the words before it are from this second or the next. */
+static void swd_update(const coco_t *m, const keymatrix_t *k, uint32_t late, uint32_t slips) {
+    volatile swd_counters_t *c = &g_swd;
+    c->uptime_ms = to_ms_since_boot(get_absolute_time());
+    c->fields = m->fields;
+    c->cycles = (uint32_t)m->cpu.cycles;
+    c->late = late;
+    c->slips = slips;
+    c->presents = g_c1.presents;
+    c->snapshots_dropped = g_pool.dropped;
+    c->key_events = g_c1.key_events;
+    c->keys_lost = kbd_overflows() + k->dropped;
+    c->polls = g_c1.polls;
+    c->i2c_errors = sb_error_count();
+    c->undoc = m->cpu.undoc_count;
+    c->log_dropped = log_dropped();
+#if PICO_COCO_AUDIO
+    audio_stats_t au;
+    audio_stats(&au, false);
+    c->underrun_samples = au.underrun_samples;
+    c->late_refills = au.late_refills;
+    c->consumed = au.consumed;
+#endif
+    c->pcm_overflow = m->pcm.overflow;
+    c->sound_edges = m->sound_edges;
+    c->split_fields = m->split_fields;
+    c->card_changes = card_changes();
+    c->parks = g_park_stats.parks;
+    c->busy1000 = g_c0.busy1000;
+    c->battery = g_c1.battery;
+    c->temp_c = g_c1.temp_c;
+    /* The display offset's first byte in RAM: the text screen while
+     * BASIC shows it, $0400 (§9.2). */
+    int32_t at = coco_vram_index(m, (uint16_t)(sam6883_f(&m->sam) * 512u));
+    c->screen = at >= 0 ? (uint32_t)(uintptr_t)&m->ram[at] : 0u;
+    __dmb();
+    c->updates++;
+}
+
 /* v in tenths or hundredths, as "12.3" or "1.23". */
 static void tenths(char *out, size_t n, uint32_t v10) {
     snprintf(out, n, "%lu.%lu", (unsigned long)(v10 / 10u), (unsigned long)(v10 % 10u));
@@ -438,6 +479,7 @@ void core0_run(coco_t *m, keymatrix_t *k) {
 #endif
             __dmb();
             g_c0.seconds++;
+            swd_update(m, k, late, slips);
             window_start(&sec, m, late);
         }
 
@@ -467,7 +509,7 @@ void core0_run(coco_t *m, keymatrix_t *k) {
                        "%lu presents (%lu full, %lu dropped), last %lu us, max %lu us | "
                        "keys %lu (%lu lost), polls %lu (longest %lu us), i2c errors %lu | "
                        "undoc %lu (last $%04X at $%04X), split fields %lu, log dropped %u, "
-                       "stacks %lu/%lu %lu/%lu, battery %s, card %s\n",
+                       "stacks %lu/%lu %lu/%lu, battery %s, card %s (%lu changes), parks %lu\n",
                        (unsigned long)m->fields, (unsigned long)(rt1000 / 1000u),
                        (unsigned long)(rt1000 % 1000u), (unsigned long)late,
                        (unsigned long)(late - hb.late), (unsigned long)slips,
@@ -481,7 +523,8 @@ void core0_run(coco_t *m, keymatrix_t *k) {
                        (unsigned long)m->split_fields, log_dropped(),
                        (unsigned long)stk.used[0], (unsigned long)stk.size[0],
                        (unsigned long)stk.used[1], (unsigned long)stk.size[1], power_text(),
-                       card_present() ? "in" : "out");
+                       card_present() ? "in" : "out", (unsigned long)card_changes(),
+                       (unsigned long)g_park_stats.parks);
             log_printf("  perf         : tier %u, %lu MHz, core 0 busy %s%%, guest %s%% of wall, "
                        "headroom %lu.%02lux, %s host cycles/insn, %s cycles/insn, "
                        "%llu insns, %lu fields, snapshot %s%%\n",

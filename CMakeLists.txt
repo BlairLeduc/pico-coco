@@ -102,6 +102,15 @@ if (PICO_COCO_HOST)
     target_compile_options(coco-fields PRIVATE ${PICO_COCO_WARNINGS})
     target_compile_definitions(coco-fields PRIVATE
         PICO_COCO_DEFAULT_ROMS="${PROJECT_SOURCE_DIR}/roms")
+
+    # The archive run (design.md §15.4): tools/archive-run.sh builds it
+    # optimised in a directory of its own.
+    add_executable(coco-corpus tools/coco-corpus.c test/host/guest.c test/host/frame_ppm.c)
+    target_link_libraries(coco-corpus PRIVATE pico_coco_core)
+    target_include_directories(coco-corpus PRIVATE test/host)
+    target_compile_options(coco-corpus PRIVATE ${PICO_COCO_WARNINGS})
+    target_compile_definitions(coco-corpus PRIVATE
+        PICO_COCO_DEFAULT_ROMS="${PROJECT_SOURCE_DIR}/roms")
 else()
     # One pico2 image for every RP2350 board (design.md §4, D3).
     if (NOT DEFINED PICO_BOARD)

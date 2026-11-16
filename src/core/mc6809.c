@@ -36,28 +36,47 @@
 #define INLINE static inline __attribute__((always_inline))
 
 /* Cycles per opcode, page 1, before the indexed postbyte's extra cycles,
- * a long branch taken, and PSH/PUL's and RTI's registers. Zero marks an
- * undocumented opcode, and the prefixes $10 and $11, which go to their own
- * pages. SYNC and CWAI count up to the start of their wait. */
+ * a long branch taken, and PSH/PUL's and RTI's registers. Zero marks the
+ * prefixes $10 and $11, which go to their own pages. SYNC and CWAI count
+ * up to the start of their wait, and HCF ($14, $15, $CD) to the start of
+ * its lock. The undocumented opcodes' counts are XRoar's, held by the
+ * oracle (D12). */
 static const uint8_t cycles_p1[256] = {
 /*      x0  x1  x2  x3  x4  x5  x6  x7  x8  x9  xA  xB  xC  xD  xE  xF */
-/*0x*/   6,  0,  0,  6,  6,  0,  6,  6,  6,  6,  6,  0,  6,  6,  3,  6,
-/*1x*/   0,  0,  2,  2,  0,  0,  5,  9,  0,  2,  3,  0,  3,  2,  8,  6,
+/*0x*/   6,  6,  6,  6,  6,  6,  6,  6,  6,  6,  6,  6,  6,  6,  3,  6,
+/*1x*/   0,  0,  2,  2,  1,  1,  5,  9,  3,  2,  3,  2,  3,  2,  8,  6,
 /*2x*/   3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,  3,
-/*3x*/   4,  4,  4,  4,  5,  5,  5,  5,  0,  5,  3,  6, 18, 11,  0, 19,
-/*4x*/   2,  0,  0,  2,  2,  0,  2,  2,  2,  2,  2,  0,  2,  2,  0,  2,
-/*5x*/   2,  0,  0,  2,  2,  0,  2,  2,  2,  2,  2,  0,  2,  2,  0,  2,
-/*6x*/   6,  0,  0,  6,  6,  0,  6,  6,  6,  6,  6,  0,  6,  6,  3,  6,
-/*7x*/   7,  0,  0,  7,  7,  0,  7,  7,  7,  7,  7,  0,  7,  7,  4,  7,
-/*8x*/   2,  2,  2,  4,  2,  2,  2,  0,  2,  2,  2,  2,  4,  7,  3,  0,
+/*3x*/   4,  4,  4,  4,  5,  5,  5,  5,  4,  5,  3,  6, 18, 11, 19, 19,
+/*4x*/   2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,
+/*5x*/   2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,  2,
+/*6x*/   6,  6,  6,  6,  6,  6,  6,  6,  6,  6,  6,  6,  6,  6,  3,  6,
+/*7x*/   7,  7,  7,  7,  7,  7,  7,  7,  7,  7,  7,  7,  7,  7,  4,  7,
+/*8x*/   2,  2,  2,  4,  2,  2,  2,  2,  2,  2,  2,  2,  4,  7,  3,  3,
 /*9x*/   4,  4,  4,  6,  4,  4,  4,  4,  4,  4,  4,  4,  6,  7,  5,  5,
 /*Ax*/   4,  4,  4,  6,  4,  4,  4,  4,  4,  4,  4,  4,  6,  7,  5,  5,
 /*Bx*/   5,  5,  5,  7,  5,  5,  5,  5,  5,  5,  5,  5,  7,  8,  6,  6,
-/*Cx*/   2,  2,  2,  4,  2,  2,  2,  0,  2,  2,  2,  2,  3,  0,  3,  0,
+/*Cx*/   2,  2,  2,  4,  2,  2,  2,  2,  2,  2,  2,  2,  3,  1,  3,  3,
 /*Dx*/   4,  4,  4,  6,  4,  4,  4,  4,  4,  4,  4,  4,  5,  5,  5,  5,
 /*Ex*/   4,  4,  4,  6,  4,  4,  4,  4,  4,  4,  4,  4,  5,  5,  5,  5,
 /*Fx*/   5,  5,  5,  7,  5,  5,  5,  5,  5,  5,  5,  5,  6,  6,  6,  6,
 };
+
+/* Page 1's undocumented opcodes, and the two prefixes (D12). */
+static bool p1_documented(uint8_t op) {
+    switch (op) {
+    case 0x01: case 0x02: case 0x05: case 0x0B:
+    case 0x10: case 0x11: case 0x14: case 0x15: case 0x18: case 0x1B:
+    case 0x38: case 0x3E:
+    case 0x41: case 0x42: case 0x45: case 0x4B: case 0x4E:
+    case 0x51: case 0x52: case 0x55: case 0x5B: case 0x5E:
+    case 0x61: case 0x62: case 0x65: case 0x6B:
+    case 0x71: case 0x72: case 0x75: case 0x7B:
+    case 0x87: case 0x8F: case 0xC7: case 0xCD: case 0xCF:
+        return false;
+    default:
+        return true;
+    }
+}
 
 /* Pages 2 and 3, the prefix's cycle included. */
 static const uint8_t cycles_p2[256] = {
@@ -85,7 +104,7 @@ static const uint8_t cycles_p3[256] = {
 
 bool mc6809_documented(uint16_t op) {
     switch (op >> 8) {
-    case 0x00: return cycles_p1[op & 0xFFu] != 0;
+    case 0x00: return p1_documented((uint8_t)op);
     case 0x10: return cycles_p2[op & 0xFFu] != 0;
     case 0x11: return cycles_p3[op & 0xFFu] != 0;
     default:   return false;
@@ -360,6 +379,24 @@ INLINE uint8_t op_clr(mc6809_t *c, uint8_t v) {
     return 0;
 }
 
+/* The undocumented forms (D12), as XRoar has them from hoglet67's
+ * measurements: NGC, NEG with the carry in, $x2; DEC that sets C when it
+ * borrows, $xB; CLR that leaves C, $4E and $5E. */
+INLINE uint8_t op_ngc(mc6809_t *c, uint8_t v) { return sub8(c, 0, v, c->cc & CC_C); }
+
+INLINE uint8_t op_xdec(mc6809_t *c, uint8_t v) {
+    uint8_t r = (uint8_t)(v - 1u);
+    c->cc = (uint8_t)((c->cc & ~(CC_V | CC_C)) | (r == 0x7Fu ? CC_V : 0u) | (v == 0 ? CC_C : 0u));
+    nz8(c, r);
+    return r;
+}
+
+INLINE uint8_t op_xclr(mc6809_t *c, uint8_t v) {
+    (void)v;
+    c->cc = (uint8_t)((c->cc & ~(CC_N | CC_V)) | CC_Z);
+    return 0;
+}
+
 /* DAA: C is set when the high digit is corrected and never cleared.
  * Undefined: V, which XRoar takes from hoglet67's measurements as bit 7
  * of the result xor the new C. */
@@ -521,6 +558,19 @@ INLINE bool xfr_documented(uint8_t pb) {
 /* ---- interrupts ------------------------------------------------------ */
 
 /* The whole state, E set: an IRQ, an NMI, an SWI, CWAI. */
+/* Every register, as an interrupt stacks them, E as it stands: the
+ * undocumented $3E, $103E and $113E (D12). */
+INLINE void push_entire(coco_t *m, mc6809_t *c) {
+    push16(m, &c->s, c->pc);
+    push16(m, &c->s, c->u);
+    push16(m, &c->s, c->y);
+    push16(m, &c->s, c->x);
+    push8(m, &c->s, c->dp);
+    push8(m, &c->s, c->b);
+    push8(m, &c->s, c->a);
+    push8(m, &c->s, c->cc);
+}
+
 INLINE void stack_entire(coco_t *m, mc6809_t *c) {
     c->cc |= CC_E;
     push16(m, &c->s, c->pc);
@@ -586,6 +636,12 @@ static uint32_t COCO_HOT1(attention)(coco_t *m, uint32_t remaining) {
         if (all > 1u) c->active = now;
         else          c->active = c->latch;
         c->latch = now;
+        c->cycles += all;
+        return all;
+    }
+
+    /* HCF: locked, every line ignored, until RESET (D12). */
+    if (c->wait == MC6809_HCF) {
         c->cycles += all;
         return all;
     }
@@ -728,23 +784,49 @@ void mc6809_reset(coco_t *m) {
     case 0x40 + (n): c->a = fn(c, c->a); break;                          \
     case 0x50 + (n): c->b = fn(c, c->b); break;
 
-/* Page 2: $10 and the opcode after it. */
-static uint32_t COCO_HOT2(page2)(coco_t *m, mc6809_t *c, uint16_t pc0) {
-    uint16_t op = (uint16_t)(0x1000u | fetch8(m, c));
-    uint32_t cyc = cycles_p2[op & 0xFFu];
+/* The undocumented unary forms: counted, then as their documented twins. */
+#define MEMU(n, fn)                                                      \
+    case (n):        undocumented(c, pc0, op); ea = DIR(); goto memu_##n; \
+    case 0x60 + (n): undocumented(c, pc0, op); ea = IDX(); goto memu_##n; \
+    case 0x70 + (n): undocumented(c, pc0, op); ea = EXT();               \
+    memu_##n: WRA(ea, fn(c, RDA(ea, cyc - 2u)), LAST(cyc)); break;
+
+#define INHU(n, fn)                                                      \
+    case 0x40 + (n): undocumented(c, pc0, op); c->a = fn(c, c->a); break; \
+    case 0x50 + (n): undocumented(c, pc0, op); c->b = fn(c, c->b); break;
+
+/* Pages 2 and 3, after `n` prefix bytes, the first of which chose the
+ * page: each later one is a cycle and nothing else. Each returns the
+ * instruction's cycles, or 0 when the opcode is not the page's, and page
+ * 1's instruction runs instead, a cycle later for each prefix (D12, as
+ * XRoar has it). An opcode XRoar has neither page give is a dead cycle. */
+static uint32_t COCO_HOT2(page2)(coco_t *m, mc6809_t *c, uint16_t pc0, uint8_t lo, uint32_t n) {
+    uint16_t op = (uint16_t)(0x1000u | lo);
+    uint32_t cyc = cycles_p2[lo] ? cycles_p2[lo] + n - 1u : cycles_p1[lo] + n;
     uint16_t ea, w;
 
-    switch (op & 0xFFu) {
+    switch (lo) {
+    case 0x20:                                          /* LBRA, undocumented */
+        undocumented(c, pc0, op);
+        cyc = 5u + n - 1u;
+        __attribute__((fallthrough));
     case 0x21: case 0x22: case 0x23: case 0x24: case 0x25: case 0x26:
     case 0x27: case 0x28: case 0x29: case 0x2A: case 0x2B: case 0x2C:
     case 0x2D: case 0x2E: case 0x2F: {                  /* LBcc */
         uint16_t o = IMM16();
-        if (branch_taken(c, (uint8_t)op)) {
+        if (branch_taken(c, lo)) {
             c->pc = (uint16_t)(c->pc + o);
             cyc++;
         }
         break;
     }
+
+    case 0x3E:                                          /* SWI2's, E as it is */
+        undocumented(c, pc0, op);
+        push_entire(m, c);
+        c->pc = rd16(m, MC6809_VEC_SWI2);
+        cyc = 20u + n - 1u;
+        break;
 
     case 0x3F:                                          /* SWI2 */
         stack_entire(m, c);
@@ -760,21 +842,40 @@ static uint32_t COCO_HOT2(page2)(coco_t *m, mc6809_t *c, uint16_t pc0) {
     LD16(0xCE, { c->s = ld16(c, w); c->nmi_armed = true; })    /* LDS */
     ST16(0xDF, c->s)                                    /* STS  */
 
-    default:
+    case 0x8D:                                          /* LBRA, undocumented */
         undocumented(c, pc0, op);
-        cyc = 3u;
+        w = IMM16();
+        c->pc = (uint16_t)(c->pc + w);
+        cyc = 5u + n;
         break;
+
+    OP16(0xC3, { undocumented(c, pc0, op); (void)add16(c, get_d(c), w); })   /* XADDD */
+
+    case 0x30: case 0x31: case 0x32: case 0x33:
+    case 0xCC: case 0xDC: case 0xDD: case 0xEC: case 0xED: case 0xFC: case 0xFD:
+        undocumented(c, pc0, op);
+        cyc = n + 2u;
+        break;
+
+    default:
+        return 0;
     }
     return cyc;
 }
 
-/* Page 3: $11. */
-static uint32_t COCO_HOT2(page3)(coco_t *m, mc6809_t *c, uint16_t pc0) {
-    uint16_t op = (uint16_t)(0x1100u | fetch8(m, c));
-    uint32_t cyc = cycles_p3[op & 0xFFu];
+static uint32_t COCO_HOT2(page3)(coco_t *m, mc6809_t *c, uint16_t pc0, uint8_t lo, uint32_t n) {
+    uint16_t op = (uint16_t)(0x1100u | lo);
+    uint32_t cyc = cycles_p3[lo] ? cycles_p3[lo] + n - 1u : cycles_p1[lo] + n;
     uint16_t ea, w;
 
-    switch (op & 0xFFu) {
+    switch (lo) {
+    case 0x3E:                                          /* FIRQ's vector, E as it is */
+        undocumented(c, pc0, op);
+        push_entire(m, c);
+        c->pc = rd16(m, MC6809_VEC_FIRQ);
+        cyc = 20u + n - 1u;
+        break;
+
     case 0x3F:                                          /* SWI3 */
         stack_entire(m, c);
         c->pc = rd16(m, MC6809_VEC_SWI3);
@@ -783,10 +884,27 @@ static uint32_t COCO_HOT2(page3)(coco_t *m, mc6809_t *c, uint16_t pc0) {
     OP16(0x83, (void)sub16(c, c->u, w))                 /* CMPU */
     OP16(0x8C, (void)sub16(c, c->s, w))                 /* CMPS */
 
-    default:
+    case 0x8D:                                          /* LBRA, undocumented */
         undocumented(c, pc0, op);
-        cyc = 3u;
+        w = IMM16();
+        c->pc = (uint16_t)(c->pc + w);
+        cyc = 5u + n;
         break;
+
+    OP16(0xC3, { undocumented(c, pc0, op); (void)add16(c, (uint16_t)(c->u | 0xFF00u), w); })  /* XADDU */
+
+    case 0x20: case 0x21: case 0x22: case 0x23: case 0x24: case 0x25: case 0x26: case 0x27:
+    case 0x28: case 0x29: case 0x2A: case 0x2B: case 0x2C: case 0x2D: case 0x2E: case 0x2F:
+    case 0x30: case 0x31: case 0x32: case 0x33:
+    case 0x8E: case 0x9E: case 0x9F: case 0xAE: case 0xAF: case 0xBE: case 0xBF:
+    case 0xCC: case 0xCE: case 0xDC: case 0xDD: case 0xDE: case 0xDF:
+    case 0xEC: case 0xED: case 0xEE: case 0xEF: case 0xFC: case 0xFD: case 0xFE: case 0xFF:
+        undocumented(c, pc0, op);
+        cyc = n + 2u;
+        break;
+
+    default:
+        return 0;
     }
     return cyc;
 }
@@ -805,6 +923,7 @@ INLINE uint32_t step(coco_t *m, uint32_t remaining) {
     uint16_t ea, w;
     uint8_t  v;
 
+dispatch:
     switch (op) {
     /* ---- the unary group ------------------------------------------- */
     MEM(0x00, op_neg)
@@ -838,9 +957,78 @@ INLINE uint32_t step(coco_t *m, uint32_t remaining) {
     INH(0xD, op_tst)
     INH(0xF, op_clr)
 
+    /* ---- undocumented, as the NMOS chip runs them (D12) ------------- */
+    MEMU(0x01, op_neg)
+    MEMU(0x02, op_ngc)
+    MEMU(0x05, op_lsr)
+    MEMU(0x0B, op_xdec)
+    INHU(0x1, op_neg)
+    INHU(0x2, op_ngc)
+    INHU(0x5, op_lsr)
+    INHU(0xB, op_xdec)
+    INHU(0xE, op_xclr)
+
+    case 0x14: case 0x15: case 0xCD:                  /* HCF: locked until RESET */
+        undocumented(c, pc0, op);
+        c->wait = MC6809_HCF;
+        c->attn = 1;
+        break;
+
+    case 0x18: {                                      /* CC shifted under a mask */
+        undocumented(c, pc0, op);
+        uint8_t cc = (uint8_t)((c->cc & RD(c->pc)) << 1);   /* the operand is not consumed */
+        c->cc = (uint8_t)(cc | ((cc >> 2) & 0x02u));
+        break;
+    }
+
+    case 0x1B: undocumented(c, pc0, op); break;       /* NOP */
+    case 0x38: undocumented(c, pc0, op); c->cc &= IMM8(); break;   /* ANDCC, a cycle longer */
+
+    case 0x3E:                                        /* RESET's vector, E as it is */
+        undocumented(c, pc0, op);
+        push_entire(m, c);
+        c->pc = rd16(m, MC6809_VEC_RESET);
+        break;
+
+    case 0x87: case 0xC7:                             /* a store, immediate: flags only */
+        undocumented(c, pc0, op);
+        (void)IMM8();
+        c->cc = (uint8_t)((c->cc & ~(CC_Z | CC_V)) | CC_N);
+        break;
+
+    case 0x8F: case 0xCF: {                           /* STX, STU immediate: one byte */
+        undocumented(c, pc0, op);
+        uint16_t r = op == 0x8Fu ? c->x : c->u;
+        (void)RD(c->pc);
+        c->pc++;
+        WR(c->pc, (uint8_t)r);
+        c->pc++;
+        c->cc = (uint8_t)((c->cc & ~(CC_Z | CC_V)) | CC_N);
+        break;
+    }
+
     /* ---- page 1's $1x ---------------------------------------------- */
-    case 0x10: cyc = page2(m, c, pc0); break;
-    case 0x11: cyc = page3(m, c, pc0); break;
+    case 0x10: case 0x11: {                           /* the prefixes */
+        uint32_t n = 1;
+        uint8_t lo = fetch8(m, c);
+        while (lo == 0x10u || lo == 0x11u) {
+            n++;
+            lo = fetch8(m, c);
+        }
+        uint16_t full = (uint16_t)(op << 8 | lo);
+        uint32_t r = op == 0x10u ? page2(m, c, pc0, lo, n) : page3(m, c, pc0, lo, n);
+        if (r) {
+            if (n > 1u && mc6809_documented(full)) undocumented(c, pc0, full);
+            cyc = r;
+            break;
+        }
+        /* Page 1's instruction, a cycle later for each prefix; one that
+         * is undocumented on page 1 too is counted there. */
+        if (p1_documented(lo)) undocumented(c, pc0, full);
+        op = lo;
+        cyc = cycles_p1[lo] + n;
+        goto dispatch;
+    }
 
     case 0x12: break;                                 /* NOP */
 
@@ -1050,7 +1238,7 @@ INLINE uint32_t step(coco_t *m, uint32_t remaining) {
         break;
 
     default:
-        /* Undocumented: trapped and counted, consumed as a NOP (D12). */
+        /* Every opcode has its case; the compiler wants the default. */
         undocumented(c, pc0, op);
         cyc = 2u;
         break;

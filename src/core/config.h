@@ -26,14 +26,14 @@
 
 /* ---- ROMs, the cartridge and the PIAs (design.md §3.2, §12.1) ------- */
 
-/* $8000-$BFFF holds BASIC: two 8 KB halves on a CoCo, one 16 KB image on
- * a Dragon 32. M14: the Dragon 64's second BASIC. */
+/* $8000-$BFFF holds BASIC: Extended Color BASIC's 8 KB half and Color
+ * BASIC's. */
 #define COCO_ROM_SIZE      0x4000u
 #define COCO_ROM_HALF      0x2000u
 /* $C000-$FEFF is the cartridge's window, up to 16 KB (M9: mirrors). */
 #define COCO_CART_SIZE     0x4000u
 /* The largest image the ROM table knows (romset.h). */
-#define COCO_ROM_IMAGE_MAX 0x4000u
+#define COCO_ROM_IMAGE_MAX 0x2000u
 
 /* PIA0 A and B, PIA1 A and B: the ports whose IRQ output can be due. */
 #define COCO_PIA_PORTS          4u
@@ -65,10 +65,21 @@
 /* Master-oscillator ticks a second, the only clock (§13.2): the NTSC
  * machines' 14.31818 MHz, four times the colour subcarrier. The device
  * paces the guest on it (core0.c), and the audio's sample period is a
- * fraction of it (pcm.h). The PAL machines' crystal is §18's to settle,
- * and XRoar counts them in these ticks too; the Dragon reaches the device
- * in M14. */
+ * fraction of it (pcm.h). */
 #define COCO_TICK_HZ 14318180u
+
+/* The NTSC field, the only one (D6), from the MC6847's figures as XRoar
+ * counts them (§13.1, §18: medium): 262 lines of 57 E cycles of 16
+ * ticks; HS low for the first 64 ticks of each; the first active line
+ * after 13 of blanking and 25 of top border; FS falling as the line
+ * after the 192 active ones begins. Constants, so that the field loop's
+ * divisions by the line are multiplications (§13.1). */
+#define COCO_LINE_TICKS     (57u * 16u)
+#define COCO_FIELD_LINES    262u
+#define COCO_FIELD_TICKS    (COCO_LINE_TICKS * COCO_FIELD_LINES)
+#define COCO_HS_LOW_TICKS   64u
+#define COCO_ACTIVE_LINE    (13u + 25u)
+#define COCO_FS_FALL_LINE   (COCO_ACTIVE_LINE + 192u)
 
 /* ---- Audio (design.md §10; EL §6; hardware-notes.md §5) --------------- */
 

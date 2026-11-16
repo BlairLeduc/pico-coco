@@ -4,6 +4,223 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## The CoCo only: the Dragon and the PAL field removed
+
+On branch `coco-only`, 2026-11-16, between M11 and M12 (`design.md` D6,
+revised). On the owner's board. **Done.**
+
+**Decided.** The owner removed the Dragon 32 and 64 and the PAL field at
+50 Hz, to make this a CoCo 1/2 emulator and optimise for it. M14 is
+withdrawn; the later milestones keep their numbers.
+
+**Built.** The field's shape is `config.h`'s constants
+(`COCO_LINE_TICKS`, `COCO_FIELD_LINES`, `COCO_ACTIVE_LINE`,
+`COCO_FS_FALL_LINE`, `COCO_HS_LOW_TICKS`), no longer six fields of
+`coco_t` set at power-on, so the field loop divides by a constant.
+`coco_config_t` has no machine; the Dragon's PIA decode, PB0 and PB2
+wiring, its ROM in `romset`, the 16 KB ROM placement and the PAL field
+are gone, and `COCO_ROM_IMAGE_MAX` is 8 KB. The host harness types only
+through the PicoCalc's path; `coco-trace` and `trace-coco.sh` lose
+`-machine`. The snapshot format is unchanged: the machine byte must be
+0 and the field the constants, so a Dragon 32's state, which only the
+host could write, is refused as not a snapshot (`test_snapshot`), and
+the owner's slots still load.
+
+**Tests.** `test_boot` loses its two Dragon boots and `test_machine` its
+PAL field and Dragon decode; `test_machine` now holds the CoCo's field
+to 262 lines and its PIAs to repeating over 32 bytes in 4, 16, 32 and
+64 KB. A planted decode answering only with A2 low above 32 KB failed
+it. All 28 host tests pass (Apple clang, 2026-11-16). The trace diff
+agrees with XRoar over 2,187,479 instructions (64 KB, Extended, `PRINT
+2+3`) and 2,217,049 (4 KB, Color BASIC 1.1). The development, release
+and UART0 images build.
+
+**Measured** on the owner's Plus 2 W at tier 2, the M11 image (`m11`
+head) as the control in the same sitting, six workloads of eight
+heartbeats each (`tools/perf-run.sh`, `out/coco-only/`):
+
+| Workload | M11 busy | CoCo only | M11 host cyc/insn | CoCo only |
+|---|---:|---:|---:|---:|
+| compute | 19.1 % | 18.5 % | 110.1 | 108.3 |
+| idle | 23.8 % | 22.7 % | 135.6 | 129.9 |
+| pmode4 | 18.7 % | 18.3 % | 123.6 | 122.9 |
+| scroll | 24.7 % | 22.9 % | 161.2 | 149.3 |
+| set | 18.9 % | 18.5 % | 104.9 | 104.0 |
+| sound | 24.4 % | 23.6 % | 108.0 | 104.9 |
+
+Guest cycles an instruction are equal in every row, rt 0.999 to 1.000,
+nothing dropped. The snapshot's share fell from 3.70-3.78 % to
+3.45-3.54 %. `coco_run` and `coco_run_field` hold one 64-bit library
+division where M11's held two; both grew (`coco_run` 800 to 932 bytes)
+as the compiler turned divisions by the line into multiplications.
+
+**Not checked.** No soak on this image; the panel not looked at, though
+nothing the port draws changed.
+
+## M11: the perf pass, the archive run, the soak
+
+On branch `m11`, 2026-11-15 and 16 (`design.md` §17). On the owner's
+board. **Done**: every criterion of §17's row met.
+
+**Built.** `tools/fetch-archive.sh`, `tools/coco-corpus.c`,
+`tools/archive-run.sh` and `tools/archive-summary.py`, the archive run
+(`design.md` §15.4), adapted from pico-oric's corpus tools. The soak
+from pico-oric's: `tools/soak.bas`, held on the host by the new
+`test_soak`, `tools/soak.sh`, `tools/soak-check.py`, and
+`tools/swd-counters.py` over the `g_swd` block core 0 now copies its
+counters into once a second (`handoff.h`); the heartbeat names the
+card's changes and the parks. In the core, **D12 decided**: every
+undocumented opcode runs as the NMOS chip runs it, XRoar's model (the
+owner, 2026-11-16; `design.md` §7.1), with an HCF wait that only RESET
+ends, which the snapshot format admits. **§9.4 decided**: split-field
+rendering is M12's (the owner, 2026-11-16). In the port, a full repaint
+leaves a change of border colour to the next present (`display.c`).
+
+**The archive** (host, Apple clang, 2026-11-15 and 16): the Color
+Computer Archive's cartridges and cassettes, the owner's choice, fetched
+on 2026-11-15: 1,155 files, of which 92 CoCo 3 titles and 4 zips holding
+only a WAV were left out, leaving **106 cartridges and 953 tapes**
+(22 tapes in several files). Each ran a minute of guest time on a 64 KB
+CoCo with Extended Color BASIC on Color BASIC 1.3, about two minutes for
+the whole run on the workstation. Results in `out/m11/archive` (before
+D12) and `out/m11/archive-d12`, not committed.
+
+- **Outcomes**, with D12: 99 cartridges started and 7 came back to
+  `OK` (Disk BASIC 1.1 and its FD502 version, four JDOS versions, all
+  wanting a controller, and BASIC AID, a utility); 926 tapes loaded, 20
+  came back to `OK` (data tapes and second parts among them), and 7
+  ended in an I/O error, six of them on tapes whose images carry a bad
+  checksum, and Music Cartridge Sample Songs, a data tape for a
+  cartridge. 26 tapes in all carry a block with a bad checksum.
+- **Undocumented opcodes (D12)**: 37 titles reached one before D12.
+  Their lead-ins sort them. Most run away into low RAM ($00xx) or into
+  data, or call Color BASIC 1.0 or 1.1 entry points that 1.3 moved
+  (Black Sanctum and Calixto Island `JSR $A170`, one byte before an
+  instruction under 1.3); run again on Color BASIC 1.1 several got
+  further. **Some rely on the chip**: Ghost Gobbler 1.5 and Racer Ball
+  run `$5E`, the chip's CLRB, about 5,000 times a minute in normal
+  play, reached by a `CMPX #` skip that lands inside a three-byte
+  instruction; RALLYSG tests for a 6309 with `$10 $4F` and gets the
+  same answer either way. Undocumented postbytes (Zeus, Cuthbert Goes
+  Digging) were already decoded as the chip does. With D12 in, Black
+  Sanctum and Calixto Island fell from about 60,000 undocumented opcodes
+  to 2 and Junior's Revenge from 101,000 to 59, taking the real
+  machine's path; Rear Guard reaches HCF and stops, as the chip would.
+- **Mode changes on an active line (§9.4)**: 656 titles changed the
+  video bits during the active lines at least once, nearly all for a
+  field or two at a change of screen; **17 in 60 fields or more**:
+  Maths Invaders (the display offset, 3,513 fields; it takes that path
+  only with D12), Dragon Fire (cartridge and two tapes), Dark Star and
+  Rommel's Revenge (every field, lines 9-17 on NTSC), Defend, Desert
+  Rider, Glaxxons, Model Rocketry, Superkid, Kids on Keys (cartridge and
+  tape), Cave Fighter and Eliminator. The frames drawn in the first
+  line's mode look plausible; how they should look is M12's to show.
+- **No CAS is gzipped.** The largest file on a tape is 32,367 bytes
+  (Lucifer's Kingdom); the largest tape 252,365 (Images 2, in parts).
+  **Two single tapes are over the deck's 64 KB** (`COCO_TAPE_IMAGE_MAX`):
+  Taxi, 66,829 bytes, and Bible Stories Adventure, 85,793, which the
+  firmware refuses as too long; the other nine over 64 KB are titles in
+  several files, none of which is.
+
+**D12 on the host**: the oracle (`test_mc6809_oracle`) now holds every
+byte of pages 1, 2 and 3, 756 opcodes at 2,048 trials each, every opcode
+after two prefixes in the four orders, 64,512 trials, and HCF's lock
+with every interrupt line asserted, 4,507,143 comparisons in all. Four
+bugs planted one at a time each failed it: CLR's undocumented form
+clearing C (about half the trials of `$4E`, `$5E` and their prefixed
+forms), `$18` consuming its operand (every trial), a fall-through
+costing one prefix's cycle however many there were (50,176 failures),
+and HCF not holding (the oracle's and `test_mc6809_behaviour`'s HCF
+tests both). The XRoar trace diff still agrees through boot and
+`PRINT 2+3`, 2,187,479 instructions. All 28 host tests pass.
+
+**Checked on the board**, 2026-11-16: the owner's Pico Plus 2 W, the
+`-DPICO_COCO_UART_PORT=0` images built from one tree with D12 in, Pico
+SDK 2.3.1, Arm GNU 15.2.Rel1, 150 MHz, driven over the UART. Captures
+in `out/m11/perf` and `out/m11/soak`, not committed.
+
+- **The perf pass**: six workloads on each tier, 8 or 9 five-second
+  windows each, rt 0.999-1.000 in every window of every image, zero
+  late fields, zero dropped snapshots, zero underruns and late refills.
+  Core 0 busy, and host cycles an instruction:
+
+  | Workload | tier 2 | | tier 1 | | tier 0 | |
+  |---|---:|---:|---:|---:|---:|---:|
+  | idle | 23.3 % | 132.4 | 27.5 % | 156.4 | 30.0 % | 170.4 |
+  | compute | 18.9 % | 108.8 | 38.2 % | 240.3 | 50.2 % | 324.3 |
+  | scroll | 23.8 % | 154.1 | 37.4 % | 252.8 | 47.8 % | 329.5 |
+  | pmode4 | 18.7 % | 109.4 | 45.4 % | 337.7 | 48.8 % | 362.6 |
+  | set | 18.8 % | 104.3 | 32.8 % | 193.9 | 40.5 % | 244.6 |
+  | sound | 24.0 % | 105.8 | 28.3 % | 124.5 | 32.2 % | 142.7 |
+
+  **Tier 2 stays the default**: with core 1 presenting, tiers 1 and 0
+  take up to twice and two and a half times its share, where M2's
+  gate, the CPU alone, saw tier 0 cost 1.1 times tier 2 on a BASIC
+  loop. The snapshot is 3.3-3.8 % of core 0 at tier 2, 4.2-4.4 % at
+  tier 1 and 4.6-4.8 % at tier 0.
+- **Each feature against its control**, same sitting: audio's pacing
+  costs 0.6-0.8 points (idle 23.3 % against the timer's 22.5 %, scroll
+  23.8 against 23.2, sound 24.0 against 23.4); the perf line nothing
+  measured (23.3 and 23.8 without it). **The M10 image beside this
+  one**, idle, compute and scroll back to back: 22.7, 18.2 and 23.2 %
+  against 23.3, 18.9 and 23.8 %, 2-3 % more host cycles an instruction,
+  which is D12's larger interpreter and the SWD block's copy.
+- **The UART soak passes** on the tier-2 image (`out/m11/soak/
+  soak-20261116-102357.log`): 32.6 minutes, one boot, 389 heartbeats,
+  rt 0.999 at worst and 0.9996 on average, and zero late fields, slips,
+  dropped snapshots, lost keys, I2C errors, undocumented opcodes,
+  dropped log lines, underruns, late refills and PCM overflows at the
+  end; the sound bus moved in all 359 heartbeats after the program
+  started, the program's count rose in each of the 24 screen dumps of
+  29 that showed it, and the program read both typed keys (11 H, 13 J);
+  core 0 busy 19.9-23.8 %, audio consumed at 36,624-36,625 Hz, the die
+  at 20 C, on battery from 95 % to 94 %. Three heartbeat lines were
+  garbled in the capture.
+- **Two soaks failed first**, and what they found was fixed: three
+  snapshots superseded in 31 minutes, each a full repaint with a change
+  of border colour, 22 ms against a 16.7 ms field (the border is 43,008
+  pixels to the picture's 49,152), fixed by leaving the border to the
+  next present; and a program that showed its count in too few dumps
+  and sounded too seldom for a five-second window, fixed in `soak.bas`
+  with `test_soak` checking both. The check now starts at the boot
+  banner, since the capture opens on the image that ran before.
+
+**The release soak passes**, 2026-11-16, the `-DPICO_COCO_UART=OFF`
+image, its counters read over SWD with both cores running
+(`tools/swd-counters.py`, `out/m11/soak/swd-20261116-113457.log`). The
+owner put `SOAK.CAS` (`test_soak --write`) on the card and typed
+`CLOAD"SOAK"` and `RUN` on the PicoCalc. 30.0 minutes, 91 samples 20 s
+apart, one boot, rt 1.000 in every window; zero late fields, slips,
+dropped snapshots, lost keys, I2C errors, undocumented opcodes,
+underruns, late refills and PCM overflows; the card's changes and the
+parks unchanged from the program's start; the count rising in each of
+the 75 screen dumps of 90 that showed it, from 164 to 316; the program
+reading H and J, pressed by the owner, 20 key events from the PicoCalc's
+keyboard; core 0 busy 17.9-21.4 %. A first sampling 10 s apart, the
+half hour before, was as clean on every counter but failed the check:
+a pass of `soak.bas` takes about 12 s, so two samples could fall in one
+pass, and no key was pressed during it.
+
+
+**Measured**: the tier-2 image with the UART on port 0, 169,936 bytes
+of text and 304,132 of bss, against M10's 161,208 and 304,132. The
+interpreter in SRAM at tier 2: `mc6809_run` 33,578 bytes, `page2`
+5,162, `page3` 3,414, against 28,860, 3,806 and 1,620 before D12; with
+`ea_indexed` and `attention`, about 45 KB, the top of §16's 30-45 KB.
+`arm-none-eabi-nm` shows each tier's functions where they belong:
+`attention` and `bus_read_slow` in SRAM from tier 1, `mc6809_run` and
+`page2` from tier 2.
+
+**Not checked:**
+
+- The owner on the panel with this image.
+- The archive's keys and joysticks (M12's layouts), and the Dragon's
+  archive (M14).
+- What the 17 split titles should look like (M12).
+- A real 6809 against the oracle's undocumented trials: XRoar's model
+  is hoglet67's measurements.
+- Taxi and Bible Stories Adventure on the device: over the deck's 64 KB.
+
 ## M10: snapshots
 
 On branch `m10`, 2026-11-15 (`design.md` §17). On the owner's board.
