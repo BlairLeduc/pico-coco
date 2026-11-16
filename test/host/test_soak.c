@@ -26,6 +26,13 @@
 
 static guest_t g;
 static const char *s_write_dir;
+/* Fields watched, and those showing the text page: soak.sh's screen dumps
+ * land at random, and soak-check.py needs half of them to show the count. */
+static long s_fields, s_text_fields;
+/* soak-check.py needs the bus to move in every heartbeat's five seconds:
+ * the 300-field windows in which it did not, after the first pass. */
+static long s_windows, s_quiet_windows;
+static uint32_t s_window_edges;
 
 #define TAPE_CAP 0x4000u
 static uint8_t s_tape[TAPE_CAP];
@@ -54,6 +61,15 @@ static void watch(int fields, const char *key, long *n, long *k, bool *pmode4) {
         }
         uint8_t mode = coco_vdg_mode(&g.m);
         if ((mode & VDG_AG) && (mode & VDG_GM_MASK) == VDG_GM_MASK) *pmode4 = true;
+        s_fields++;
+        if (!(mode & VDG_AG) && status(&a, &b)) s_text_fields++;
+        if (s_fields % 300 == 0) {
+            if (*n > 0) {
+                s_windows++;
+                if (g.m.sound_edges == s_window_edges) s_quiet_windows++;
+            }
+            s_window_edges = g.m.sound_edges;
+        }
     }
 }
 
@@ -128,14 +144,19 @@ int main(int argc, char **argv) {
     bool pmode4;
     uint32_t edges;
     CHECK(run(NULL, &n0, &n1, &kh, &kj, &pmode4, &edges), "the CoCo did not boot");
-    printf("  soak.bas: count %ld then %ld, keys %ld %ld, PMODE 4 %s, %u bus changes\n", n0,
-           n1, kh, kj, pmode4 ? "yes" : "no", (unsigned)edges);
+    printf("  soak.bas: count %ld then %ld, keys %ld %ld, PMODE 4 %s, %u bus changes, "
+           "the count shown in %ld of %ld fields\n", n0, n1, kh, kj, pmode4 ? "yes" : "no",
+           (unsigned)edges, s_text_fields, s_fields);
     if (n1 <= n0 || kh != 'H' || kj != 'J') guest_dump(&g.m, stderr);
     CHECK(n0 > 0, "no status line after 600 fields");
     CHECK(n1 > n0 + 2, "the count did not rise (%ld to %ld)", n0, n1);
     CHECK(kh == 'H', "H typed, the program read %ld", kh);
     CHECK(kj == 'J', "J typed, the program read %ld", kj);
     CHECK(pmode4, "PMODE 4 never shown");
+    CHECK(s_windows >= 4 && s_quiet_windows == 0, "the bus was still in %ld of %ld five-second "
+          "windows", s_quiet_windows, s_windows);
+    CHECK(s_text_fields * 10 > s_fields * 6, "the count shown in %ld of %ld fields: soak.sh's "
+          "dumps would miss it", s_text_fields, s_fields);
     uint32_t run_edges = edges;
     long passes = n1 - n0;
 

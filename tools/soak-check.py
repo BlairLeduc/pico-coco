@@ -84,6 +84,11 @@ def main():
     a = ap.parse_args()
 
     text = open(a.log, errors="replace").read()
+    # The capture starts before the flash (CLAUDE.md), so it can open on
+    # the image that ran before: the soak is from the boot banner on.
+    banner = re.search(r"^.*firmware\s*:", text, re.M)
+    if banner:
+        text = text[banner.start():]
     hbs = [m.groups() for m in HB.finditer(text)]
     aus = [m.groups() for m in AU.finditer(text)]
     fails = []
@@ -117,7 +122,11 @@ def main():
     if gaps:
         fails.append("%d irregular steps between heartbeats, first after field %d"
                      % (len(gaps), gaps[0][0]))
-    if garbled > 2:
+    # The capture garbles a line now and then while keys are typed over
+    # the same probe (M11: 3 in 1,150 lines); the counters are cumulative,
+    # so the next good heartbeat covers it. More than one in a hundred is
+    # a capture not to be trusted.
+    if garbled > max(2, len(fields) // 100):
         fails.append("%d heartbeats missing from the capture" % garbled)
 
     rts = [int(h[1]) + int(h[2]) / 1000 for h in hbs[1:]]   # the first straddles the boot
