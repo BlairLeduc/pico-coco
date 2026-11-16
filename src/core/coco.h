@@ -56,6 +56,13 @@ typedef struct {
     uint8_t  lines[COCO_SNAP_VRAM_MAX];
 } coco_frame_t;
 
+/* Master-oscillator ticks a second, the only clock (§13.2): the NTSC
+ * machines' 14.31818 MHz, four times the colour subcarrier. The device
+ * paces the guest on it (core0.c). The PAL machines' crystal is §18's to
+ * settle, and XRoar counts them in these ticks too; the Dragon reaches
+ * the device in M14. */
+#define COCO_TICK_HZ 14318180u
+
 /* The CPU's interrupt sources (mc6809.h). */
 #define COCO_IRQ_PIA0   0x01u
 #define COCO_FIRQ_PIA1  0x01u

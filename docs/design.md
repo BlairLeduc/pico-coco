@@ -683,7 +683,10 @@ Published at the end of each field, **where the next active line begins**
 - a few status bytes (tape, drive, the machine).
 
 The pool is three such buffers, about 19 KB. Copying 6 KB costs core 0
-tens of microseconds a field.
+tens of microseconds a field. **Measured in M7** (2026-11-15, the
+board, tier 2): about 565 µs a field, 3.4 % of core 0, walking the SAM's
+counter run by run; 3.17 % with that path moved to SRAM, so the cost is
+the work. M11's perf pass takes it up.
 
 **As built in M4** (2026-11-15): `coco_frame_t` holds the VDG's mode, the
 SAM's mode and display offset, the field number, and **for each of the
@@ -760,9 +763,25 @@ built if the archive run's count asks for split rendering.
 ### 9.6 Geometry, status, pages
 
 The 256×192 picture at (32, 64) on the 320×320 panel, a full repaint
-11.5 ms (HW §4.7). A status line above and a perf line below, each drawn
+11.5 ms (HW §4.7). A perf line above and a status line below, each drawn
 when its text changes and each hidden by a setting (EL §5.4). Tearing is
 accepted (EL §5.4).
+
+**As built in M7** (2026-11-15): pico-atom's layout, which this section
+had the other way round until then; the siblings agree, and a user of
+more than one should find the lines where they were. The border is
+pico-atom's frame, 32 pixels at the sides and 48 rows above and below,
+so it stops 16 rows short of the panel's top and bottom; each text line
+is 40 cells of the VDG's own 8×12 glyphs in those 16 rows, at rows 2 and
+306, the screen's green on black. The border is drawn, and the perf
+line on, until the settings of M9 can turn either off; the status line
+is blank until it has something to say (M9). The perf line reads in
+capitals, the VDG having no lower case.
+
+The missing-ROM page (§12.1) is the first page: a `coco_frame_t` in the
+alphanumeric mode, written by `textpage.c` with the bytes Color BASIC
+writes (bit 6 set, clear for inverse), which `test_boot` holds to a
+booted ROM's own screen, line byte for line byte through the snapshot.
 
 The menu and the other pages are guest text pages through the guest's own
 renderer, in the VDG's own character set (EL §5.8, §10), as the Atom's.
@@ -915,6 +934,17 @@ alternate packagings (the CoCo's two 8 KB ROMs as one 16 KB file, the
 Dragon 64's two ROMs). A missing ROM gives a page naming the files, never
 a blank screen, and the About page shows every slot's file, status and
 hash (EL §8.1).
+
+**As built in M7** (2026-11-15): core 1's ROM job hashes every file in
+`/coco/roms/` and reads again the ones the CoCo boots from: Color
+BASIC 1.3, or 1.1 without it, for $A000, and Extended Color BASIC 1.1
+for $8000. With both of Extended's, the machine starts; otherwise the
+page names the two files and says which are missing, and, if the card
+has a Color BASIC alone, ENTER starts that. A card put in while the page
+is up is read again and the machine starts, as pico-oric's M7 found it
+must. Only an image whose SHA-1 is known loads: no file is taken by its
+name alone. The combined 16 KB file and the About page wait for the
+Machine page (M9).
 
 The hashes are taken from the owner's images and cross-checked with
 XRoar's own list of known ROMs (its CRC-32s) before they are constants

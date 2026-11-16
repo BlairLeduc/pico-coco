@@ -7,9 +7,9 @@
  * (hardware-notes.md §7.1).
  *
  * The slot's card detect is polled from core 1's loop, and a change is
- * logged and counted. M6 has no guest, so core 1 lists the ROMs again
- * when a card goes in; once the guest runs, card work comes from a
- * park.
+ * logged and counted. While the missing-ROM page is up the guest has not
+ * started, so core 1 runs the ROM job again when a card goes in
+ * (handoff.h); once the guest runs, card work comes from a park (M9).
  */
 #ifndef PICO_COCO_CARD_H
 #define PICO_COCO_CARD_H
@@ -17,6 +17,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "config.h"
 #include "romset.h"
 
 typedef enum {
@@ -33,12 +34,21 @@ typedef struct {
     unsigned     files;       /* files in it, less macOS's "._" ones      */
     unsigned     unknown;     /* of those, the ones no SHA-1 recognises   */
     bool         found[ROM_IMAGE_COUNT];  /* each known image, by hash   */
+    /* What was loaded: the Color BASIC for $A000, 1.3 if the card has
+     * it and 1.1 if not, ROM_UNKNOWN for neither; and Extended Color
+     * BASIC for $8000. */
+    rom_id_t     basic;
+    bool         extended;
+    uint32_t     load_us;     /* reading the loaded images again          */
 } card_job_t;
 
-/* The ROMs on the card (design.md §12.1, §17 M6): list COCO_ROM_DIR,
- * read each file a sector at a time, hash it, name what it is, and log a
- * line for each. Without a usable card the job says so. */
-void card_roms(card_job_t *job);
+/* The ROMs on the card (design.md §12.1): list COCO_ROM_DIR, read each
+ * file a sector at a time, hash it, name what it is, and log a line for
+ * each; then read the images the CoCo boots from (Color BASIC 1.3, or
+ * 1.1 without it, and Extended Color BASIC 1.1) into `basic` and `ext`,
+ * each chosen by its SHA-1 whatever the file is called. Without a usable
+ * card the job says so. */
+void card_roms(card_job_t *job, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM_HALF]);
 
 /* The slot, debounced: true when card detect has settled at a new level
  * since the last call. Polled from core 1's loop. */

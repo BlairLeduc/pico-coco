@@ -4,6 +4,118 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M7: the CoCo on the device
+
+On branch `m7`, 2026-11-15 (`design.md` §17). On the owner's board.
+**Done**: every criterion of §17's row met, the last by the owner.
+
+**Built.** Core 1's ROM job (`card.c`) hashes every file in
+`/coco/roms/` as before and reads again the images the CoCo boots from,
+each chosen by SHA-1: Color BASIC 1.3 (1.1 without it) for $A000 and
+Extended Color BASIC 1.1 for $8000. `roms.c` decides what can start and
+draws the missing-ROM page, which offers a Color BASIC alone on ENTER;
+a card put in while the page is up is read again, with pico-oric's
+claim between the cores (`handoff.h`). Core 0 (`core0.c`, from
+pico-oric's M7) loads the ROMs, powers on, and runs `coco_run_field` a
+field at a time against an absolute deadline in master-oscillator ticks
+(`COCO_TICK_HZ`), keys from the keyboard and the UART into `keymatrix`
+before each field, the snapshot into pico-oric's pool after it, Alt+K
+the reset button. Core 1 presents through the core's `present_plan` and
+`mc6847_render_line` (`display.c`, from pico-atom's), with the border
+drawn when its colour changes and the perf line at the top in the VDG's
+glyphs (`status.c`, from pico-oric's, and `test_status`). New in the
+core: `textpage.c`, the screen read as text (the boot's `OK`, the
+UART's screen dump, and now the host harness's `guest_row`) and pages
+written as frames (`test_textpage`; `test_boot` holds a page written
+from a booted screen to the snapshot of that screen, byte for byte on
+every line); `fieldlog.c`, a field's end as a line. Tools:
+`coco-fields` (the host's 150 fields), `page-ppm` (the pages, to look
+at), `uart-screen.sh`, `perf-run.sh` and `perf-summary.sh` (from
+pico-oric's). `test_boot` boots Color BASIC 1.1 in 64 KB as well, the
+page's fallback without 1.3.
+
+**Checked on the board**, 2026-11-15: the owner's Pimoroni Pico Plus 2 W
+(RP2350B, chip revision 2, `7458DC82A89AAC12`), 150 MHz, core rail
+~1100 mV, die 19–20 °C, the `-DPICO_COCO_UART_PORT=0` image, Pico SDK
+2.3.1, Arm GNU 15.2.Rel1, tier 2, flashed over SWD and read over UART0,
+the card with the owner's five ROMs. Captures in `out/m7/`, not
+committed.
+
+- **Extended Color BASIC boots**: `OK` at field 77, 18,433,344 ticks
+  (1.287 s of guest time) after power-on, 1.274 s of wall time after
+  it, and 1.933 s after the board's reset: 35 ms to start core 1,
+  424 ms in `lcd_init`, 192 ms for the card (a 15 ms warm mount, five
+  files hashed, two read again in 32 ms), then the ROM's own boot.
+- **The first 150 fields equal the host's.** A build with
+  `-DPICO_COCO_FIELD_LOG=ON` recorded the registers, cycle,
+  instruction and tick counts at the end of each of the first 150
+  fields and logged them after (none dropped); `coco-fields` on the
+  host, the same loop with the same ROMs, printed the same 150 lines
+  (`cmp`), field 150 ending at 35,876,256 ticks.
+- **Typed over the UART**: `PRINT 2+3` printed 5, and `10 FOR I=1 TO
+  3:PRINT I*I:NEXT` with `RUN` printed 1, 4 and 9, read back with
+  `uart-screen.sh`.
+- **Real time.** Five workloads, one boot each, 8 or 9 five-second
+  windows after the program started (`out/m7/t2`): rt 1.000 in every
+  window, no field late, no slip, no snapshot dropped, no undocumented
+  opcode. Core 0 busy and host cycles an instruction:
+
+  | Workload | busy | guest | host cyc/insn | E cyc/insn | snapshot |
+  |---|---:|---:|---:|---:|---:|
+  | idle, at `OK` | 20.9 % | 17.5 % | 119.4 | 4.06 | 3.39 % |
+  | compute, a float loop | 16.7 % | 13.3 % | 95.8 | 4.29 | 3.39 % |
+  | scroll, `PRINT` without newline | 21.5 % | 18.0 % | 139.5 | 4.61 | 3.39 % |
+  | pmode4, `LINE` and `PCLS` in PMODE 4 | 16.6 % | 13.1 % | 108.9 | 4.94 | 3.45 % |
+  | set, random `SET` blocks | 16.7 % | 13.3 % | 92.2 | 4.13 | 3.39 % |
+
+  Against M2's gate, 88–113 host cycles on the CPU alone (§7.5), the
+  whole machine with core 1 presenting takes 92–140; the 12–13 % share
+  the gate projected is 13–18 % of guest time here, and 17–22 % with
+  the keys and the snapshot. Idle is the busiest but one: BASIC's
+  keyboard scan, which reads the PIAs through the slow path.
+  Presents: at most 12.5 ms, a full repaint, in text; 22.0 ms in PMODE
+  4, where `PCLS` repaints every band. pmode4 counted one split field
+  (§9.4), in the second it switched to graphics.
+- **The perf line costs nothing measured**: without it (the control,
+  same sitting, idle and scroll) busy read 20.9 % and 21.4 %, against
+  20.9 % and 21.5 %.
+- **The snapshot costs 3.4 % of core 0**, about 565 µs a field against
+  §9.3's estimate of tens of microseconds. Moved to tier 1
+  (`coco_video_snapshot`, `coco_vram_index`, the SAM counter's
+  functions) it read 3.17 % against 3.39 % in the same sitting, so the
+  cost is the work, not flash. Not kept: M11's perf pass has it.
+
+**Measured**: stack high-water marks, core 0 1,352 of 2,048 bytes (892
+in M6; the log's 512-byte line under the heartbeat's formatting), core
+1 920. Images: 116,616 bytes of text and 165,356 of bss with the UART
+(either port), 113,908 and 163,280 without.
+
+**Looked at on the host**: the missing-ROM page in each case (no card,
+a card that does not mount, no `/coco/roms/`, nothing known, Color
+BASIC 1.3 alone, 1.1 alone), rendered by `page-ppm` (`out/m7/page-*`).
+The first draft ran the offer into the footer on the 1.3 page; the
+footer is two lines now.
+
+**Checked by the owner** on the Plus 2 W, 2026-11-15, §17's last
+criteria: the banner and `OK` on the panel; a program typed on the
+PicoCalc's keyboard and run; `PMODE 4,1:SCREEN 1,1:PCLS:CIRCLE(128,96),80`
+drawn in artefact colours inside the buff border; and, booted with the
+card out, the page saying there is no SD card, and the machine starting
+when the card went back in.
+
+**Not checked:**
+
+- The build without the UART on the board (it builds).
+- The page's ENTER on the board.
+- A card pulled while the guest runs (logged only: card work waits for
+  M9's park).
+- Alt+K, the reset button, on the board.
+- Artefact colours against XRoar's or a real set's, beyond the owner's
+  eye on one drawing.
+- Alt+0 arriving as `0` with Alt held (§11.3), still unseen.
+
+All 18 host tests pass.
+
 ## M6: board bring-up and the card
 
 On branch `m6`, 2026-11-15 (`design.md` §17). On the owner's board.

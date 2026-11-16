@@ -15,6 +15,7 @@ option(PICO_COCO_HOST "Build the portable core and its host tests, with no Pico 
 set(PICO_COCO_CORE_SOURCES
     src/core/bus.c
     src/core/coco.c
+    src/core/fieldlog.c
     src/core/keymap_picocalc.c
     src/core/keymatrix.c
     src/core/mc6809.c
@@ -26,6 +27,8 @@ set(PICO_COCO_CORE_SOURCES
     src/core/sam6883.c
     src/core/sha1.c
     src/core/snappool.c
+    src/core/status.c
+    src/core/textpage.c
 )
 
 set(PICO_COCO_WARNINGS -Wall -Wextra -Werror)
@@ -84,6 +87,15 @@ if (PICO_COCO_HOST)
     target_include_directories(coco-trace PRIVATE test/host)
     target_compile_options(coco-trace PRIVATE ${PICO_COCO_WARNINGS})
     target_compile_definitions(coco-trace PRIVATE
+        PICO_COCO_DEFAULT_ROMS="${PROJECT_SOURCE_DIR}/roms")
+
+    # The host's half of the board's 150-field check (design.md §15.5):
+    # the same loop as core 0's, printing the same lines.
+    add_executable(coco-fields tools/coco-fields.c test/host/guest.c)
+    target_link_libraries(coco-fields PRIVATE pico_coco_core)
+    target_include_directories(coco-fields PRIVATE test/host)
+    target_compile_options(coco-fields PRIVATE ${PICO_COCO_WARNINGS})
+    target_compile_definitions(coco-fields PRIVATE
         PICO_COCO_DEFAULT_ROMS="${PROJECT_SOURCE_DIR}/roms")
 else()
     # One pico2 image for every RP2350 board (design.md §4, D3).
@@ -219,10 +231,25 @@ else()
     target_include_directories(pico_coco_fatfs PUBLIC ${PICO_COCO_FATFS_DIR})
     # Third-party code: built as it comes, without our -Werror.
 
-    # The emulator. M6: bring-up, with no guest yet (design.md §17).
+    # The perf line above the picture (design.md §7.5, §9.6), on in the
+    # development build; M9's settings take it over.
+    option(PICO_COCO_PERF_LINE "Draw the perf line at the panel's top" ON)
+    # The first fields' registers logged, to hold the board to
+    # tools/coco-fields.c on the host (design.md §15.5). A scratch build.
+    option(PICO_COCO_FIELD_LOG "Log the machine at the end of each of the first fields" OFF)
+    foreach(opt PERF_LINE FIELD_LOG)
+        if (PICO_COCO_${opt})
+            set(PICO_COCO_${opt}_ON 1)
+        else()
+            set(PICO_COCO_${opt}_ON 0)
+        endif()
+    endforeach()
+
+    # The emulator (design.md §17 M7).
     add_executable(pico-coco
         src/port/board.c
         src/port/card.c
+        src/port/core0.c
         src/port/core1.c
         src/port/diskio.c
         src/port/display.c
@@ -231,11 +258,15 @@ else()
         src/port/lcd.c
         src/port/log.c
         src/port/main.c
+        src/port/roms.c
         src/port/sd.c
         src/port/southbridge.c
         src/port/storage.c
     )
     pico_coco_firmware(pico-coco)
+    target_compile_definitions(pico-coco PRIVATE
+        PICO_COCO_PERF_LINE=${PICO_COCO_PERF_LINE_ON}
+        PICO_COCO_FIELD_LOG=${PICO_COCO_FIELD_LOG_ON})
     target_link_libraries(pico-coco
         pico_coco_fatfs
         hardware_dma

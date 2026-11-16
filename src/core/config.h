@@ -69,6 +69,21 @@
 #define COCO_PANEL_W          320u
 #define COCO_PANEL_H          320u
 
+/* The VDG's border (§9.5): 32 px at the sides and 48 rows above and
+ * below, as pico-atom draws its MC6847's, so it stops 16 rows short of
+ * the panel's top and bottom, where the two text lines go. */
+#define COCO_BORDER_X          32u
+#define COCO_BORDER_Y          48u
+
+/* The perf line at the top and the status line at the foot (§9.6), as
+ * the siblings place them: 40 cells of the VDG's 8x12 glyphs across the
+ * panel, each centred in the 16 rows the border leaves. */
+#define COCO_TEXT_COLS         40u
+#define COCO_TEXT_GLYPH_W       8u
+#define COCO_TEXT_GLYPH_H      12u
+#define COCO_PERF_Y             2u
+#define COCO_STATUS_Y         306u
+
 /* ---- The VDG and the snapshot pool (design.md §9, EL §2.4) ----------- */
 
 /* The VDG fetches 32 bytes on an active line, or 16, and the snapshot
@@ -94,6 +109,11 @@
  * and the longest line formatted onto core 0's stack. */
 #define COCO_LOG_RING        2048u
 #define COCO_LOG_LINE         512u
+
+/* The board's first fields, recorded and held to the host's (§15.5,
+ * fieldlog.h), and the longest line one makes. */
+#define COCO_FIELD_LOG_MAX    150u
+#define COCO_FIELD_LOG_LINE   128u
 
 /* ---- The card (design.md §12.1, §12.6) ------------------------------- */
 
