@@ -104,6 +104,39 @@ typedef struct {
 
 extern volatile core0_perf_t g_c0;
 
+/* The counters a build without the UART can give (design.md §15.5, §17
+ * M11): core 0 copies them here once a second, and
+ * tools/swd-counters.py reads the block over SWD with both cores
+ * running, since halting core 0 would starve the audio it measures.
+ * They are the heartbeat's that soak-check.py holds the UART's soak to.
+ * Every word is cumulative from boot, with one writer. The layout is
+ * the script's too: change both, and SWD_LAYOUT with them. From
+ * pico-oric's, with the sound bus's changes for the AY's counts and the
+ * CoCo's text screen. */
+#define SWD_MAGIC  0x434F4331u   /* "COC1" as a word */
+#define SWD_LAYOUT 1u
+typedef struct {
+    uint32_t magic, layout;
+    uint32_t updates;        /* one a second; the block is current      */
+    uint32_t uptime_ms;      /* the board's clock at the update         */
+    uint32_t fields;         /* guest fields run                        */
+    uint32_t cycles;         /* guest E cycles, low word: rt is these over time */
+    uint32_t late, slips;    /* the timer's pacing; 0 on audio          */
+    uint32_t presents, snapshots_dropped;
+    uint32_t key_events, keys_lost, polls, i2c_errors;
+    uint32_t undoc, log_dropped;
+    uint32_t underrun_samples, late_refills, consumed, pcm_overflow;
+    uint32_t sound_edges;    /* changes of the sound bus (coco.h)       */
+    uint32_t split_fields;   /* §9.4                                    */
+    uint32_t card_changes, parks;
+    uint32_t busy1000;       /* core 0 outside the pacing wait, last second */
+    int32_t  battery;        /* SB_REG_BAT's byte, -1 until read        */
+    int32_t  temp_c;         /* the die, INT32_MIN until read           */
+    uint32_t screen;         /* the guest's text screen, 512 VDG codes, an address */
+} swd_counters_t;
+
+extern volatile swd_counters_t g_swd;
+
 /* The machine as it powers on (design.md §14's Machine page): what
  * core0_power_on builds, with the ROMs and the cartridge from g_boot. */
 typedef struct {
