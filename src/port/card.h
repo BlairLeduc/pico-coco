@@ -50,6 +50,19 @@ typedef struct {
  * card the job says so. */
 void card_roms(card_job_t *job, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM_HALF]);
 
+/* The same with the card already mounted, for the menu (About) and the
+ * boot's job, which mount it once for everything they read. */
+void card_roms_mounted(card_job_t *job, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM_HALF]);
+
+/* Cartridge images in COCO_CART_DIR, .ccc or .rom, up to max, in
+ * directory order. The card must be mounted. */
+unsigned card_cart_list(char paths[][COCO_PATH_MAX], unsigned max);
+
+/* A cartridge image into dst, at most 16 KB: a path, or a bare name in
+ * COCO_CART_DIR as the settings file writes it. NULL, or why not. The
+ * card must be mounted. */
+const char *card_cart_load(const char *path, uint8_t dst[COCO_CART_SIZE], uint32_t *len);
+
 /* The slot, debounced: true when card detect has settled at a new level
  * since the last call. Polled from core 1's loop. */
 bool card_poll(void);

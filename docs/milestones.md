@@ -4,6 +4,77 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M9: card, settings, the menu, cartridges, the tape trap
+
+On branch `m9`, 2026-11-15 (`design.md` §17). **In progress**: the
+owner has still to play a game loaded from CAS and one from a cartridge.
+
+**Built.** In the core: the tape trap (`tape.c`, `cas.c`), the ROM
+cartridge and its CART line (`coco.c`), the settings file's parser and
+rewriter (`settings.c`, from pico-oric), and the status line's text.
+In the port: `park.c`, `settingsio.c`, `menu.c` (from pico-oric),
+`tapeio.c` (new, for CAS), cartridge listing and loading in `card.c`,
+and core 0's park between fields. `design.md` §12.2, §12.3, §12.6 and
+§14 say what was built. New tests: `test_tape`, `test_cart`,
+`test_settings`, and the status line in `test_status`. `media/` is a
+gitignored staging area for the owner's cartridges and tapes, which the
+host tests load when they find them.
+
+**Checked on the host** (Apple clang, 2026-11-15):
+
+- `test_tape` holds the trap's state to the ROMs' own routines, and
+  eleven bugs planted one at a time each failed it (`design.md` §12.3).
+  It round-trips `CSAVE`/`CLOAD` in 64 KB with Extended and in a 4 KB
+  Color BASIC 1.1, and `CSAVEM`/`CLOADM` 256 bytes, and checks the
+  requests: a tape found by name with the deck empty, a name missing
+  from the tape, and giving up with the program kept.
+- The six CAS files staged (Color Computer Demo, Extended Color Basic
+  Demo, Graphic Pak, JOEY, PIPES, RALLYSG) each load without an I/O
+  error; JOEY starts itself.
+- `test_cart` starts a cartridge of its own through the CART line, with
+  the control (no Q clock: BASIC boots to OK) failing to start it; the
+  five `.ccc` images staged (Color Logo, Doodle Bug, Dungeons of
+  Daggorath, EDTASM+, Poltergeist) each start.
+- The trap costs the idle prompt nothing: 7.0–7.2 ns an instruction with
+  it and without, against +58 % for a page always slow.
+- The XRoar trace diff still agrees through boot and `PRINT 2+3`
+  (2,187,479 instructions).
+
+All 24 host tests pass.
+
+**Checked on the board**, 2026-11-15: the owner's Pico Plus 2 W, the
+`-DPICO_COCO_UART_PORT=0` image, driven over the UART. Captures in
+`out/m9/`, not committed.
+
+- Boot unchanged: `OK` at field 77; idle core 0 busy 22.6 %, against
+  M8's 22.4 %.
+- The menu over the UART: the Tapes page listed the card's two tapes.
+- `CLOADM"CCDEMO"` with the deck empty found `Color Computer
+  Demo.cas` by its first file's name, 56 ms parked; `EXEC` ran it.
+- A new tape `TAPE01.CAS` made on the Tapes page; a two-line program
+  `CSAVE"M9"`, written to the card in 63 ms parked, then `NEW`,
+  `CLOAD"M9"` and `RUN` printed it back.
+- `CLOAD"NOPE"`: "NO NOPE ON THIS TAPE" on the status line, the reset
+  button pressed, the program kept.
+- The Machine page listed the card's five cartridges; Doodle Bug applied
+  and started (VDG in a graphics mode); taken out again.
+- Save settings wrote `/coco/coco.ini`, 68 bytes; after a reset the boot
+  read it and put `TAPE01.CAS` in the deck.
+
+**Measured**: images 150,648 bytes of text and 292,356 of bss with the
+UART. The deck's 64 KB and the cartridge's 16 KB are most of the growth
+of 117 KB since M8.
+
+**Not checked:**
+
+- A game played by the owner, from CAS and from a cartridge (§17's
+  criterion).
+- The menu on the panel by eye, and pause.
+- Exit to shell.
+- A tape larger than 64 KB, which is refused.
+- The card's disc folder is `/coco/disks/`; `design.md` §12.6 says
+  `/coco/discs/` (M13 decides).
+
 ## M8: audio
 
 On branch `m8`, 2026-11-15 (`design.md` §17). On the owner's board.

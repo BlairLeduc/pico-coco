@@ -6,8 +6,7 @@
  * counter is a 32-bit word with one writer, so a torn read is not
  * possible.
  *
- * Adapted from pico-oric's M7. The settings and the menu's state are
- * M9's.
+ * Adapted from pico-oric's.
  */
 #ifndef PICO_COCO_HANDOFF_H
 #define PICO_COCO_HANDOFF_H
@@ -18,6 +17,7 @@
 #include "board.h"
 #include "card.h"
 #include "config.h"
+#include "settings.h"
 #include "snappool.h"
 
 extern snappool_t g_pool;
@@ -75,6 +75,12 @@ typedef struct {
     card_job_t job;          /* what the card had, and what was loaded    */
     uint8_t    basic[COCO_ROM_HALF];   /* job.basic's bytes, for $A000    */
     uint8_t    ext[COCO_ROM_HALF];     /* Extended's, for $8000           */
+    /* The settings file at boot (settings.h), and the cartridge it or
+     * the Machine page names, read off the card: cart_len 0 for none. */
+    settings_t settings;
+    uint8_t    cart[COCO_CART_SIZE];
+    uint32_t   cart_len;
+    char       cart_path[COCO_PATH_MAX];
     uint32_t   ready_us;     /* core 1's bring-up done, since boot        */
     volatile bool     busy;        /* core 1: a job is running          */
     volatile bool     claimed;     /* core 0: job and images are mine   */
@@ -92,14 +98,35 @@ typedef struct {
     uint32_t hz;             /* fields a second, rounded                 */
     uint32_t underruns;      /* underrun samples since boot (§10)        */
     uint32_t late_refills;   /* late DMA refills since boot              */
+    uint32_t tape_unsaved;   /* the deck holds a recording not on the card */
 } core0_perf_t;
 
 extern volatile core0_perf_t g_c0;
 
-/* What the menu will change (design.md §9.6, §14), until M9 brings the
- * menu and the settings file. Core 1 reads it. */
+/* The machine as it powers on (design.md §14's Machine page): what
+ * core0_power_on builds, with the ROMs and the cartridge from g_boot. */
 typedef struct {
-    volatile bool perf_line;   /* the top line (status.h)             */
+    unsigned ram_k;            /* 4, 16, 32 or 64                       */
+    bool     extended;         /* Extended Color BASIC at $8000         */
+    bool     cart;             /* g_boot.cart at $C000                  */
+} machine_t;
+
+/* The running machine's, written by core 0 at each power-on and read by
+ * core 1 while the guest is parked. */
+extern machine_t g_machine;
+
+/* What the menu changes (design.md §9.6, §14), applied by the core that
+ * owns it when the guest is handed back (EL §2.5). */
+typedef struct {
+    volatile unsigned volume;      /* 0-8, as settings_t has it           */
+    volatile bool     perf_line;   /* the top line (status.h)             */
+    volatile bool     status;      /* the bottom line                     */
+    volatile unsigned backlight;   /* 1-15 as the Setup page has it; 0 unread */
+    volatile bool     reset;       /* the menu's Reset: core 0 clears it  */
+    /* The Machine page's Apply: power on as restart_cfg, with the ROMs
+     * and the cartridge core 1 has left in g_boot. Core 0 clears it. */
+    volatile bool     restart;
+    machine_t         restart_cfg;
 } ui_t;
 
 extern ui_t g_ui;

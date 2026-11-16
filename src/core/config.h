@@ -154,6 +154,7 @@
 
 #define COCO_PATH_MAX         128u  /* a path on the card, with its NUL    */
 #define COCO_ROM_DIR     "/coco/roms"
+#define COCO_CART_DIR    "/coco/carts"
 #define COCO_CARD_CHUNK       512u  /* a file read a sector at a time      */
 
 /* The settings file, /coco/coco.ini (§12.6, settings.h). */

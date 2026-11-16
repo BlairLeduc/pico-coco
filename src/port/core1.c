@@ -4,9 +4,12 @@
  * Bring-up in hardware-notes.md §10's order; the boot's ROMs off the
  * card, with the page that says what is missing (roms.h); then the loop:
  * present the newest snapshot, pump the log, poll the keyboard at 30 Hz,
- * and draw the perf line once a second. Pico-oric's M7 loop, with M6's
- * retries for a card that goes in silent. The menu and the park are M9's.
+ * and draw the perf line once a second; serve the park (park.h), which
+ * runs the menu, and draw the status line. Pico-oric's loop, with M6's
+ * retries for a card that goes in silent.
  */
+
+#include <stdio.h>
 
 #include "core1.h"
 
@@ -20,9 +23,15 @@
 #include "kbd.h"
 #include "lcd.h"
 #include "log.h"
+#include "menu.h"
+#include "park.h"
 #include "roms.h"
+#include "sd.h"
+#include "settingsio.h"
 #include "southbridge.h"
 #include "status.h"
+#include "storage.h"
+#include "tapeio.h"
 
 /* Keyboard polls, as hardware-notes.md §6.1 and design.md §11.1 have them;
  * the poll also feeds the MCU's 2.5 s bus watchdog. */
@@ -37,8 +46,36 @@
 #define CARD_RETRY_US 500000u
 #define CARD_RETRIES  3u
 
-/* The missing-ROM page, core 1's own frame (roms.h). */
+/* A note stays on the status line this long (core1_note). */
+#define NOTE_US      3000000u
+
+/* Core 1's own frame: the missing-ROM page (roms.h) before the guest
+ * starts, the menu's (menu.h) once it runs. */
 static coco_frame_t s_page;
+
+static char     s_note[COCO_TEXT_COLS + 1];
+static uint32_t s_note_until;
+
+void core1_note(const char *text) {
+    snprintf(s_note, sizeof s_note, "%s", text);
+    s_note_until = time_us_32() + NOTE_US;
+    display_status(s_note);
+}
+
+/* The status line at the foot (§9.6, §14), while it is on: the deck and
+ * the cartridge (status.h); or a note, until it has been up for NOTE_US.
+ * Drawn only when it changes. */
+static void draw_status(void) {
+    if (s_note[0]) {
+        if ((int32_t)(time_us_32() - s_note_until) < 0) return;
+        s_note[0] = 0;
+    }
+    char text[COCO_TEXT_COLS + 1] = "";
+    if (g_ui.status)
+        status_format(tapeio_inserted(), g_c0.tape_unsaved != 0,
+                      g_machine.cart ? g_boot.cart_path : "", text);
+    display_status(text);
+}
 
 /* The perf line at the top (design.md §7.5, §9.6): core 0's last second,
  * and core 1's longest present and dropped snapshots over its own.
@@ -56,13 +93,68 @@ static void draw_perf(uint32_t present_max_us, uint32_t dropped) {
     display_perf(text);
 }
 
-/* The boot's ROMs off the card (design.md §12.1), with core 0 waiting,
- * as every card job will be (§6); and the page, if Extended Color BASIC
- * cannot start. */
+/* The settings into g_ui (§12.6), the backlight the file's or the
+ * panel's own (hardware-notes.md §6): register values step by 16,
+ * 16-240. */
+static void apply_settings(const settings_t *st) {
+    g_ui.volume = st->volume;
+    g_ui.perf_line = st->perf;
+    g_ui.status = st->status;
+    uint8_t r[2];
+    if (st->backlight) {
+        g_ui.backlight = st->backlight;
+        (void)sb_write(SB_REG_BKL, (uint8_t)(g_ui.backlight * 16u), NULL);
+    } else if (sb_read(SB_REG_BKL, r) == SB_OK && r[1] >= 16u) {
+        g_ui.backlight = r[1] / 16u > 15u ? 15u : r[1] / 16u;
+    }
+}
+
+/* The boot's card job (design.md §12.1, §12.6), with core 0 waiting, as
+ * every card job is (§6), in one mount: the settings, the ROMs, the
+ * cartridge and the tape they name; then the page, if Extended Color
+ * BASIC cannot start. */
 static void boot_rom(void) {
-    card_roms(&g_boot.job, g_boot.basic, g_boot.ext);
+    g_boot.cart_len = 0;
+    g_boot.cart_path[0] = 0;
+    if (sd_present()) {
+        uint32_t t0 = time_us_32();
+        int fr = storage_mount();
+        g_boot.job.mount_us = time_us_32() - t0;
+        g_boot.job.fresult = fr;
+        if (fr == 0) {
+            settingsio_load(&g_boot.settings);
+            card_roms_mounted(&g_boot.job, g_boot.basic, g_boot.ext);
+            const settings_t *st = &g_boot.settings;
+            if (st->cart[0]) {
+                uint32_t len = 0;
+                const char *err = card_cart_load(st->cart, g_boot.cart, &len);
+                if (err) settingsio_fail(st->cart, err);
+                else {
+                    g_boot.cart_len = len;
+                    int n = st->cart[0] == '/'
+                        ? snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s", st->cart)
+                        : snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s/%s",
+                                   COCO_CART_DIR, st->cart);
+                    if (n >= (int)sizeof g_boot.cart_path) g_boot.cart_path[0] = 0;
+                }
+            }
+            if (st->boot_tape[0]) {
+                const char *err = tapeio_boot(st->boot_tape);
+                if (err) settingsio_fail(st->boot_tape, err);
+            }
+            storage_unmount();
+        } else {
+            card_roms(&g_boot.job, g_boot.basic, g_boot.ext);
+            settingsio_none(&g_boot.settings);
+        }
+    } else {
+        card_roms(&g_boot.job, g_boot.basic, g_boot.ext);
+        settingsio_none(&g_boot.settings);
+    }
+    apply_settings(&g_boot.settings);
+    menu_init(&s_page);
     g_c1.card_jobs++;
-    if (roms_choice(&g_boot.job) != BOOT_EXTENDED) {
+    if (!roms_start_now(&g_boot.job, g_boot.settings.extended)) {
         roms_page(&g_boot.job, &s_page);
         display_present(&s_page, NULL);
     }
@@ -135,11 +227,13 @@ void core1_main(void) {
 
         log_pump();
 
-        /* Until core 0 claims the ROMs, a card that goes in is read at
-         * once; once the guest runs, a change is only noted, and card
-         * work waits for the park (M9, card.h). */
+        /* The guest parked: its job. Until core 0 claims the ROMs, a card
+         * that goes in is read at once; once the guest runs, a change is
+         * only noted, and card work waits for a park (card.h). */
         bool job = false;
-        if (card_poll()) {
+        if (park_serve()) {
+            /* a hold: a step a loop */
+        } else if (card_poll()) {
             log_core1("  card         : %s\n", card_present() ? "in" : "out");
             retries = 0;
             job = !g_boot.claimed;
@@ -160,6 +254,7 @@ void core1_main(void) {
             next_retry = time_us_32() + CARD_RETRY_US;
         }
         if (!card_present()) retried = false;
+        if (g_boot.claimed) draw_status();
 
         now = time_us_32();
         if (now - sec_start >= 1000000u) {

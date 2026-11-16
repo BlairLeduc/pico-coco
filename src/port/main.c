@@ -63,7 +63,8 @@ static boot_basic_t wait_for_basic(void) {
         uint32_t gen = g_boot.generation;
         __dmb();
         boot_basic_t can = roms_choice(&g_boot.job);
-        if (gen != seen && can != BOOT_EXTENDED) {
+        bool now = roms_start_now(&g_boot.job, g_boot.settings.extended);
+        if (gen != seen && !now) {
             seen = gen;
             log_printf("  guest        : not started: no %s%s%s\n",
                        roms_basic_name(BOOT_EXTENDED),
@@ -71,8 +72,7 @@ static boot_basic_t wait_for_basic(void) {
                        can != BOOT_NONE ? roms_basic_name(can) : "");
         }
         bool enter = enter_pressed();
-        boot_basic_t pick = can == BOOT_EXTENDED ? can : (enter && can != BOOT_NONE) ? can
-                                                                                     : BOOT_NONE;
+        boot_basic_t pick = now ? can : (enter && can != BOOT_NONE) ? can : BOOT_NONE;
         if (pick != BOOT_NONE) {
             g_boot.claimed = true;
             __dmb();
@@ -128,7 +128,7 @@ int main(void) {
                (unsigned long)g_bringup.lcd_us, (unsigned long)g_bringup.card_us);
 
     /* Returns at once when the ROMs are already here. */
-    bool page = roms_choice(&g_boot.job) != BOOT_EXTENDED;
+    bool page = !roms_start_now(&g_boot.job, g_boot.settings.extended);
     boot_basic_t basic = wait_for_basic();
     if (page) {
         log_printf("  guest        : %s\n", basic == BOOT_EXTENDED
@@ -136,15 +136,6 @@ int main(void) {
         keymatrix_init(&g_keys);
     }
 
-    /* Load the ROMs, then power on (design.md §13.3, coco.h). The
-     * Machine page's RAM and BASIC are M9's; until then a CoCo in 64 KB
-     * (D6). */
-    coco_config_t cfg;
-    coco_config_default(&cfg);
-    coco_init(&g_coco, &cfg);
-    coco_load_rom(&g_coco, 0xA000u, g_boot.basic, COCO_ROM_HALF);
-    if (basic == BOOT_EXTENDED) coco_load_rom(&g_coco, 0x8000u, g_boot.ext, COCO_ROM_HALF);
-    coco_power_on(&g_coco);
     /* Audio last in bring-up order (hardware-notes.md §10), on core 0,
      * whose IRQ the refill is, and after core 1's LCD has claimed its
      * fixed DMA channel; the PCM then takes the rate the PWM really has
@@ -153,12 +144,21 @@ int main(void) {
     audio_init();
     uint32_t rate_num, rate_den;
     audio_rate(&rate_num, &rate_den);
-    coco_audio_set_rate(&g_coco, rate_num, rate_den);
 #endif
+    /* The machine the settings name (design.md §12.6, §14): load the
+     * ROMs and the cartridge, then power on (§13.3, coco.h). */
+    machine_t mc = {
+        .ram_k = g_boot.settings.ram_k,
+        .extended = basic == BOOT_EXTENDED && g_boot.settings.extended,
+        .cart = g_boot.cart_len > 0,
+    };
+    core0_power_on(&g_coco, &mc);
+    coco_config_t cfg = g_coco.cfg;
     log_printf("  guest        : CoCo, %u KB, %s (%s%s), %lu ticks a field, "
                "hot code in SRAM to tier %u (hot.h)%s\n",
-               cfg.ram_k, roms_basic_name(basic), romset_images[g_boot.job.basic].file,
-               basic == BOOT_EXTENDED ? ", extbas11.rom" : "",
+               cfg.ram_k, roms_basic_name(mc.extended ? BOOT_EXTENDED : roms_choice(&g_boot.job) == BOOT_EXTENDED ? BOOT_COLOR13 : basic),
+               romset_images[g_boot.job.basic].file,
+               mc.extended ? ", extbas11.rom" : "",
                (unsigned long)(g_coco.line_ticks * g_coco.field_lines),
                (unsigned)PICO_COCO_RAM_TIER,
                PICO_COCO_FIELD_LOG ? ", logging the first fields" : "");

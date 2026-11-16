@@ -30,6 +30,11 @@ typedef enum {
  * otherwise the best a Color BASIC alone gives. */
 boot_basic_t roms_choice(const card_job_t *job);
 
+/* Whether the job's ROMs start what the settings ask for at once, with
+ * no page: Extended Color BASIC, or with `basic = color` (settings.h) a
+ * Color BASIC alone. */
+bool roms_start_now(const card_job_t *job, bool want_extended);
+
 /* "EXTENDED COLOR BASIC 1.1", "COLOR BASIC 1.3", ... */
 const char *roms_basic_name(boot_basic_t b);
 

@@ -270,12 +270,18 @@ else()
         src/port/lcd.c
         src/port/log.c
         src/port/main.c
+        src/port/menu.c
+        src/port/park.c
         src/port/roms.c
         src/port/sd.c
+        src/port/settingsio.c
         src/port/southbridge.c
         src/port/storage.c
+        src/port/tapeio.c
     )
     pico_coco_firmware(pico-coco)
+    # picocalc_shell.h, the shell's return call (design.md §14, D7).
+    target_include_directories(pico-coco SYSTEM PRIVATE third_party/picocalc-shell)
     target_compile_definitions(pico-coco PRIVATE
         PICO_COCO_PERF_LINE=${PICO_COCO_PERF_LINE_ON}
         PICO_COCO_FIELD_LOG=${PICO_COCO_FIELD_LOG_ON}

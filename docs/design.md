@@ -1147,6 +1147,16 @@ output parsed back before it is written. Every write to the card goes
 through `name.new` and a rename with recovery on load (EL §8.6). No
 flash writes.
 
+**As built in M9** (2026-11-15): pico-oric's parser and rewriter
+(`settings.c`, `test_settings`) with the CoCo's keys, `basic`, `ram`,
+`cart`, `volume`, `perf`, `status`, `backlight` and `boot_tape`, which
+`settings.h` lists; `settingsio.c` reads and writes `/coco/coco.ini`
+through `/coco/coco.new`. The boot's card job mounts once for the
+settings, the ROMs, the cartridge and the boot tape. `machine`, the
+layouts and fast tape wait for M14 and M12, and a file naming them is
+told so on its line. Files are written with FatFs's fixed date
+(`FF_FS_NORTC`); the DS3231's time is not yet used.
+
 ---
 
 ## 13. Timing
@@ -1232,6 +1242,20 @@ The family's (EL §10), by D5:
   (EL §10).
 - **Return to the shell**, when UF2 Loader started the image (D7).
 - The firmware names no title (EL §10).
+
+**As built in M9** (2026-11-15): pico-oric's `menu.c`, `park.c` and
+pause, on the VDG's 32 by 16 cells in capitals. The main page has the
+family's nine items in their order; Discs and Snapshots say which
+milestone brings them (M13, M10). The Tapes page ejects, rewinds, makes
+a named tape and inserts any CAS in `/coco/tapes/`, showing each one's
+first file. Setup has the two lines, the backlight and the volume. The
+Machine page stages BASIC (Extended or Color), the RAM (4, 16, 32,
+64 KB) and the cartridge (none, or any `.ccc` or `.rom` in
+`/coco/carts/`), and Apply powers on as staged; it refuses while a
+recording is not on the card, and refuses Extended without its ROMs.
+The machine and television choices wait for M14. The status line
+shows the deck and the cartridge (`status_format`, `test_status`).
+F6's screenshot is not yet in.
 
 ---
 

@@ -144,14 +144,24 @@ void card_roms(card_job_t *j, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM
                   (unsigned long)j->mount_us);
         return;
     }
-    j->state = CARD_MOUNTED;
     log_core1("  card         : mounted in %lu us\n", (unsigned long)j->mount_us);
+    card_roms_mounted(j, basic, ext);
+    storage_unmount();
+}
+
+void card_roms_mounted(card_job_t *j, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM_HALF]) {
+    int fresult = j->fresult;
+    uint32_t mount_us = j->mount_us;
+    memset(j, 0, sizeof *j);
+    j->basic = ROM_UNKNOWN;
+    j->fresult = fresult;
+    j->mount_us = mount_us;
+    j->state = CARD_MOUNTED;
 
     DIR *dir = &s_dir;
     FRESULT fr = f_opendir(dir, COCO_ROM_DIR);
     if (fr != FR_OK) {
         log_core1("  card         : no %s (FatFs %d)\n", COCO_ROM_DIR, (int)fr);
-        storage_unmount();
         return;
     }
     j->dir = true;
@@ -164,7 +174,6 @@ void card_roms(card_job_t *j, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM
         one_rom(j, fi, basic, ext);
     }
     f_closedir(dir);
-    storage_unmount();
 
     char missing[96] = "";
     size_t at = 0;
@@ -216,4 +225,50 @@ const char *card_state_str(card_state_t st) {
     case CARD_MOUNTED:  return "mounted";
     }
     return "?";
+}
+
+/* ---- cartridges (design.md §12.2) ------------------------------------- */
+
+static bool cart_name(const char *name) {
+    size_t n = strlen(name);
+    if (n < 5 || name[n - 4] != '.') return false;
+    char e[4] = { (char)(name[n - 3] | 0x20), (char)(name[n - 2] | 0x20), (char)(name[n - 1] | 0x20), 0 };
+    return strcmp(e, "ccc") == 0 || strcmp(e, "rom") == 0;
+}
+
+unsigned card_cart_list(char paths[][COCO_PATH_MAX], unsigned max) {
+    unsigned n = 0;
+    if (f_opendir(&s_dir, COCO_CART_DIR) != FR_OK) return 0;
+    while (n < max && f_readdir(&s_dir, &s_info) == FR_OK && s_info.fname[0]) {
+        if (s_info.fattrib & AM_DIR) continue;
+        if (s_info.fname[0] == '.' && s_info.fname[1] == '_') continue;
+        if (!cart_name(s_info.fname)) continue;
+        if (snprintf(paths[n], COCO_PATH_MAX, "%s/%s", COCO_CART_DIR, s_info.fname) >= (int)COCO_PATH_MAX)
+            continue;
+        n++;
+    }
+    f_closedir(&s_dir);
+    return n;
+}
+
+const char *card_cart_load(const char *path, uint8_t dst[COCO_CART_SIZE], uint32_t *len) {
+    char full[COCO_PATH_MAX + 16];
+    /* A bare name is in /coco/carts/, as the settings file writes it. */
+    if (path[0] == '/') snprintf(full, sizeof full, "%s", path);
+    else snprintf(full, sizeof full, "%s/%s", COCO_CART_DIR, path);
+    FIL *f = &s_file;
+    FRESULT fr = f_open(f, full, FA_READ);
+    if (fr != FR_OK) return fr == FR_NO_FILE || fr == FR_NO_PATH ? "NOT ON THE CARD" : "CANNOT OPEN";
+    FSIZE_t size = f_size(f);
+    if (size == 0 || size > COCO_CART_SIZE) {
+        f_close(f);
+        return size ? "OVER 16 KB" : "EMPTY";
+    }
+    UINT got = 0;
+    fr = f_read(f, dst, (UINT)size, &got);
+    f_close(f);
+    if (fr != FR_OK || got != size) return "CANNOT READ";
+    *len = got;
+    log_core1("  cart         : %s, %lu bytes\n", full, (unsigned long)got);
+    return NULL;
 }

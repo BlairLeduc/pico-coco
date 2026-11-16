@@ -13,6 +13,11 @@ boot_basic_t roms_choice(const card_job_t *job) {
     return BOOT_NONE;
 }
 
+bool roms_start_now(const card_job_t *job, bool want_extended) {
+    boot_basic_t b = roms_choice(job);
+    return b == BOOT_EXTENDED || (!want_extended && b != BOOT_NONE);
+}
+
 const char *roms_basic_name(boot_basic_t b) {
     switch (b) {
     case BOOT_EXTENDED: return "EXTENDED COLOR BASIC 1.1";

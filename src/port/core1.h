@@ -10,4 +10,8 @@
  * multicore_launch_core1. */
 void core1_main(void);
 
+/* A line on the status line for a few seconds, whatever it says
+ * otherwise. Core 1. */
+void core1_note(const char *text);
+
 #endif /* PICO_COCO_CORE1_H */
