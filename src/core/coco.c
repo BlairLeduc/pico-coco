@@ -304,13 +304,12 @@ static uint8_t pia0b_pins(const coco_t *m) {
  * high with 4K or 16K chips and low with larger (XRoar's dragon32.c; the
  * Dragon 32's boot trace agrees in 16, 32 and 64 KB, 2026-11-14). */
 static uint8_t pia1b_pins(const coco_t *m) {
-    /* PB1, the single-bit sound, set as an input reads the sound output
-     * back, inverted (XRoar's single_bit_feedback): high while it is
-     * silent, as it is until M8 brings the audio (§10). XRoar feeds it
-     * back only once its sound has updated, and reads it low before
-     * then: the Dragon 32 reads it 23 instructions after reset
-     * (2026-11-14, §18). */
-    uint8_t in = m->sound_fed ? 0x02u : 0x00u;
+    /* PB1, the single-bit sound, set as an input reads the sound bus
+     * back, inverted (XRoar's single_bit_feedback): high while the bus is
+     * under 0.3 of its full scale (§10). XRoar feeds it back only once
+     * its sound has updated, and reads it low before then: the Dragon 32
+     * reads it 23 instructions after reset (2026-11-14, §18). */
+    uint8_t in = (m->sound_fed && m->sound_level < COCO_SOUND_PB1_LOW) ? 0x02u : 0x00u;
     if (m->cfg.machine == COCO_MACHINE_COCO) {
         if (m->cfg.ram_k == 16) in |= 0x04u;
         else if (linked_pb(m) && (mc6821_out(&m->pia0.b) & 0x40u)) in |= 0x04u;
@@ -322,13 +321,83 @@ static uint8_t pia1b_pins(const coco_t *m) {
     return in;
 }
 
-/* XRoar's sound updates, and feeds PB1 back, at each FS rise and when the
- * single-bit sound or the multiplexer is enabled: PB1 made an output, or
- * CB2 an output driven high (its sound.c, dragon.c; §18). */
-static void note_sound(coco_t *m) {
-    const mc6821_port_t *b = &m->pia1.b;
-    if ((b->ddr & 0x02u) || ((b->cr & MC6821_CR_C2_OUT) && mc6821_c2_out(b)))
-        m->sound_fed = true;
+/* ---- the sound bus (§10) ---------------------------------------------- */
+
+/* Where each control line stands, as XRoar's PIA has it: an output set by
+ * hand drives its level; an input, or the pulse modes before their first
+ * strobe, read high on the A side, which has pull-ups, and low on the B
+ * side, which has none (its PIA_VALUE_CA2 and _CB2; §18). The pulse
+ * modes' strobes are not modelled: no ROM uses them for sound. */
+static bool ca2_level(const mc6821_port_t *a) {
+    return (a->cr & MC6821_CR_C2_OUT) ? mc6821_c2_out(a) : true;
+}
+
+static bool cb2_level(const mc6821_port_t *b) {
+    return (b->cr & MC6821_CR_C2_OUT) ? mc6821_c2_out(b) : false;
+}
+
+/* The bus's level by source and by the single bit, XRoar's measured
+ * voltages on a real Dragon in hundredths of a volt (its sound.c): index
+ * 0 the single bit disabled, 1 enabled and low, 2 enabled and high. The
+ * sources are PIA0 CB2 and CA2 as a number: the DAC, the tape, the
+ * cartridge, and a fourth, which XRoar gives the cartridge's levels and
+ * no input on a CoCo. The CoCo's are assumed the Dragon's (§18: low). */
+enum { SOURCE_DAC, SOURCE_TAPE, SOURCE_CART, SOURCE_NONE };
+static const uint16_t sound_gain[4][3] = {
+    { 450u, 284u, 340u }, { 50u, 40u, 50u }, { 470u, 284u, 340u }, { 470u, 284u, 340u },
+};
+static const uint16_t sound_offset[4][3] = {
+    { 20u, 18u, 130u }, { 205u, 160u, 235u }, { 0u, 18u, 130u }, { 0u, 18u, 130u },
+};
+/* The single bit alone, the multiplexer disabled: low, or high. */
+static const uint16_t sbs_offset[2] = { 0u, 390u };
+
+/* The level the bus takes from the pins now, to COCO_SOUND_LEVEL_MAX.
+ * With neither the multiplexer nor the single bit driving it, it holds
+ * the level it had (XRoar's bus_offset = bus_level). Each source's input
+ * is in 126ths: the DAC's six bits doubled, the tape with no tape at its
+ * middle, as XRoar's idle tape is 0.5, and nothing from the cartridge
+ * until M9 has one. */
+static uint32_t sound_level_now(const coco_t *m) {
+    const mc6821_port_t *pb = &m->pia1.b;
+    bool sbs = (pb->ddr & 0x02u) != 0;
+    bool sbs_high = (pb->out & 0x02u) != 0;
+    unsigned s = sbs ? (sbs_high ? 2u : 1u) : 0u;
+    if (cb2_level(pb)) {
+        unsigned src = (cb2_level(&m->pia0.b) ? 2u : 0u) | (ca2_level(&m->pia0.a) ? 1u : 0u);
+        unsigned in = 0;
+        if (src == SOURCE_DAC) in = ((unsigned)mc6821_out(&m->pia1.a) >> 2) * 2u;
+        else if (src == SOURCE_TAPE) in = 63u;
+        return (uint32_t)sound_gain[src][s] * in + (uint32_t)sound_offset[src][s] * 126u;
+    }
+    if (sbs) return (uint32_t)sbs_offset[sbs_high] * 126u;
+    return m->sound_level;
+}
+
+/* After a write that can move the bus: the level, stamped with the tick
+ * at the start of the writing instruction (EL §6.1). XRoar's sound
+ * updates, and feeds PB1 back, at each FS rise and when the single bit
+ * or the multiplexer is first enabled (its sound.c, dragon.c; §18). */
+static void COCO_HOT1(update_sound)(coco_t *m) {
+    const mc6821_port_t *pb = &m->pia1.b;
+    if ((pb->ddr & 0x02u) || cb2_level(pb)) m->sound_fed = true;
+    uint32_t level = sound_level_now(m);
+    if (level == m->sound_level) return;
+    pcm_set_level(&m->pcm, (uint32_t)coco_ticks(m), level);
+    m->sound_level = level;
+    m->sound_edges++;
+}
+
+void coco_audio_set_rate(coco_t *m, uint32_t rate_num, uint32_t rate_den) {
+    uint32_t now = (uint32_t)coco_ticks(m);
+    pcm_advance(&m->pcm, now);
+    /* What is waiting and the DC blocker stay as they are, so the change
+     * makes no step. */
+    pcm_set_rate(&m->pcm, now, COCO_SOUND_LEVEL_MAX, COCO_TICK_HZ, rate_num, rate_den);
+}
+
+size_t coco_audio_drain(coco_t *m, int16_t *dst, size_t max) {
+    return pcm_drain(&m->pcm, dst, max);
 }
 
 /* ---- the I/O page ----------------------------------------------------- */
@@ -387,6 +456,7 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         if (!pia_selected(m, a)) return;
         before_pia(m);
         mc6821_write(&m->pia0, reg, v);
+        if (reg & 1u) update_sound(m);   /* CA2 and CB2 choose the source */
         update_irq(m);
         if (reg & 1u) mc6809_stop(&m->cpu);   /* CA1's enable moves the slice's end */
         return;
@@ -394,8 +464,8 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
     if (off < 0x40u) {
         if (!pia_selected(m, a)) return;
         before_pia(m);
-        mc6821_write(&m->pia1, reg, v);   /* M8: sound */
-        note_sound(m);
+        mc6821_write(&m->pia1, reg, v);
+        update_sound(m);
         note_video(m, access_tick(m));
         update_irq(m);
         if (reg & 1u) mc6809_stop(&m->cpu);
@@ -466,6 +536,7 @@ void coco_init(coco_t *m, const coco_config_t *cfg) {
 
     m->tpc = 16u;
     mc6809_init(&m->cpu);
+    pcm_init(&m->pcm, 0, COCO_SOUND_LEVEL_MAX, COCO_TICK_HZ, 0, 0);
     map(m);
 }
 
@@ -500,6 +571,7 @@ void coco_reset(coco_t *m) {
     m->pia0.a.c1 = hs_level(m, t);
     m->pia0.b.c1 = t - m->field_start < (uint64_t)m->fs_fall_line * m->line_ticks;
     update_irq(m);
+    update_sound(m);   /* the bus holds what it had: nothing drives it */
     mc6809_reset(m);
 }
 
@@ -513,6 +585,11 @@ void coco_power_on(coco_t *m) {
     m->field_start = 0u - (uint64_t)m->field_lead * m->line_ticks;
     m->fields = 0;
     m->sound_fed = false;
+    m->sound_level = 0;   /* XRoar's bus starts at 0 */
+    m->sound_edges = 0;
+    /* The tick count starts again, and the next sample with it. */
+    pcm_restart(&m->pcm, 0);
+    pcm_set_level(&m->pcm, 0, 0);
     m->video_split = false;
     m->split_fields = 0;
     coco_reset(m);
@@ -583,6 +660,8 @@ uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
     uint64_t active = end + (uint64_t)m->active_line * m->line_ticks;
     now = coco_ticks(m);
     if (now < active) (void)coco_run(m, (uint32_t)(active - now));
+    /* The samples up to here, for the port to drain with the snapshot. */
+    pcm_advance(&m->pcm, (uint32_t)coco_ticks(m));
     return (uint32_t)(coco_ticks(m) - start);
 }
 

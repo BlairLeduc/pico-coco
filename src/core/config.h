@@ -60,6 +60,41 @@
 #define COCO_KEY_MIN_FIELDS     4u
 #define COCO_KEY_GAP_FIELDS     2u
 
+/* ---- Timing (design.md §13.2) ---------------------------------------- */
+
+/* Master-oscillator ticks a second, the only clock (§13.2): the NTSC
+ * machines' 14.31818 MHz, four times the colour subcarrier. The device
+ * paces the guest on it (core0.c), and the audio's sample period is a
+ * fraction of it (pcm.h). The PAL machines' crystal is §18's to settle,
+ * and XRoar counts them in these ticks too; the Dragon reaches the device
+ * in M14. */
+#define COCO_TICK_HZ 14318180u
+
+/* ---- Audio (design.md §10; EL §6; hardware-notes.md §5) --------------- */
+
+#define COCO_PWM_TOP          2047u  /* 11 bits, 73.2 kHz carrier          */
+#define COCO_PWM_OVERSAMPLE      2u  /* each frame written twice           */
+
+/* The nominal sample rate as a fraction, 150,000,000 / 4,096 Hz, which
+ * makes a sample 91,636,352/234,375 ticks (§10). The port recomputes it
+ * from clock_get_hz(clk_sys) and hands the real one to
+ * coco_audio_set_rate; this is what a host build runs at. */
+#define COCO_AUDIO_RATE_NUM  150000000u
+#define COCO_AUDIO_RATE_DEN  ((COCO_PWM_TOP + 1u) * COCO_PWM_OVERSAMPLE)
+
+/* Samples the core holds between drains: an NTSC field is 611.0, a PAL
+ * one 727.6. The port drains after every field (§10). */
+#define COCO_AUDIO_BUF_LEN    1024u
+
+#define COCO_PCM_QUEUE_LEN    1024u  /* SPSC, ~28 ms (EL §6.2)             */
+#define COCO_PCM_QUEUE_START   768u  /* start streaming at this depth      */
+
+/* Power-of-two AND aligned, with the hardware read wrap (HW §5.3). At
+ * oversample 2 a frame is two slots; a half is 3.5 ms of sound. */
+#define COCO_DMA_FRAMES_PER_HALF 128u
+#define COCO_DMA_SLOTS_PER_HALF  (COCO_DMA_FRAMES_PER_HALF * COCO_PWM_OVERSAMPLE)
+#define COCO_DMA_RING_SLOTS      (COCO_DMA_SLOTS_PER_HALF * 2u)
+
 /* ---- The picture (design.md §9.6, D11) ------------------------------- */
 
 #define COCO_PIC_W            256u

@@ -90,6 +90,8 @@ typedef struct {
     uint32_t busy1000;       /* core 0 outside the pacing wait, of wall  */
     uint32_t head100;        /* times real time it would run unpaced     */
     uint32_t hz;             /* fields a second, rounded                 */
+    uint32_t underruns;      /* underrun samples since boot (§10)        */
+    uint32_t late_refills;   /* late DMA refills since boot              */
 } core0_perf_t;
 
 extern volatile core0_perf_t g_c0;

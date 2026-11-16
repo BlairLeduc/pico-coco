@@ -14,6 +14,7 @@ set(PICO_COCO_HOST_TESTS
     test_keymap
     test_status
     test_textpage
+    test_audio
 )
 
 foreach(t ${PICO_COCO_HOST_TESTS})
@@ -27,7 +28,7 @@ foreach(t ${PICO_COCO_HOST_TESTS})
 endforeach()
 # The tests that run the real ROMs share the harness (§15.3), and find
 # the images in roms/ unless PICO_COCO_ROMS says otherwise.
-foreach(t test_boot test_romset test_screen test_keyboard)
+foreach(t test_boot test_romset test_screen test_keyboard test_audio_rom)
     add_executable(${t} ${t}.c guest.c frame_ppm.c)
     target_link_libraries(${t} PRIVATE pico_coco_core m)
     target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -148,3 +149,14 @@ add_executable(page-ppm ${PROJECT_SOURCE_DIR}/tools/page-ppm.c
 target_link_libraries(page-ppm PRIVATE pico_coco_core)
 target_include_directories(page-ppm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/src/port)
 target_compile_options(page-ppm PRIVATE ${PICO_COCO_WARNINGS})
+
+# The port's audio path, heard (§10): src/port/audio.c itself, built
+# against sdk_sim/'s stand-ins for the SDK, whose DMA reads the ring as
+# the hardware does. From pico-oric.
+add_executable(test_audio_port test_audio_port.c ${PROJECT_SOURCE_DIR}/src/port/audio.c
+    sdk_sim/sdk_sim.c)
+target_link_libraries(test_audio_port PRIVATE pico_coco_core m)
+target_include_directories(test_audio_port BEFORE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/sdk_sim
+    ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/src/port)
+target_compile_options(test_audio_port PRIVATE ${PICO_COCO_WARNINGS})
+add_test(NAME test_audio_port COMMAND test_audio_port)

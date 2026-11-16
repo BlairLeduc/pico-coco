@@ -860,6 +860,15 @@ square waves of any frequency.
   high and one left low both settle at 0. Then 0 is the silence value, which
   is what an underrun and a parked guest emit.
 - **Fixed point throughout.** No `double` literals near it (HW §2.2).
+- **Size the scale to the clock.** The sample is `acc × scale >> S`, with
+  `scale = (full << S) / whole` and `whole` the units in a sample times
+  the largest level. At a 1 MHz guest `whole` is small and S = 32 is
+  plenty; counted in a 14.31818 MHz master clock against 150 MHz / 4,096,
+  a sample is 91,636,352/234,375 ticks and `whole` is near 2^42, so a
+  Q32 scale is about 26 and its rounding a gain error of tens of LSBs
+  against an exact model. `acc` never exceeds `whole`, so the product
+  stays under `full × 2^S`: S = 48 fits 64 bits with a 15-bit full scale
+  (pico-coco, 2026-11-15).
 
 Test it against an **independent model** built from the edges the guest
 actually made, every sample to 1 LSB, and measure the pitch of a ROM routine

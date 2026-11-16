@@ -19,6 +19,9 @@
 #include "pico/multicore.h"
 #include "pico/stdlib.h"
 
+#if PICO_COCO_AUDIO
+#include "audio.h"
+#endif
 #include "board.h"
 #include "card.h"
 #include "coco.h"
@@ -142,6 +145,16 @@ int main(void) {
     coco_load_rom(&g_coco, 0xA000u, g_boot.basic, COCO_ROM_HALF);
     if (basic == BOOT_EXTENDED) coco_load_rom(&g_coco, 0x8000u, g_boot.ext, COCO_ROM_HALF);
     coco_power_on(&g_coco);
+    /* Audio last in bring-up order (hardware-notes.md §10), on core 0,
+     * whose IRQ the refill is, and after core 1's LCD has claimed its
+     * fixed DMA channel; the PCM then takes the rate the PWM really has
+     * (design.md §10). */
+#if PICO_COCO_AUDIO
+    audio_init();
+    uint32_t rate_num, rate_den;
+    audio_rate(&rate_num, &rate_den);
+    coco_audio_set_rate(&g_coco, rate_num, rate_den);
+#endif
     log_printf("  guest        : CoCo, %u KB, %s (%s%s), %lu ticks a field, "
                "hot code in SRAM to tier %u (hot.h)%s\n",
                cfg.ram_k, roms_basic_name(basic), romset_images[g_boot.job.basic].file,
@@ -149,7 +162,17 @@ int main(void) {
                (unsigned long)(g_coco.line_ticks * g_coco.field_lines),
                (unsigned)PICO_COCO_RAM_TIER,
                PICO_COCO_FIELD_LOG ? ", logging the first fields" : "");
-    /* M8: audio, last in bring-up order (hardware-notes.md §10). */
+#if PICO_COCO_AUDIO
+    log_printf("  audio        : PWM GP26/GP27, %lu/%lu Hz (%lu.%02lu kHz), %lu ticks per %lu "
+               "samples, ring %u slots, queue %u; pacing on the queue\n",
+               (unsigned long)rate_num, (unsigned long)rate_den,
+               (unsigned long)(rate_num / rate_den / 1000u),
+               (unsigned long)(rate_num / rate_den % 1000u / 10u),
+               (unsigned long)g_coco.pcm.num, (unsigned long)g_coco.pcm.den,
+               (unsigned)COCO_DMA_RING_SLOTS, (unsigned)COCO_PCM_QUEUE_LEN);
+#else
+    log_printf("  audio        : off; pacing on the microsecond timer\n");
+#endif
 
     core0_run(&g_coco, &g_keys);
 }

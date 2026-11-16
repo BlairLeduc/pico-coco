@@ -3,8 +3,8 @@
  * The CPU, the page table it reaches memory through, the SAM, the two
  * PIAs, RAM, the ROMs and the keyboard matrix, and the field loop that
  * runs them in master-oscillator ticks (§8.2, §13), and the snapshot of
- * what the VDG shows (§9.3). Audio arrives in M8, the card and
- * cartridges in M9.
+ * what the VDG shows (§9.3), and the sound bus as PCM (§10). The card
+ * and cartridges arrive in M9.
  *
  * The bus's slow path is bus.c's, and it decodes this machine. A host test
  * that runs the CPU alone on its own memory (test_mc6809_*, the bench)
@@ -25,6 +25,7 @@
 #include "mc6809.h"
 #include "mc6821.h"
 #include "mc6847.h"
+#include "pcm.h"
 #include "sam6883.h"
 
 /* Exactly two pointers, as the siblings' (EL §4.1). A NULL read pointer
@@ -56,12 +57,13 @@ typedef struct {
     uint8_t  lines[COCO_SNAP_VRAM_MAX];
 } coco_frame_t;
 
-/* Master-oscillator ticks a second, the only clock (§13.2): the NTSC
- * machines' 14.31818 MHz, four times the colour subcarrier. The device
- * paces the guest on it (core0.c). The PAL machines' crystal is §18's to
- * settle, and XRoar counts them in these ticks too; the Dragon reaches
- * the device in M14. */
-#define COCO_TICK_HZ 14318180u
+/* The sound bus's level (§10, §18: low): XRoar's voltages, measured on a
+ * real Dragon, in hundredths of a volt over 126, so that every input,
+ * the DAC's 6 bits over 63 and the idle tape's half, is exact. 4.70 V,
+ * the most any source reaches, is the full scale; at 0.3 of it or more,
+ * PIA1 PB1 set as an input reads low (coco.c). */
+#define COCO_SOUND_LEVEL_MAX  (470u * 126u)
+#define COCO_SOUND_PB1_LOW    (141u * 126u)
 
 /* The CPU's interrupt sources (mc6809.h). */
 #define COCO_IRQ_PIA0   0x01u
@@ -89,6 +91,12 @@ typedef struct coco_s {
     uint64_t irq_due[COCO_PIA_PORTS]; /* PIA0 A, B, PIA1 A, B: a rise due */
     uint32_t fields;
     bool     sound_fed;        /* the sound has fed PIA1 PB1 back (coco.c) */
+    uint32_t sound_level;      /* the bus now, to COCO_SOUND_LEVEL_MAX  */
+    uint32_t sound_edges;      /* changes of it, since power-on         */
+
+    /* The bus as PCM (§10), drained by the port once a field with
+     * coco_audio_drain. Not the machine's state: RESET leaves it. */
+    pcm_t    pcm;
 
     /* §9.4: the video bits (the VDG's mode and the SAM's V and F) as last
      * seen, whether they changed during this field's active lines, and how
@@ -164,6 +172,15 @@ uint8_t  coco_vdg_mode(const coco_t *m);
 
 /* The time now, in ticks. */
 uint64_t coco_ticks(const coco_t *m);
+
+/* The port's sample rate, as the exact fraction rate_num / rate_den Hz
+ * (§10). The samples not yet drained are kept. coco_init starts at the
+ * nominal COCO_AUDIO_RATE. */
+void     coco_audio_set_rate(coco_t *m, uint32_t rate_num, uint32_t rate_den);
+
+/* Move up to `max` samples of the fields run so far out, oldest first.
+ * Returns how many. coco_run_field brings the PCM to the field's end. */
+size_t   coco_audio_drain(coco_t *m, int16_t *dst, size_t max);
 
 /* A key, by the matrix's own row and column (§11.2). */
 void     coco_key_set(coco_t *m, int row, int col, bool down);

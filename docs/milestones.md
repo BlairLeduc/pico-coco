@@ -4,6 +4,120 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M8: audio
+
+On branch `m8`, 2026-11-15 (`design.md` §17). On the owner's board.
+**Done**: every criterion of §17's row met, the last by the owner.
+
+**Built.** The sound bus in `coco.c` (§10): the DAC, the single bit and
+the multiplexer as XRoar's measured voltages, in exact integers, the bus
+holding its level with nothing driving it, recomputed on every write to
+PIA1 and to PIA0's control registers and stamped with the instruction's
+start; PIA1 PB1 reads it back. `pcm.*` from pico-oric, in ticks, its
+scale in Q48 (§10, EL §6.1). From pico-oric, renamed: `audio.*`,
+`test/host/sdk_sim/`, `test_audio_port` (its tone now a square stepped
+as the DAC is). Core 0 paced on the audio queue, `PICO_COCO_AUDIO=OFF`
+the timer's control, `PICO_COCO_FORCE_LATE` the scratch build; the
+heartbeat's audio line; `UR` on the perf line in place of the field rate
+(§9.6). `COCO_TICK_HZ` moved to `config.h`. The harness's `guest_t` has
+an `after_field` hook, where the audio tests drain. `perf-run.sh` has a
+`sound` workload. New tests: `test_audio`, `test_audio_rom`,
+`test_audio_port`, and `sound_model.h`, the independent model.
+
+**Checked on the host** (Apple clang, 2026-11-15):
+
+- **Every sample to 1 LSB.** `test_audio` runs a 6809 program of its own
+  writing the bus's pins from 24 random scripts (the DAC and its
+  direction, the single bit and its direction, PIA1 CB2, PIA0 CA2 and
+  CB2, gaps of 1 to 65,000 loops): 8,692,507 samples, 8,047 changes of
+  level, every one equal to the model with the DC blocker off; with every
+  record a cycle late the model differs by 1,300. `test_audio_rom`
+  boots Extended Color BASIC 1.1 and plays four `SOUND` tones and seven
+  `PLAY` notes: 1,493,100 samples since power-on, 10,362 changes, every
+  one equal.
+- **Pitch.** `SOUND 1, 100, 200, 255`: the loop 5,200, 3,220, 1,220 and
+  120 cycles, which is 20 (256 − T) + 100, read off the log at the four
+  tones; off the output 170.800, 275.931, 728.004 and 7,404.979 Hz
+  against 170.797, 275.933, 727.994 and 7,404.805 from the edges
+  (interrupts included), within 2.4 parts in 10^5; the next tone up does
+  not pass. `PLAY` O2 C to B: loops of 6,859 to 3,627 cycles, -0.26 % to
+  +0.24 % from equal temperament (A at 219.604 Hz against 220), the
+  output within 2 parts in 10^5 of the edges. What is heard is about
+  0.7 % flatter than the loop: the field interrupt lengthens a step.
+- **Silence.** The boot and two seconds at the prompt never move the bus.
+- **The parts**: the sample count is floor(ticks × den / num) after
+  20,000 random runs, from 0 and across the 32-bit wrap; the DC blocker
+  comes to rest at exactly 0 from either level; PB1 reads low from DAC
+  $44 up and high at $40 with the multiplexer on the DAC, and the bus
+  holds with it off.
+- **`test_audio_port`**, `audio.c` on the simulated DMA: 59,886 samples
+  played as pushed, none wrong, each twice; the square at 1,008.038 Hz
+  in the ring against 1,008.039; a dry queue counts underruns and plays
+  silence; a held IRQ counts 3 late refills and playback carries on;
+  muted still consumes; half volume scales.
+- **Bugs planted** one at a time in a scratch copy, each failing:
+
+  | Bug | `test_audio` | `test_audio_rom` |
+  |---|---|---|
+  | PIA0 CA2 as an input reads low | fails | passes |
+  | The bus does not hold | fails | fails |
+  | Stamped at the access, not the instruction's start | fails | fails |
+  | The DAC's input bits read low | fails | passes |
+  | The single bit's low and high rows swapped | fails | passes |
+  | The idle tape at 0, not half | fails | passes |
+  | The PCM's boundary carry dropped | fails | fails |
+
+- **The trace diff still agrees** with XRoar 1.13, PB1's feedback now
+  from the bus: 64 KB Extended through `SOUND 100,5`, `PLAY "CDE"` and
+  `SOUND 200,3` (4,670,464 instructions), 16 KB through `PRINT 2+3`, a
+  4 KB Color BASIC 1.1, and the Dragon 32.
+
+All 21 host tests pass.
+
+**Checked on the board**, 2026-11-15: the owner's Pimoroni Pico Plus 2 W
+(RP2350B, chip revision 2, `7458DC82A89AAC12`), 150 MHz, the
+`-DPICO_COCO_UART_PORT=0` image, Pico SDK 2.3.1, Arm GNU 15.2.Rel1, tier
+2. Captures in `out/m8/`, not committed.
+
+- `OK` at field 77, 18,433,344 ticks, as in M7.
+- **Paced on the queue**: 36,623.9–36,624.6 samples consumed a second
+  against the PWM's 36,621.09, within the 128-sample granularity, rt
+  0.999–1.000, in every window of every workload.
+- `SOUND 100,30`, `PLAY "O2CDEFGAB;O3C"` and a sweep of 128 `SOUND`
+  tones typed over the UART: up to 14,670 changes of the bus a window,
+  **zero underrun samples, zero late refills**, no PCM overflow.
+- **Audio's cost**, against the timer's control in the same sitting
+  (`out/m8/audio`, `out/m8/timer`, eight windows each): idle 22.4 %
+  against 21.6 %, scroll 23.0 % against 22.1 %, sound 22.9 % against
+  22.2 %; 0.7–0.9 points, seen as 4 % more host cycles an instruction
+  (128.6 against 123.2 idle), as EL §6.3 has it.
+- **The late path forced** (`PICO_COCO_FORCE_LATE`, core 0's interrupts
+  held off 9 ms every 250 fields, the sound workload): each stall counted
+  3 late refills, no underrun and no storm, 36,547 samples consumed a
+  second, playback carrying on and the guest at rt 0.996–0.998.
+
+**Checked by the owner** on the Plus 2 W, 2026-11-15: `SOUND 100,30`
+measured at 275 Hz off the device, against 275.93 Hz from the host's
+edges with the field interrupt included (277.92 Hz for the loop alone);
+`PLAY "O2A"` at 217 Hz, against 218.16 Hz (219.60 for the loop, 220
+tempered). Both readings are low by 0.3–0.5 %, alike; the board's
+own clock is not the cause, consuming 36,624 samples a second against
+the PWM's 36,621.09, so the difference is taken as the measurement's.
+
+**Measured**: images 120,060 bytes of text and 175,732 of bss with the
+UART; 117,384 and 173,660 without. Core 0's stack high-water mark 1,468
+of 2,048 bytes.
+
+**Not checked:**
+
+- The loudness: by the level model, BASIC's staircase from $02 to $FE
+  swings 0.96 of the bus's full scale, about ±490 of the PWM's ±1,024
+  after the DC blocker at full volume (worked out, not measured). Volume
+  is M9's.
+- A soak: M11's.
+- The build without the UART on the board (it builds).
+- The tape and cartridge sources: M9 and M12.
+
 ## M7: the CoCo on the device
 
 On branch `m7`, 2026-11-15 (`design.md` §17). On the owner's board.

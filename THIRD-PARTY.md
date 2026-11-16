@@ -36,6 +36,17 @@ the same licence as this project, so the data can travel with the repository.
 data: 5 px wide in bits 5..1, glyph rows at 3..9 of the 12-row cell, and the
 MC6847's own glyph order.
 
+## The sound bus's voltages — XRoar
+
+`src/core/coco.c`'s `sound_gain` and `sound_offset` tables, and the same
+figures in `test/host/sound_model.h`, are the voltages XRoar's
+`src/sound.c` records as measured on a real Dragon for each source of the
+sound multiplexer, with the single-bit output disabled, low and high, and
+its 0.3 threshold for feeding the bus back to PIA1 PB1 (`docs/design.md`
+§10, §18). Only the measured figures were taken, written as integers in
+hundredths of a volt; the code around them is this project's. XRoar is
+Ciaran Anscomb's, under the GPL-3.0-or-later, as this project is.
+
 ## XRoar, the reference and the CPU oracle
 
 Not in the tree, and in no image (`docs/design.md` D2, D8, §15.2).

@@ -778,6 +778,12 @@ line on, until the settings of M9 can turn either off; the status line
 is blank until it has something to say (M9). The perf line reads in
 capitals, the VDG having no lower case.
 
+**M8** (2026-11-15): the perf line takes pico-oric's `UR` figures, the
+underrun samples and late refills since boot, and drops the field rate,
+for which its 40 cells have no room: the CoCo's is always 60, and paced
+on the audio queue a guest behind real time shows as underruns. The
+heartbeat keeps the rate.
+
 The missing-ROM page (§12.1) is the first page: a `coco_frame_t` in the
 alphanumeric mode, written by `textpage.c` with the bytes Color BASIC
 writes (bit 6 set, clear for inverse), which `test_boot` holds to a
@@ -826,6 +832,38 @@ the edges a guest program made, to 1 LSB; the pitch of the ROM's `SOUND`
 and of a `PLAY` note against the cycle count of their loops; and whether
 the idle ROM makes any sound at all, since its keyboard and joystick scans
 write the DAC's port.
+
+**As built in M8** (2026-11-15). The level is XRoar's model of the bus
+(its `sound.c`, §18: low): each source has a gain and an offset in volts,
+measured on a real Dragon, that depend on whether the single bit is
+disabled, enabled low or enabled high; with the multiplexer off the
+single bit alone gives 0 or 3.90 V; with neither driving it **the bus
+holds its last level**, which BASIC relies on (it leaves the multiplexer
+off after a `SOUND` with the bus high). The multiplexer's source is PIA0
+CB2 and CA2 as a number, an input reading high on the A side and low on
+the B side as XRoar's PIA has them; the tape with nothing in it is 0.5,
+the cartridge 0 until M9. `coco.c` keeps the level as an integer in
+hundredths of a volt over 126, exact for the DAC's 63rds and the tape's
+half, 59,220 at 4.70 V, the full scale. PIA1 PB1 set as an input reads
+the bus back, low at 0.3 of full scale or more. The stamp is the tick at
+the start of the writing instruction (EL §6.1).
+
+The PCM is pico-oric's `pcm.c` in ticks: a sample is
+91,636,352/234,375 ticks at 150 MHz, and with `whole` near 2^42 its scale
+needs 48 fraction bits, not the Oric's 32, whose rounding was a gain
+error of tens of LSBs. `audio.c`, `sdk_sim/` and `test_audio_port` are
+pico-oric's, renamed; core 0 drains after each field's snapshot and
+pushes, blocking on a full queue; `PICO_COCO_AUDIO=OFF` keeps the
+timer's pacing as the control and `PICO_COCO_FORCE_LATE` is EL §6.4's
+scratch build. The perf line carries `UR`, the underrun samples and
+late refills, in place of the field rate (§9.6).
+
+What the tests found: the idle prompt and the whole boot never move the
+bus; `SOUND T` and `PLAY` play a four-step staircase on the DAC ($02,
+$7E, $FE, $7E for `SOUND`), `SOUND`'s period 20 (256 − T) + 100 cycles,
+`PLAY`'s seven notes of O2 within 0.26 % of equal temperament at
+A = 440 Hz by their loops, and the field interrupt makes what is heard
+about 0.7 % flatter than the loop.
 
 ---
 
@@ -1305,6 +1343,8 @@ configuration; once settled, it is a constant.
 | VDG data wiring: bit 7 A/S, bit 6 INV, INT/EXT from GM0 (§3.4); the mode on PIA1 PB3–PB7 (§3.3) | As listed. **Settled in M4** (2026-11-15), the ROMs executed: PB7 A/G, PB6–PB4 GM2–GM0 and PB3 CSS by Extended Color BASIC's PMODE 0–4 under SCREEN 1,0 and 1,1, each giving the datasheet's matched VDG and SAM modes (`test_screen`); bit 7 A/S and bit 6 INV by BASIC's own screen, read back from the snapshot as the text guest_row reads from RAM, and SET drawing semigraphics 4. INT/EXT from GM0 is XRoar's wiring, held by the VDG oracle; no ROM run selects it | High; INT/EXT medium | The ROMs executed; schematics for INT/EXT |
 | Both keyboard matrices (§11.2) | **M3, the CoCo**: every letter, digit and shifted symbol typed through the matrix and printed back by Color BASIC 1.3 and Extended 1.1 (`test_boot`). **Settled in M5** for the CoCo (2026-11-15): all 56 cells pressed at the prompt alone and with SHIFT in Color BASIC 1.1, 1.3 and Extended 1.1, and what POLCAT returned read back; the three agree in every cell, the four empty cells of row 6 decoding whatever follows the ROM's table (`test_keyboard`, `keymap_picocalc.c`). **M3, the Dragon 32**: the same keys, by the same test through Dragon BASIC, on XRoar's table (the CoCo's rows turned by two, the digits first) | — | Each ROM executed |
 | Key hold and gap for each ROM (§11.1) | **Settled in M5** for the CoCo (2026-11-15): 2 fields down in Color BASIC 1.3, 3 in 1.1 and Extended 1.1, 1 up in all, no repeat; the replay's 4 and 2 (§11.1). The Dragon's: M14 | High (CoCo) | Each ROM executed |
+| The sound bus: each source's gain and offset by the single bit's state, the bus holding its level with nothing driving it, PB1's feedback at 0.3 of 4.70 V, the idle tape at half scale (§10) | **M8**: XRoar's `sound.c` and `dragon.c`, measured there on a real Dragon; the CoCo assumed the same. The trace diff holds PB1's feedback to XRoar through boot, typing, `SOUND` and `PLAY` (2026-11-15), and BASIC's `SOUND` relies on the hold; no CoCo measured | Low | A CoCo's audio output measured; schematics |
+| PIA Cx2 as an input: high on the A side, low on the B side; the pulse modes (§10) | **M8**: as XRoar's PIA has them; the pulse modes not modelled, as no ROM sounds through them | Medium | MC6821 datasheet; schematics |
 | The ROMs' tape block routines, their entry bytes and what they leave (§12.3) | Unwritten | — | The ROMs read and executed |
 | Tape bit timing as each ROM reads and writes it | Two tones, about 1200 and 2400 Hz | Low | The ROMs read; a save recorded |
 | ROM file names, sizes and SHA-1s (§12.1) | **Settled** 2026-11-14 (M3) for `bas13.rom`, `extbas11.rom`, `disk11.rom`, `bas11.rom` and `d32.rom`, the owner's images, each matching XRoar 1.13's CRC-32 (`roms/README.md`); the Dragon 64's and other CoCo versions to come | High | The owner's images; XRoar's ROM list |
