@@ -27,6 +27,7 @@
 #include "mc6847.h"
 #include "pcm.h"
 #include "sam6883.h"
+#include "tape.h"
 
 /* Exactly two pointers, as the siblings' (EL §4.1). A NULL read pointer
  * sends the access to the slow path; a NULL write pointer sends a write
@@ -44,6 +45,7 @@ typedef enum {
 typedef struct {
     coco_machine_t machine;
     unsigned       ram_k;      /* 4, 16, 32 or 64                          */
+    bool           tape_trap;  /* serve Color BASIC's tape routines (tape.h) */
 } coco_config_t;
 
 /* What the VDG shows in a field (§9.3): its mode and the SAM's, and for
@@ -119,7 +121,11 @@ typedef struct coco_s {
     uint8_t  ram_banks;        /* banks fitted                          */
 
     bool     rom_present[2];   /* the $8000 and $A000 halves            */
-    bool     cart_present;     /* M9: cartridges                        */
+    bool     cart_present;     /* a ROM at $C000 (§12.2)                */
+    bool     cart_autostart;   /* its CART line on the Q clock (coco.c) */
+
+    /* The tape deck and the trap's request (tape.h). */
+    coco_tape_t tape;
 
     /* The trace driver's hook (tools/trace/coco-trace.c): when set, each
      * run slice is one step, an instruction, an interrupt's entry or a
@@ -142,8 +148,16 @@ void     coco_init(coco_t *m, const coco_config_t *cfg);
 
 /* A ROM image at `base`: $8000 or $A000 for 8 KB, $8000 for 16 KB (the
  * Dragon's, or the CoCo's two in one file), $C000 for a cartridge of up to
- * 16 KB. False for any other placement. */
+ * 16 KB, which autostarts (coco_cart_autostart). False for any other
+ * placement. */
 bool     coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len);
+
+/* The cartridge taken out: $C000 reads as an empty slot. Power on after. */
+void     coco_cart_remove(coco_t *m);
+
+/* Whether the cartridge's CART line is tied to the Q clock, as a game's
+ * is, so that BASIC starts it (§12.2); a DOS's is not (M13). */
+void     coco_cart_autostart(coco_t *m, bool on);
 
 /* RAM cleared (§13.3), then RESET. */
 void     coco_power_on(coco_t *m);

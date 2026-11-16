@@ -999,6 +999,20 @@ inserts and removes one with a power-on (EL §10's machine page). The DOS
 controllers are cartridges with a chip behind them (§12.4). Sound and
 other active cartridges are deferred (§20).
 
+**As built in M9** (2026-11-15): no `cart.c`; the cartridge is a few
+lines of `coco.c`. An image of up to 16 KB loads at `$C000` with
+`coco_load_rom`; a power-of-two image smaller than the window repeats
+through it, as XRoar's ROM bank does, and any other size is followed by
+`$FF`. A loaded ROM autostarts unless the port says not (a DOS will not,
+M13): the CART line on the Q clock gives PIA1 CB1 an edge every cycle, so
+its flag is set again a cycle after anything clears it (a read of port
+B's data, RESET, a write to CRB). XRoar toggles the line every 100 ms
+instead; BASIC, which waits for the flag, cannot tell. Color BASIC 1.3's
+FIRQ handler ($A0F6) waits two delays of 65,536 loops and runs its start
+again before `JMP $C000`, so a cartridge starts about 2.4 s after power-on
+on the host (field 145 with 64 KB and Extended, `test_cart`), as on the
+real machine. Each of the owner's five `.ccc` images starts on the host.
+
 ### 12.3 Tape
 
 Both families of machine use one cassette format: a leader, then blocks
@@ -1027,6 +1041,46 @@ held to a recording of the ROM's own save, edge for edge.
 
 The Atom's gzip reader comes along only if the archive's CAS files are
 found gzipped (§15.4).
+
+**Phase 1 as built in M9** (2026-11-15), `tape.c` and `cas.c`, with the
+whole design in `tape.h`. The routines were read off both ROMs: Color
+BASIC 1.1 and 1.3 have the same CSRDON ($A77C), BLKIN ($A70B), WRTLDR
+($A7D8) and BLKOUT ($A7F4) at the same addresses, behind the vectors at
+$A004–$A00C, so one table serves both and the trap stands aside for any
+other image by SHA-1. Each routine is trapped a few instructions in,
+after its ORCC and what it calls first, and is left at its own last
+instruction or two, which the ROM runs: BLKIN at the SUBA that compares
+the checksum, so the ROM sets its own error code. CASON's delay (the
+motor settling, ($8A) loops) is trapped too, and takes no time.
+
+The trap is not on every instruction. A JSR, BSR, LBSR or JMP into page
+$A7 is one compare in the CPU (`bus_jump`), and at a routine's entry it
+puts that page on the slow path until the routine's trap point has been
+served; the opcode fetch at the trap point is the trap. A page always
+slow was tried first and cost the idle prompt 58 % more host time an
+instruction on the workstation, because BASIC's cursor waits in CASON's
+delay loop at $A7D3; armed only on entry, the prompt costs the same as
+with no trap (7.0–7.2 ns an instruction either way, 2026-11-15).
+
+The deck holds the whole CAS in a 64 KB buffer the port lends the core
+(§16's tape buffer), and serves every block at once from it. The port is
+asked, with the CPU stalled on the HALT line, only when the deck cannot
+answer: CSRDON with the deck empty, carrying CLOAD's name from $1D1, or
+a read that runs off the tape's end. A save is appended at the tape's
+end, and a save with the deck empty starts a new tape. The port's
+policy, by name and the rewind before giving up, is pico-oric's
+(`tapeio.c`).
+
+`test_tape` holds the trap's state to the ROM's own routine, the
+registers but B, all RAM but $83, $84 and the stack below S, and the
+PIAs' registers: BLKIN against the ROM's with only its sync search and
+byte reader hooked, for a good block, a bad checksum, a byte that would
+not store and an end block; BLKOUT, WRTLDR and CASON against the ROM's
+own, unhooked. Eleven bugs planted one at a time each failed it. `CSAVE`
+and `CLOAD` round-trip a program in 64 KB with Extended and in a 4 KB
+Color BASIC 1.1, `CSAVEM` and `CLOADM` 256 bytes, and the six CAS files
+the owner staged each load without an I/O error. The XRoar trace diff
+still agrees through boot and typing.
 
 ### 12.4 Discs
 
@@ -1345,7 +1399,7 @@ configuration; once settled, it is a constant.
 | Key hold and gap for each ROM (§11.1) | **Settled in M5** for the CoCo (2026-11-15): 2 fields down in Color BASIC 1.3, 3 in 1.1 and Extended 1.1, 1 up in all, no repeat; the replay's 4 and 2 (§11.1). The Dragon's: M14 | High (CoCo) | Each ROM executed |
 | The sound bus: each source's gain and offset by the single bit's state, the bus holding its level with nothing driving it, PB1's feedback at 0.3 of 4.70 V, the idle tape at half scale (§10) | **M8**: XRoar's `sound.c` and `dragon.c`, measured there on a real Dragon; the CoCo assumed the same. The trace diff holds PB1's feedback to XRoar through boot, typing, `SOUND` and `PLAY` (2026-11-15), and BASIC's `SOUND` relies on the hold; no CoCo measured | Low | A CoCo's audio output measured; schematics |
 | PIA Cx2 as an input: high on the A side, low on the B side; the pulse modes (§10) | **M8**: as XRoar's PIA has them; the pulse modes not modelled, as no ROM sounds through them | Medium | MC6821 datasheet; schematics |
-| The ROMs' tape block routines, their entry bytes and what they leave (§12.3) | Unwritten | — | The ROMs read and executed |
+| The ROMs' tape block routines, their entry bytes and what they leave (§12.3) | **Settled 2026-11-15** for Color BASIC 1.1 and 1.3, read off both ROMs and held by `test_tape` to the ROMs' own routines executed on the host (`tape.h` lists them). The Dragon's are M14's | High | — |
 | Tape bit timing as each ROM reads and writes it | Two tones, about 1200 and 2400 Hz | Low | The ROMs read; a save recorded |
 | ROM file names, sizes and SHA-1s (§12.1) | **Settled** 2026-11-14 (M3) for `bas13.rom`, `extbas11.rom`, `disk11.rom`, `bas11.rom` and `d32.rom`, the owner's images, each matching XRoar 1.13's CRC-32 (`roms/README.md`); the Dragon 64's and other CoCo versions to come | High | The owner's images; XRoar's ROM list |
 | Disc controller registers, latch bits, interrupt and HALT wiring (§12.4) | As the table, from XRoar's decodes | Medium | Each DOS ROM read; controller schematics |
