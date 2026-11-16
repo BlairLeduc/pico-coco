@@ -12,7 +12,8 @@
  * out (tapeio.h); the menu; and pause (menu.h). The menu and pause own
  * the keyboard while they last, so core 0 leaves the key ring to core 1
  * for them; a hold's keys are not the guest's either, and core 0 drops
- * them. M10 and M13 add the snapshot's and the disc's.
+ * them. Snapshots are the menu's (snapio.h), saved and loaded inside its
+ * park; M13 adds the disk's.
  *
  * Copied from pico-oric and renamed, less its disc and screenshot.
  */

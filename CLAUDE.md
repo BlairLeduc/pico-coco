@@ -12,7 +12,9 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M9 is done** (`docs/design.md` §17): the CoCo on the host,
+**Status: M10 is done** (`docs/design.md` §17): save states in four
+slots in `/coco/snaps/`, loaded into the machine they name
+(`snapshot.h`, `snapio.h`). Before it, M9: the CoCo on the host,
 with its picture, its keyboard and its sound, and on the board, with the
 menu, the settings file `/coco/coco.ini`, ROM cartridges from
 `/coco/carts/` and CAS tapes from `/coco/tapes/` served by a trap on

@@ -4,6 +4,107 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M10: snapshots
+
+On branch `m10`, 2026-11-15 (`design.md` §17). On the owner's board.
+**Done** on the host and the board; not yet tried by the owner on the
+panel.
+
+**Built.** In the core: `snapshot.c` and `snapshot.h`, pico-oric's
+format with the CoCo's fields, and `coco_restored`. In the port:
+`snapio.c` (four slots in `/coco/snaps/`), the deck's part in
+`tapeio.c` (`tapeio_media`, `tapeio_restore`), and the Snapshots page
+in `menu.c`. `design.md` §12.5 and §14 say what was built. New tests:
+`test_snapshot`, on a ROM of its own so that CI runs it, and
+`test_snapshot_rom` over the real ROMs, with `snap_util.h`, all from
+pico-oric's.
+
+**Checked on the host** (Apple clang, 2026-11-15):
+
+- `test_snapshot` saves on its own ROM (the field interrupt counted,
+  the DAC stepped every pass, a CWAI every 64th) at a field's end,
+  inside CWAI, at a boundary with a PIA's rise due, between an
+  interrupt's entry and its handler's read of $FF02 (IRQ held, the CPU
+  masked) and at the fast rate, and restores each into a machine given
+  values a running one would not have. Each is identical to the
+  original straight after the load and 150 fields on, by every field of
+  `coco_t` that is machine state and the page table, and sample for
+  sample. The control, a state one cycle out on the ROM without the
+  CWAI, does not meet; with the CWAI it does, the wait for the field
+  interrupt bringing the two back into step.
+- It refuses, each leaving the machine as it was: a flipped RAM bit, a
+  short file, a foreign magic, a newer version, a wrong length; sixteen
+  fields outside what a running machine keeps, each with a good CRC (a
+  RAM of 8K, a machine of 7, unknown bits, a wait of 3, a tick rate of
+  12 and one the SAM's rate does not give, alone, with its control,
+  a trap point off its page, a sound level past full scale, the
+  field's start, HS and a rise due far from now, `cyc0` past the cycle
+  count, a line of 2^24 ticks); another field, BASIC, RAM, cartridge,
+  CART line and trap; a save and a load while a tape request waits; and
+  a second pass cut in the RAM, `SNAP_TORN`. A state for 64K checked
+  in 16K names its machine, and loads once the machine is powered on
+  as it.
+- `test_snapshot_rom`: Extended Color BASIC in 64 KB running a loop
+  that prints and plays SOUND, restored into a machine listing another
+  program; Color BASIC 1.1 in 4 KB, refused by a 16 KB Color BASIC 1.3
+  as another ROM and loaded once powered on as its info says; a CLOAD
+  of a 40-line program saved with the trap's page hot and again between
+  blocks, restored into a machine whose deck has the same tape at the
+  same place, the load going on the same and the program running. Each
+  identical straight after and 150 fields on, sample for sample, with
+  the same screen.
+- **Bugs planted one at a time**, each failing `test_snapshot`: a load
+  that forgets the rises due, the CPU's wait, `cyc0`, the tick rate, HS
+  seen, stale, active, latch, NMI armed, a PIA's IRQ output or C1, the
+  sound level, the sound fed, the video bits or the trap's hot page; the
+  tick-rate, field-start and trap-point checks planted out; the load's
+  busy check and the RAM check planted out; `coco_restored` without the
+  PCM's level, the sample grid's restart, the page table or the IRQ
+  lines. Before the loaded-into machine was poisoned, the PIA outputs,
+  stale, active and the sound level passed by being equal in both; the
+  wait and the map passed until the poison set them too. The explicit
+  `mc6809_attn` in `coco_restored` was dropped as redundant:
+  `update_irq` works the attention out. `test_snapshot_rom` fails for
+  the trap's page, the sound level, the sample grid and the page table;
+  it does not see the rises due or `cyc0`, equal at its boundaries.
+
+All 27 host tests pass.
+
+**Checked on the board**, 2026-11-15: the owner's Pico Plus 2 W, the
+`-DPICO_COCO_UART_PORT=0` image (`e035631-dirty`, the M10 tree), driven
+over the UART. Capture in `out/m10/run1.log`, not committed.
+
+- A program counting and playing SOUND saved in slot 1, 301 ms; broken,
+  `NEW`, and a different program run; slot 1 loaded in 160 ms, the
+  first program going on from where it was saved, the deck's
+  `TAPE01.CAS` back in at its place.
+- The machine set to 16 KB Color BASIC on the Machine page and a
+  program run; slot 1 loaded in 170 ms, powering on as 64 KB Extended
+  Color BASIC first, and the count went on.
+- Doodle Bug started from the Machine page and saved in slot 3, 241 ms;
+  the cartridge taken out, BASIC up; slot 3 loaded in 203 ms, powering
+  on with `Doodle Bug.ccc` read from the card, the game resumed in its
+  graphics mode (VDG $F8, SAM V6).
+- The empty slot 2 refused, the game running on.
+- Zero underruns and zero late refills through it all; idle core 0
+  busy 22.2-23.0 %, as M9's.
+
+**Measured**: images 161,208 bytes of text and 304,132 of bss with the
+UART on port 0, against M9's 151,632 and 300,548; 158,228 and 302,056
+without the UART. A first `snapio_machine` read a state's cartridge
+through a 16 KB buffer of its own, 20 KB of bss in all; it now reads
+straight into the boot's buffer, and puts the running cartridge's
+image back from the machine's window if the read fails.
+
+**Not checked:**
+
+- The owner on the panel.
+- On the board: a load cut between its passes, a slot recovered from
+  its `.NEW`, a state whose tape is missing from the card, and a state
+  with the deck part-way through a tape.
+- A Dragon's state, refused while the Dragon is frozen.
+- The release build on a board.
+
 ## M9: card, settings, the menu, cartridges, the tape trap
 
 On branch `m9`, 2026-11-15 (`design.md` §17). On the owner's board.
