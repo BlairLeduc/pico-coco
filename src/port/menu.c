@@ -4,8 +4,10 @@
  * reads as one: the same items in the same order, the same function
  * keys, and Esc going back a page, or to the guest from the main page or
  * a page a key opened. On the CoCo's 32 cells and in capitals. The Disks
- * (the CoCo's word, §12.6) and Snapshots items are in their places and say when they come (M13,
- * M10). The Machine page stages BASIC, the RAM and the cartridge (§14).
+ * item (the CoCo's word, §12.6) is in its place and says when it comes
+ * (M13). The Snapshots page saves, loads and deletes four slots (§12.5,
+ * snapio.h). The Machine page stages BASIC, the RAM and the cartridge
+ * (§14).
  * Setup has no keys row and no fast tape yet: the layouts and the
  * signal are M12's.
  */
@@ -22,6 +24,7 @@
 
 #include "board.h"
 #include "card.h"
+#include "core0.h"
 #include "core1.h"
 #include "display.h"
 #include "handoff.h"
@@ -32,6 +35,7 @@
 #include "roms.h"
 #include "sd.h"
 #include "settingsio.h"
+#include "snapio.h"
 #include "southbridge.h"
 #include "status.h"
 #include "storage.h"
@@ -64,6 +68,10 @@ enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_COUNT };
 enum { T_EJECT, T_REWIND, T_NEW, T_FIRST };
 #define TAPE_ROWS (ROW_STATUS - 1 - (ROW_TOP + 1))
 
+/* The Snapshots page, as pico-oric's: the slot, chosen with < > on any
+ * of its rows, the three things to do with it, then every slot's state. */
+enum { N_SLOT, N_SAVE, N_LOAD, N_DELETE, N_COUNT };
+
 /* The Machine page: BASIC, the RAM and the cartridge staged, and the
  * power-on that applies them. */
 enum { M_BASIC, M_RAM, M_CART, M_APPLY, M_COUNT };
@@ -77,6 +85,7 @@ static tapeio_entry_t s_list[COCO_TAPE_LIST_MAX];
 static char           s_carts[COCO_CART_LIST_MAX][COCO_PATH_MAX];
 
 static const unsigned k_rams[4] = { 4u, 16u, 32u, 64u };
+static unsigned       s_slot;      /* the Snapshots page's, kept between openings */
 
 static struct {
     coco_t  *m;
@@ -85,11 +94,14 @@ static struct {
     bool     done;
     bool     direct;          /* opened at a page: closing it resumes */
     int      item;
-    enum { P_MAIN, P_TAPES, P_SETUP, P_MACHINE, P_ABOUT, P_HELP } page;
+    enum { P_MAIN, P_TAPES, P_SNAPS, P_SETUP, P_MACHINE, P_ABOUT, P_HELP } page;
     char     status[TEXT_COLS + 1];
     int      battery;
 
     int      setup_sel;
+
+    int      snap_sel;
+    bool     used[SNAPIO_SLOTS];
 
     unsigned n_tapes;
     int      tape_sel, tape_top;
@@ -209,6 +221,25 @@ static void draw_setup(void) {
     }
 }
 
+static void draw_snaps(void) {
+    char line[TEXT_COLS + 1];
+    static const char *const rows[N_COUNT] = { NULL, " SAVE", " LOAD", " DELETE" };
+    for (int i = 0; i < N_COUNT; i++) {
+        if (i == N_SLOT) snprintf(line, sizeof line, " SLOT            < %u >", s_slot + 1u);
+        else snprintf(line, sizeof line, "%s", rows[i]);
+        textpage_line(s_scr, ROW_TOP + i, line, i == s.snap_sel);
+    }
+    /* Every slot's state, the chosen one marked. */
+    for (unsigned i = 0; i < SNAPIO_SLOTS; i++) {
+        snprintf(line, sizeof line, "%cSLOT %u: %s", i == s_slot ? '*' : ' ', i + 1u,
+                 !s.card ? "NO CARD" : s.used[i] ? "SAVED" : "EMPTY");
+        textpage_line(s_scr, ROW_TOP + N_COUNT + 1 + (int)i, line, false);
+    }
+    textpage_line(s_scr, ROW_TOP + N_COUNT + 2 + (int)SNAPIO_SLOTS, " IN /COCO/SNAPS/. A LOAD POWERS", false);
+    textpage_line(s_scr, ROW_TOP + N_COUNT + 3 + (int)SNAPIO_SLOTS, " ON AS THE MACHINE IT WAS SAVED", false);
+    textpage_line(s_scr, ROW_TOP + N_COUNT + 4 + (int)SNAPIO_SLOTS, " ON, WITH ITS TAPE AND CARTRIDGE.", false);
+}
+
 static bool machine_changed(int r) {
     switch (r) {
     case M_BASIC: return s.st_ext != g_machine.extended;
@@ -290,6 +321,7 @@ static void draw_about(void) {
 static void draw_help(void) {
     static const char *const keys[][2] = {
         { "F1",     "TAPES" },
+        { "F3",     "SNAPSHOTS" },
         { "F4",     "SETUP" },
         { "F5",     "MACHINE" },
         { "F10",    "ABOUT" },
@@ -328,11 +360,13 @@ static bool read_battery(void) {
 static void draw(void) {
     static const char *const title[] = {
         [P_MAIN] = " PICO-COCO",          [P_TAPES] = " PICO-COCO: TAPES",
+        [P_SNAPS] = " PICO-COCO: SNAPSHOTS",
         [P_SETUP] = " PICO-COCO: SETUP",  [P_MACHINE] = " PICO-COCO: MACHINE",
         [P_ABOUT] = " PICO-COCO: ABOUT",  [P_HELP] = " PICO-COCO: KEYS",
     };
     static const char *const keys[] = {
         [P_MAIN] = " ARROWS ENTER  ESC RESUMES",  [P_TAPES] = " ENTER INSERTS  ESC BACK",
+        [P_SNAPS] = " < > SLOT  ENTER  ESC BACK",
         [P_SETUP] = " < > CHANGES  ESC BACK",     [P_MACHINE] = " < > STAGES  ENTER  ESC BACK",
         [P_ABOUT] = " ESC BACK",                  [P_HELP] = " ESC RESUMES",
     };
@@ -341,6 +375,7 @@ static void draw(void) {
     draw_battery();
     switch (s.page) {
     case P_TAPES:   draw_tapes(); break;
+    case P_SNAPS:   draw_snaps(); break;
     case P_SETUP:   draw_setup(); break;
     case P_MACHINE: draw_machine(); break;
     case P_ABOUT:   draw_about(); break;
@@ -374,6 +409,20 @@ static void open_tapes(void) {
         log_core1("  tapes        : %2u %s, %lu bytes, first \"%s\"%s\n", i + 1u, s_list[i].path,
                   (unsigned long)s_list[i].size, s_list[i].name,
                   s_list[i].type == 2 ? ", code" : "");
+}
+
+static void refresh_slots(void) {
+    for (unsigned i = 0; i < SNAPIO_SLOTS; i++) s.used[i] = s.card && snapio_exists(i);
+}
+
+static void open_snaps(void) {
+    refresh_slots();
+    s.page = P_SNAPS;
+    s.snap_sel = N_SAVE;
+    unsigned used = 0;
+    for (unsigned i = 0; i < SNAPIO_SLOTS; i++) used += s.used[i];
+    log_core1("  snapshot     : page open, slot %u, %u of %u slots in use\n", s_slot + 1u, used,
+              SNAPIO_SLOTS);
 }
 
 static void open_machine(void) {
@@ -481,7 +530,7 @@ static void open_item(void) {
     switch (s.item) {
     case I_TAPES:   open_tapes(); break;
     case I_DISKS:   say(" DISKS COME WITH RS-DOS (M13)", ""); break;
-    case I_SNAPS:   say(" SNAPSHOTS COME IN M10", ""); break;
+    case I_SNAPS:   open_snaps(); break;
     case I_SETUP:   s.page = P_SETUP; s.setup_sel = D_STATUS; break;
     case I_MACHINE: open_machine(); break;
     case I_RESET:   g_ui.reset = true; s.done = true; break;
@@ -567,6 +616,129 @@ static void key_tapes(uint8_t c) {
     }
     if (s.tape_sel < s.tape_top) s.tape_top = s.tape_sel;
     if (s.tape_sel >= s.tape_top + TAPE_ROWS) s.tape_top = s.tape_sel - TAPE_ROWS + 1;
+}
+
+/* ---- snapshots ---------------------------------------------------------------- */
+
+/* The machine as a state needs it (§12.5, EL §8.5): powered on here, on
+ * core 1 with the guest parked, as the load that follows changes it,
+ * with core 0's own power-on. For a state for another machine, and for
+ * one for this machine while it waits on the tape, which a load cannot
+ * take over. False, with the status row saying why and the machine as
+ * it was, when the card cannot give the machine. */
+static bool snap_switch(const snap_info_t *in) {
+    machine_t mc;
+    snap_status_t st;
+    const char *why = snapio_machine(s.m, in, &mc, &st);
+    if (why) {
+        log_core1("  snapshot     : slot %u: %s; not loaded\n", s_slot + 1u, why);
+        say(" %.30s", why);
+        return false;
+    }
+    log_core1("  snapshot     : slot %u is the %s%s%s's; powering on as it\n", s_slot + 1u,
+              machine_name(mc.extended, mc.ram_k), mc.cart ? " with " : "",
+              mc.cart ? base(g_boot.cart_path) : "");
+    core0_power_on(s.m, &mc);
+    return true;
+}
+
+/* The state in the slot: on success the menu closes, and the guest
+ * resumes from it. A state for another machine powers on as that
+ * machine first (snap_switch). A load whose second pass failed has left
+ * a machine part old and part new: it is not resumed, but powered on
+ * again as it is configured (snapio.h). Refused, before anything, while
+ * a recording is not on the card, as the Machine page's Apply is. */
+static void snap_load(void) {
+    if (tapeio_unsaved(s.m)) { say(" A RECORDING IS NOT SAVED", ""); return; }
+    snap_info_t in;
+    memset(&in, 0, sizeof in);
+    bool recovered, changed = false;
+    uint32_t t0 = time_us_32();
+    snap_status_t st = snapio_check(s.m, s_slot, &in, &recovered);
+    bool busy = coco_tape_pending(s.m) != TAPE_NONE;
+    if (snapshot_other_machine(st) || (st == SNAP_OK && busy)) {
+        if (!snap_switch(&in)) return;
+        st = SNAP_OK;
+        /* A load that fails now leaves a machine just powered on, not
+         * the one the user had: it is powered on again, as below. */
+        changed = true;
+    }
+    if (st == SNAP_OK) {
+        bool torn;
+        st = snapio_load(s.m, &torn);
+        changed = st != SNAP_OK && (changed || torn);
+    }
+    log_core1("  snapshot     : load slot %u: %s%s, %lu us\n", s_slot + 1u, snapshot_status_str(st),
+              recovered ? " (from the unpublished .NEW)" : "", (unsigned long)(time_us_32() - t0));
+    if (st == SNAP_OK) {
+        /* A tape the state had in the deck and the card no longer has:
+         * said on the status line, since the menu closes (snapio.h). */
+        if (snapio_said()[0]) core1_note(snapio_said() + 1);
+        s.done = true;
+        return;
+    }
+    if (changed) {
+        log_core1("  snapshot     : failed after the machine had changed; powering on again\n");
+        core1_note("NOT LOADED: POWERED ON AGAIN");
+        g_ui.restart_cfg = g_machine;
+        g_ui.restart = true;
+        s.done = true;
+        return;
+    }
+    if (st == SNAP_IO && !s.used[s_slot]) {
+        char line[TEXT_COLS + 1];
+        snprintf(line, sizeof line, " SLOT %u IS EMPTY", s_slot + 1u);
+        say("%s", line);
+    } else {
+        say(" NOT LOADED: %.19s", snapshot_status_str(st));
+    }
+}
+
+static void key_snaps(uint8_t c) {
+    switch (c) {
+    case PICOCALC_KEY_UP:   if (s.snap_sel > 0) s.snap_sel--; break;
+    case PICOCALC_KEY_DOWN: if (s.snap_sel < N_COUNT - 1) s.snap_sel++; break;
+    case PICOCALC_KEY_LEFT:
+    case PICOCALC_KEY_RIGHT:
+        s_slot = (s_slot + (c == PICOCALC_KEY_RIGHT ? 1u : SNAPIO_SLOTS - 1u)) % SNAPIO_SLOTS;
+        s.status[0] = 0;
+        break;
+    case PICOCALC_KEY_ENTER:
+        if (!s.card) { say(" NO CARD", ""); break; }
+        s.status[0] = 0;
+        if (s.snap_sel == N_SAVE) {
+            say(" SAVING...", "");
+            draw();
+            uint32_t us;
+            snap_status_t st = snapio_save(s.m, s_slot, &us);
+            log_core1("  snapshot     : save slot %u: %s, %lu us\n", s_slot + 1u,
+                      snapshot_status_str(st), (unsigned long)us);
+            if (st == SNAP_OK) {
+                char line[TEXT_COLS + 1];
+                snprintf(line, sizeof line, " SAVED IN SLOT %u", s_slot + 1u);
+                say("%s", line);
+            } else {
+                say(" NOT SAVED: %.20s", snapshot_status_str(st));
+            }
+            refresh_slots();
+        } else if (s.snap_sel == N_LOAD) {
+            say(" LOADING...", "");
+            draw();
+            s.status[0] = 0;
+            snap_load();
+        } else if (s.snap_sel == N_DELETE) {
+            /* Destructive, so logged (EL §8.5). */
+            bool gone = snapio_delete(s_slot);
+            log_core1("  snapshot     : delete slot %u: %s\n", s_slot + 1u,
+                      gone ? "deleted" : "nothing there");
+            say(gone ? " DELETED" : " NOTHING TO DELETE", "");
+            refresh_slots();
+        }
+        break;
+    case PICOCALC_KEY_ESC:
+        s.page = P_MAIN;
+        break;
+    }
 }
 
 static void key_main(uint8_t c) {
@@ -672,6 +844,7 @@ static void keys(void) {
         case P_SETUP:   key_setup(c); break;
         case P_MACHINE: key_machine(c); break;
         case P_TAPES:   key_tapes(c); break;
+        case P_SNAPS:   key_snaps(c); break;
         case P_ABOUT:
         case P_HELP:
             if (c == PICOCALC_KEY_ESC || c == PICOCALC_KEY_ENTER) s.page = P_MAIN;
@@ -701,7 +874,7 @@ void menu_run(coco_t *m, unsigned page, bool alt) {
     switch (page) {
     case KM_PAGE_TAPE:     s.item = I_TAPES; open_item(); break;
     case KM_PAGE_DISC:     s.item = I_DISKS; open_item(); s.direct = false; break;
-    case KM_PAGE_SNAPSHOT: s.item = I_SNAPS; open_item(); s.direct = false; break;
+    case KM_PAGE_SNAPSHOT: s.item = I_SNAPS; open_item(); break;
     case KM_PAGE_SETUP:    s.item = I_SETUP; open_item(); break;
     case KM_PAGE_MACHINE:  s.item = I_MACHINE; open_item(); break;
     case KM_PAGE_ABOUT:    s.item = I_ABOUT; open_item(); break;

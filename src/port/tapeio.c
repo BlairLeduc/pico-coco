@@ -14,6 +14,7 @@
 #include "log.h"
 #include "sd.h"
 #include "storage.h"
+#include "snapshot.h"
 #include "tape.h"
 
 /* The deck: the whole tape (design.md §16's tape buffer). */
@@ -243,6 +244,38 @@ const char *tapeio_inserted(void) {
 
 bool tapeio_chosen(void) {
     return s_in && s_chosen && s_path[0];
+}
+
+void tapeio_media(const coco_t *m, snap_media_t *md) {
+    snprintf(md->tape, sizeof md->tape, "%s", tapeio_inserted());
+    md->tape_pos = m->tape.pos;
+    md->tape_rewind = s_rewind_blocks;
+    md->tape_chosen = s_chosen;
+}
+
+const char *tapeio_restore(coco_t *m, const snap_media_t *md) {
+    s_chosen = false;
+    if (!md->tape[0]) {
+        coco_tape_eject(m);
+        s_in = false;
+        s_len = 0;
+        s_path[0] = 0;
+        return NULL;
+    }
+    const char *why = load(m, md->tape);
+    if (why) {
+        coco_tape_eject(m);
+        s_in = false;
+        s_len = 0;
+        s_path[0] = 0;
+        return why;
+    }
+    m->tape.pos = md->tape_pos <= m->tape.len ? md->tape_pos : m->tape.len;
+    s_rewind_blocks = md->tape_rewind;
+    s_chosen = md->tape_chosen;
+    log_core1("  tape         : at %lu of %lu, as the state left it\n", (unsigned long)m->tape.pos,
+              (unsigned long)m->tape.len);
+    return NULL;
 }
 
 void tapeio_rewind(coco_t *m) {

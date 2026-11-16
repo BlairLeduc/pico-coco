@@ -1136,6 +1136,30 @@ well as 150 fields on.
 Importing XRoar's snapshot format is a separate decision (EL §8.8), and
 deferred (§20).
 
+**As built in M10** (2026-11-15): pico-oric's container and rules
+(`snapshot.c`, `snapshot.h`), "COCOSNAP" version 1: a 256-byte state,
+the 64 KB of RAM, and the media. The state holds the 6809 (its wait,
+latch, active and stale, which a CWAI or an interrupt's entry leaves at
+a boundary), the four PIA ports, the SAM, the clock (the tick count at
+`cyc0`, the ticks a cycle takes, the field's start, HS's account, each
+PIA port's rise due), the sound bus and the trap's hot page; what a
+power-on chooses (machine, RAM, the ROMs fitted, the cartridge's CART
+line, the trap); the field's shape, which is the build's; and the
+SHA-1 of the ROM halves at $8000 and $A000 and of the cartridge's
+16 KB window. A load works out the page table, the CPU's lines and its
+attention, releases the keys and restarts the sample grid at the
+restored tick (`coco_restored`). The time is absolute ticks (§13.2),
+so a state taken anywhere, not only between fields, resumes where it
+stood. The media are the deck's file and place, the cartridge's file
+and room for four drives' (M13), written empty. A state for another
+RAM, BASIC or cartridge loads into a machine powered on as it (EL
+§8.5), its ROMs from the boot's job and its cartridge from the card by
+name; a Dragon's state is refused while the Dragon is frozen (§17).
+`snapio.c` keeps four slots in `/coco/snaps/` through `.NEW` and a
+rename; the Snapshots page (§14) saves, loads and deletes them. Tested
+by `test_snapshot` on a ROM of its own, and `test_snapshot_rom` over
+the real ROMs, `milestones.md` M10.
+
 ### 12.6 Settings and the card
 
 ```
@@ -1272,6 +1296,16 @@ to Color 1.1; `ram = 4` with no `bas11.rom` on the card boots 16 KB
 and says why. The machine and television choices wait for M14. The status line
 shows the deck and the cartridge (`status_format`, `test_status`).
 F6's screenshot is not yet in.
+
+**As built in M10** (2026-11-15): the Snapshots page, F3, pico-oric's
+row for row: the slot (1 to 4, chosen with < > on any row), Save, Load
+and Delete, and every slot's state. A load refuses while a recording is
+not on the card, as Apply does; a state for another machine, or one
+loaded while the machine waits on the tape, powers on as the state's
+machine first, and one whose second pass fails powers the machine on
+again rather than resume it half loaded. A tape the state names that
+the card no longer has leaves the deck empty and says so on the status
+line.
 
 ---
 

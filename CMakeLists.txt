@@ -30,6 +30,7 @@ set(PICO_COCO_CORE_SOURCES
     src/core/sam6883.c
     src/core/sha1.c
     src/core/snappool.c
+    src/core/snapshot.c
     src/core/tape.c
     src/core/status.c
     src/core/textpage.c
@@ -277,6 +278,7 @@ else()
         src/port/settingsio.c
         src/port/southbridge.c
         src/port/storage.c
+        src/port/snapio.c
         src/port/tapeio.c
     )
     pico_coco_firmware(pico-coco)

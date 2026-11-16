@@ -70,6 +70,15 @@ void        tapeio_next_name(char out[COCO_MEDIA_NAME_MAX + 1]);
 void        tapeio_rewind(coco_t *m);
 bool        tapeio_chosen(void);       /* put in by the menu or boot_tape */
 
+/* A save state's part (snapshot.h, snapio.c): the deck's tape, its
+ * place and the rewind mark into *md; and after a load, the state's tape
+ * read back in at its place, clamped to the tape as the card has it now,
+ * or the deck emptied for a state with none. NULL, or why the tape could
+ * not go back in, the deck then empty. */
+struct snap_media_s;
+void        tapeio_media(const coco_t *m, struct snap_media_s *md);
+const char *tapeio_restore(coco_t *m, const struct snap_media_s *md);
+
 /* Whether a recording is not yet on the card. */
 bool        tapeio_unsaved(const coco_t *m);
 

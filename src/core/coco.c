@@ -758,6 +758,25 @@ void coco_video_snapshot(const coco_t *m, coco_frame_t *out) {
     }
 }
 
+/* ---- a state restored (snapshot.h, §12.5) ------------------------------ */
+
+/* What a state does not carry because it follows from what it does: the
+ * page table from the SAM, the ROMs and the trap's page; the CPU's lines
+ * from the PIAs' outputs, and with them its attention (mc6809_set_irq
+ * works it out from everything). Not state at all: the
+ * keys, released, and the sound's sample grid, started again at the
+ * restored tick with the bus's level (EL §8.5). */
+void coco_restored(coco_t *m) {
+    m->tape.op = TAPE_NONE;
+    memset(m->keys, 0, sizeof(m->keys));
+    map(m);
+    m->cpu.irq = m->cpu.firq = 0;
+    update_irq(m);
+    uint32_t now = (uint32_t)coco_ticks(m);
+    pcm_restart(&m->pcm, now);
+    pcm_set_level(&m->pcm, now, m->sound_level);
+}
+
 void coco_key_set(coco_t *m, int row, int col, bool down) {
     if (row < 0 || row >= COCO_KEY_ROWS || col < 0 || col >= COCO_KEY_COLS) return;
     if (down) m->keys[col] |= (uint8_t)(1u << row);

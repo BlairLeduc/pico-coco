@@ -196,6 +196,11 @@ void     coco_audio_set_rate(coco_t *m, uint32_t rate_num, uint32_t rate_den);
  * Returns how many. coco_run_field brings the PCM to the field's end. */
 size_t   coco_audio_drain(coco_t *m, int16_t *dst, size_t max);
 
+/* After snapshot_load has put a state's fields back: what follows from
+ * them worked out again, the keys released and the sound restarted at
+ * the restored tick (snapshot.h). */
+void     coco_restored(coco_t *m);
+
 /* A key, by the matrix's own row and column (§11.2). */
 void     coco_key_set(coco_t *m, int row, int col, bool down);
 
