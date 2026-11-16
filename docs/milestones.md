@@ -6,8 +6,8 @@ and done-when criteria; this file keeps the full record (EL §14.3).
 
 ## M9: card, settings, the menu, cartridges, the tape trap
 
-On branch `m9`, 2026-11-15 (`design.md` §17). **In progress**: the
-owner has still to play a game loaded from CAS and one from a cartridge.
+On branch `m9`, 2026-11-15 (`design.md` §17). On the owner's board.
+**Done**: every criterion of §17's row met, the last by the owner.
 
 **Built.** In the core: the tape trap (`tape.c`, `cas.c`), the ROM
 cartridge and its CART line (`coco.c`), the settings file's parser and
@@ -67,15 +67,17 @@ All 24 host tests pass.
 - Save settings wrote `/coco/coco.ini`, 68 bytes; after a reset the boot
   read it and put `TAPE01.CAS` in the deck.
 
+**Checked by the owner** on the Plus 2 W, 2026-11-15: a game loaded from
+tape and played, and a game from a cartridge played, with the machine at
+4 KB; the menu and pause looked right on the panel.
+
 **Measured**: images 150,648 bytes of text and 292,356 of bss with the
-UART. The deck's 64 KB and the cartridge's 16 KB are most of the growth
+UART at the first port commit; 151,632 and 300,548 with 1.1's image kept
+apart for 4 KB. The deck's 64 KB and the cartridge's 16 KB are most of the growth
 of 117 KB since M8.
 
 **Not checked:**
 
-- A game played by the owner, from CAS and from a cartridge (§17's
-  criterion).
-- The menu on the panel by eye, and pause.
 - Exit to shell.
 - A tape larger than 64 KB, which is refused.
 
