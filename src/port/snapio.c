@@ -127,8 +127,6 @@ static bool have_rom(rom_id_t r) {
 const char *snapio_machine(const coco_t *m, const snap_info_t *info, machine_t *mc, snap_status_t *st) {
     static char why[COCO_TEXT_COLS + 1];
     *st = SNAP_NO_ROM;
-    /* The Dragon is frozen until M14 (design.md §17). */
-    if (info->machine != COCO_MACHINE_COCO) return "A DRAGON'S STATE";
     if (!info->rom_present[1] || (info->rom[1] != ROM_COCO_BAS13 && info->rom[1] != ROM_COCO_BAS11))
         return "ITS COLOR BASIC IS UNKNOWN";
     if (info->rom_present[0] && info->rom[0] != ROM_COCO_EXTBAS11) return "ITS $8000 ROM IS UNKNOWN";

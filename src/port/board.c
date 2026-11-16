@@ -108,7 +108,7 @@ void board_identify(board_info_t *info) {
 }
 
 void board_log_banner(const board_info_t *info) {
-    printf("\npico-coco — Tandy Color Computer and Dragon for the PicoCalc\n");
+    printf("\npico-coco — Tandy Color Computer 1/2 for the PicoCalc\n");
     /* Build target and physical identity, reported separately and
      * labelled as such (hardware-notes.md §2.1). */
     printf("  build target : board=%s platform=%s\n",

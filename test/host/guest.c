@@ -1,4 +1,4 @@
-/* guest.c — a real CoCo or Dragon, on the host (guest.h). */
+/* guest.c — a real CoCo, on the host (guest.h). */
 
 #include "guest.h"
 
@@ -7,12 +7,6 @@
 #include <string.h>
 
 #include "textpage.h"
-
-
-/* The Dragon's typing: whole fields held, and whole fields between keys,
- * as M3 left it (§17: the Dragon is frozen until M14). */
-#define HOLD_FIELDS 4
-#define GAP_FIELDS  4
 
 static uint8_t images[ROM_IMAGE_COUNT][COCO_ROM_IMAGE_MAX];
 static bool    have[ROM_IMAGE_COUNT];
@@ -53,15 +47,12 @@ const uint8_t *guest_rom_image(rom_id_t r) {
     return guest_have_rom(r) ? images[r] : NULL;
 }
 
-void guest_build_as(guest_t *g, coco_machine_t machine, unsigned ram_k, rom_id_t basic,
-                    bool extended) {
+void guest_build_as(guest_t *g, unsigned ram_k, rom_id_t basic, bool extended) {
     coco_config_t cfg;
     coco_config_default(&cfg);
-    cfg.machine = machine;
     cfg.ram_k = ram_k;
     coco_init(&g->m, &cfg);
-    uint32_t size = romset_images[basic].size;
-    coco_load_rom(&g->m, size == COCO_ROM_SIZE ? 0x8000u : 0xA000u, images[basic], size);
+    coco_load_rom(&g->m, 0xA000u, images[basic], romset_images[basic].size);
     if (extended && have[ROM_COCO_EXTBAS11])
         coco_load_rom(&g->m, 0x8000u, images[ROM_COCO_EXTBAS11],
                       romset_images[ROM_COCO_EXTBAS11].size);
@@ -72,16 +63,12 @@ void guest_build_as(guest_t *g, coco_machine_t machine, unsigned ram_k, rom_id_t
 }
 
 void guest_build(guest_t *g, unsigned ram_k, bool extended) {
-    guest_build_as(g, COCO_MACHINE_COCO, ram_k, ROM_COCO_BAS13, extended);
-}
-
-static bool is_coco(const guest_t *g) {
-    return g->m.cfg.machine == COCO_MACHINE_COCO;
+    guest_build_as(g, ram_k, ROM_COCO_BAS13, extended);
 }
 
 void guest_fields(guest_t *g, int n) {
     for (int i = 0; i < n; i++) {
-        if (is_coco(g)) keymatrix_field(&g->k, &g->m);
+        keymatrix_field(&g->k, &g->m);
         coco_run_field(&g->m);
         if (g->after_field) g->after_field(g);
     }
@@ -108,71 +95,16 @@ bool guest_boot(guest_t *g) {
 
 /* ---- the keyboard ---------------------------------------------------- */
 
-/* The Dragon's matrix by row (PA0-PA6) and column (PB0-PB7): the CoCo's
- * columns, the rows turned by two, the digits first (XRoar's dkbd.c;
- * settled for the keys typed here by Dragon 32 BASIC, §11.2, §18). */
-static const char *const dragon_rows[COCO_KEY_ROWS] = {
-    "01234567",
-    "89:;,-./",
-    "@ABCDEFG",
-    "HIJKLMNO",
-    "PQRSTUVW",
-    "XYZ\x01\x02\x03\x04 ",
-    "\n\x05\x06\0\0\0\0\x07",
-};
-
-#define SHIFT_ROW 6
-#define SHIFT_COL 7
-
-/* The shifted characters, and the key each is on. */
-static const char shifted_from[] = "!\"#$%&'()*+<=>?";
-static const char shifted_on[]   = "123456789:;,-./";
-
-static bool find_key(char ch, int *row, int *col) {
-    for (int r = 0; r < COCO_KEY_ROWS; r++)
-        for (int c = 0; c < COCO_KEY_COLS; c++)
-            if (dragon_rows[r][c] == ch && ch != 0) {
-                *row = r;
-                *col = c;
-                return true;
-            }
-    return false;
-}
-
-static void press(guest_t *g, int row, int col, bool shift) {
-    if (shift) coco_key_set(&g->m, SHIFT_ROW, SHIFT_COL, true);
-    coco_key_set(&g->m, row, col, true);
-    guest_fields(g, HOLD_FIELDS);
-    coco_key_set(&g->m, row, col, false);
-    if (shift) coco_key_set(&g->m, SHIFT_ROW, SHIFT_COL, false);
-    guest_fields(g, GAP_FIELDS);
-}
-
-static void dragon_type(guest_t *g, const char *s) {
-    for (; *s; s++) {
-        char ch = *s;
-        if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 'a' + 'A');
-        int row, col;
-        const char *sh = strchr(shifted_from, ch);
-        if (sh && find_key(shifted_on[sh - shifted_from], &row, &col)) press(g, row, col, true);
-        else if (find_key(ch, &row, &col)) press(g, row, col, false);
-    }
-}
-
 void guest_type(guest_t *g, const char *s) {
-    if (!is_coco(g)) {
-        dragon_type(g, s);
-    } else {
-        for (; *s; s++) {
-            uint8_t ch = (uint8_t)*s;
-            if (ch >= 'A' && ch <= 'Z') ch = (uint8_t)(ch - 'A' + 'a');
-            picocalc_event_t ev[COCO_KEY_TEXT_EVENTS];
-            unsigned n = keymap_picocalc_text(ch, ev);
-            if (n == 0) fprintf(stderr, "guest_type: no PicoCalc key for 0x%02X\n", ch);
-            for (unsigned i = 0; i < n; i++) keymatrix_event(&g->k, ev[i].state, ev[i].code);
-            if (!guest_settle(g, 100))
-                fprintf(stderr, "guest_type: 0x%02X still held after 100 fields\n", ch);
-        }
+    for (; *s; s++) {
+        uint8_t ch = (uint8_t)*s;
+        if (ch >= 'A' && ch <= 'Z') ch = (uint8_t)(ch - 'A' + 'a');
+        picocalc_event_t ev[COCO_KEY_TEXT_EVENTS];
+        unsigned n = keymap_picocalc_text(ch, ev);
+        if (n == 0) fprintf(stderr, "guest_type: no PicoCalc key for 0x%02X\n", ch);
+        for (unsigned i = 0; i < n; i++) keymatrix_event(&g->k, ev[i].state, ev[i].code);
+        if (!guest_settle(g, 100))
+            fprintf(stderr, "guest_type: 0x%02X still held after 100 fields\n", ch);
     }
     guest_fields(g, 10);
 }

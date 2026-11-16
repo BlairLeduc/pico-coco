@@ -1,11 +1,10 @@
-/* test_boot.c — the machines boot their real ROMs (design.md §17 M3,
+/* test_boot.c — the CoCo boots its real ROMs (design.md §17 M3,
  * §15.3).
  *
  * Color BASIC 1.3 alone, and with Extended Color BASIC 1.1, in 16, 32 and
- * 64 KB; Color BASIC 1.1 in 4 and 16 KB; and the Dragon 32 in 32 KB and
- * expanded to 64, the second wiring (§3.1). Each to its banner and "OK",
- * read from video RAM; then a sum typed through the matrix, the CoCo's
- * or the Dragon's, and answered on the screen; every letter, digit and
+ * 64 KB; Color BASIC 1.1 in 4 and 16 KB. Each to its banner and "OK",
+ * read from video RAM; then a sum typed through the matrix and answered
+ * on the screen; every letter, digit and
  * shifted symbol typed and printed back; a page of text written from
  * the screen (textpage.h) equal to what BASIC wrote; and PRINT MEM, the ROM's own
  * sizing of memory, against what XRoar prints, the trace diff having held
@@ -53,7 +52,6 @@ static unsigned page_against_screen(const coco_t *m, unsigned *compared) {
 }
 
 typedef struct {
-    coco_machine_t machine;
     rom_id_t    basic;
     unsigned    ram_k;
     bool        extended;
@@ -66,18 +64,16 @@ int main(void) {
     guest_find_roms(&dir);
 
     static const boot_t boots[] = {
-        { COCO_MACHINE_COCO,     ROM_COCO_BAS11, 4,  false, "COLOR BASIC 1.1",          " 2343"  },
-        { COCO_MACHINE_COCO,     ROM_COCO_BAS11, 16, false, "COLOR BASIC 1.1",          " 14631" },
+        { ROM_COCO_BAS11, 4,  false, "COLOR BASIC 1.1",          " 2343"  },
+        { ROM_COCO_BAS11, 16, false, "COLOR BASIC 1.1",          " 14631" },
         /* The board's fallback without 1.3 (src/port/roms.c). */
-        { COCO_MACHINE_COCO,     ROM_COCO_BAS11, 64, false, "COLOR BASIC 1.1",          NULL     },
-        { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 16, false, "COLOR BASIC 1.3",          " 14631" },
-        { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 32, false, "COLOR BASIC 1.3",          " 31015" },
-        { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 64, false, "COLOR BASIC 1.3",          " 31015" },
-        { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 16, true,  "EXTENDED COLOR BASIC 1.1", " 8487"  },
-        { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 32, true,  "EXTENDED COLOR BASIC 1.1", " 24871" },
-        { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 64, true,  "EXTENDED COLOR BASIC 1.1", " 24871" },
-        { COCO_MACHINE_DRAGON32, ROM_DRAGON32,   32, false, "(C) 1982 DRAGON DATA LTD", " 24871" },
-        { COCO_MACHINE_DRAGON32, ROM_DRAGON32,   64, false, "(C) 1982 DRAGON DATA LTD", " 24871" },
+        { ROM_COCO_BAS11, 64, false, "COLOR BASIC 1.1",          NULL     },
+        { ROM_COCO_BAS13, 16, false, "COLOR BASIC 1.3",          " 14631" },
+        { ROM_COCO_BAS13, 32, false, "COLOR BASIC 1.3",          " 31015" },
+        { ROM_COCO_BAS13, 64, false, "COLOR BASIC 1.3",          " 31015" },
+        { ROM_COCO_BAS13, 16, true,  "EXTENDED COLOR BASIC 1.1", " 8487"  },
+        { ROM_COCO_BAS13, 32, true,  "EXTENDED COLOR BASIC 1.1", " 24871" },
+        { ROM_COCO_BAS13, 64, true,  "EXTENDED COLOR BASIC 1.1", " 24871" },
     };
 
     int ran = 0;
@@ -90,18 +86,16 @@ int main(void) {
         }
         ran++;
         int failures_before = test_failures;
-        guest_build_as(&g, b->machine, b->ram_k, b->basic, b->extended);
+        guest_build_as(&g, b->ram_k, b->basic, b->extended);
         bool ok = guest_boot(&g);
         CHECK(ok, "%u KB %s: no OK in ten seconds", b->ram_k, b->banner);
         if (!ok) { guest_dump(&g.m, stderr); continue; }
         CHECK(guest_find_row(&g.m, b->banner, 0) >= 0, "%u KB: no \"%s\" on the screen",
               b->ram_k, b->banner);
-        if (b->machine == COCO_MACHINE_COCO) {
-            unsigned compared, bad = page_against_screen(&g.m, &compared);
-            CHECK(bad == 0 && compared > 180u * TEXT_COLS,
-                  "%u KB %s: a page of the screen's text differs in %u of %u line bytes",
-                  b->ram_k, b->banner, bad, compared);
-        }
+        unsigned compared, bad = page_against_screen(&g.m, &compared);
+        CHECK(bad == 0 && compared > 180u * TEXT_COLS,
+              "%u KB %s: a page of the screen's text differs in %u of %u line bytes",
+              b->ram_k, b->banner, bad, compared);
 
         guest_type(&g, "PRINT 2+3\n");
         int r = guest_find_row(&g.m, "PRINT 2+3", 0);

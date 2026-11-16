@@ -15,7 +15,6 @@
 /* ---- configuration ---------------------------------------------------- */
 
 void coco_config_default(coco_config_t *cfg) {
-    cfg->machine = COCO_MACHINE_COCO;
     cfg->ram_k = 64;
     cfg->tape_trap = true;
 }
@@ -213,16 +212,16 @@ static void cart_q(coco_t *m, uint64_t t) {
 
 /* HS, on PIA0 CA1, is brought up to date lazily (§8.3, EL §4.3): lines run
  * from tick 0, since fields follow one another whole, and HS is low for
- * the first hs_low_ticks of each. */
-static bool hs_level(const coco_t *m, uint64_t t) {
-    return (t % m->line_ticks) >= m->hs_low_ticks;
+ * the first COCO_HS_LOW_TICKS of each. */
+static bool hs_level(uint64_t t) {
+    return (t % COCO_LINE_TICKS) >= COCO_HS_LOW_TICKS;
 }
 
 /* The first HS edge after `t` of the kind CA1 is set to take. */
 static uint64_t hs_next_edge(const coco_t *m, uint64_t t) {
-    uint64_t off = (m->pia0.a.cr & MC6821_CR_C1_RISE) ? m->hs_low_ticks : 0u;
+    uint64_t off = (m->pia0.a.cr & MC6821_CR_C1_RISE) ? COCO_HS_LOW_TICKS : 0u;
     if (t < off) return off;
-    return ((t - off) / m->line_ticks + 1u) * m->line_ticks + off;
+    return ((t - off) / COCO_LINE_TICKS + 1u) * COCO_LINE_TICKS + off;
 }
 
 static void hs_catch_up(coco_t *m, uint64_t t) {
@@ -233,17 +232,17 @@ static void hs_catch_up(coco_t *m, uint64_t t) {
         c1_edge(m, 0, !active, e);
         c1_edge(m, 0, active, e);
     }
-    c1_edge(m, 0, hs_level(m, t), t);
+    c1_edge(m, 0, hs_level(t), t);
     m->hs_seen = t;
 }
 
-/* FS, on PIA0 CB1, falls as line fs_fall_line begins (§13.1). The field
+/* FS, on PIA0 CB1, falls as line COCO_FS_FALL_LINE begins (§13.1). The field
  * loop sets it once the run passes it; an access to a PIA within the
  * instruction that passes it brings it up first, so a read that clears the
  * flag sees the edge that came before it, as XRoar's trace has it. */
 static void fs_catch_up(coco_t *m, uint64_t t) {
-    uint64_t fall = m->field_start + (uint64_t)m->fs_fall_line * m->line_ticks;
-    uint64_t end = m->field_start + (uint64_t)m->field_lines * m->line_ticks;
+    uint64_t fall = m->field_start + (uint64_t)COCO_FS_FALL_LINE * COCO_LINE_TICKS;
+    uint64_t end = m->field_start + (uint64_t)COCO_FIELD_LINES * COCO_LINE_TICKS;
     if (t >= fall && t < end && m->pia0.b.c1) c1_edge(m, 1, false, fall);
 }
 
@@ -294,8 +293,8 @@ static void note_video(coco_t *m, uint64_t t) {
     uint32_t bits = video_bits(m);
     if (bits == m->video_bits) return;
     m->video_bits = bits;
-    uint64_t line = (t - m->field_start) / m->line_ticks;
-    if (line >= m->active_line && line < m->active_line + COCO_PIC_H) m->video_split = true;
+    uint64_t line = (t - m->field_start) / COCO_LINE_TICKS;
+    if (line >= COCO_ACTIVE_LINE && line < COCO_ACTIVE_LINE + COCO_PIC_H) m->video_split = true;
 }
 
 /* ---- the PIAs' pins (§3.3) -------------------------------------------- */
@@ -314,7 +313,7 @@ static uint8_t pia0a_pins(const coco_t *m) {
 
 /* A 32 or 64 KB CoCo wires PIA0 PB6 to PIA1 PB2 (XRoar; §18). */
 static bool linked_pb(const coco_t *m) {
-    return m->cfg.machine == COCO_MACHINE_COCO && m->cfg.ram_k >= 32;
+    return m->cfg.ram_k >= 32;
 }
 
 /* Port B has no pull-ups, unlike port A (MC6821 datasheet): an input
@@ -328,24 +327,15 @@ static uint8_t pia0b_pins(const coco_t *m) {
 
 /* PIA1 port B: on the CoCo, PB2 is the RAM-size strap, low with 4K chips
  * and pulled high with 16K, or the link to PIA0 PB6 with 32K and 64K
- * (XRoar; §18). The Dragon's PB0 is the printer's BUSY, and its PB2 is
- * high with 4K or 16K chips and low with larger (XRoar's dragon32.c; the
- * Dragon 32's boot trace agrees in 16, 32 and 64 KB, 2026-11-14). */
+ * (XRoar; §18). */
 static uint8_t pia1b_pins(const coco_t *m) {
     /* PB1, the single-bit sound, set as an input reads the sound bus
      * back, inverted (XRoar's single_bit_feedback): high while the bus is
      * under 0.3 of its full scale (§10). XRoar feeds it back only once
-     * its sound has updated, and reads it low before then: the Dragon 32
-     * reads it 23 instructions after reset (2026-11-14, §18). */
+     * its sound has updated, and reads it low before then (§18). */
     uint8_t in = (m->sound_fed && m->sound_level < COCO_SOUND_PB1_LOW) ? 0x02u : 0x00u;
-    if (m->cfg.machine == COCO_MACHINE_COCO) {
-        if (m->cfg.ram_k == 16) in |= 0x04u;
-        else if (linked_pb(m) && (mc6821_out(&m->pia0.b) & 0x40u)) in |= 0x04u;
-    } else {
-        /* PB0 is BUSY, which XRoar's printer, absent, never asserts,
-         * over the pull-up (its pia1b_data_preread; §18). */
-        if (m->cfg.ram_k <= 16) in |= 0x04u;
-    }
+    if (m->cfg.ram_k == 16) in |= 0x04u;
+    else if (linked_pb(m) && (mc6821_out(&m->pia0.b) & 0x40u)) in |= 0x04u;
     return in;
 }
 
@@ -442,18 +432,10 @@ static uint8_t open_bus(const coco_t *m) {
     return m->rom_present[1] ? m->rom[COCO_ROM_SIZE - 1u] : 0xFFu;
 }
 
-/* The CoCo's PIAs, and an unexpanded Dragon 32's, ignore A2 and repeat
- * over their 32 bytes; a Dragon with more than 32 KB answers only with A2
- * low (XRoar's relaxed decode; §8.1, §18). */
-static bool pia_selected(const coco_t *m, uint16_t a) {
-    return m->cfg.machine == COCO_MACHINE_COCO || m->cfg.ram_k <= 32 || !(a & 4u);
-}
-
 static uint8_t io_read(coco_t *m, uint16_t a) {
     unsigned off = a & 0xFFu;
     unsigned reg = a & 3u;
     if (off < 0x20u) {
-        if (!pia_selected(m, a)) return open_bus(m);
         before_pia(m);
         if (reg == 0u) m->pia0.a.in = pia0a_pins(m);
         if (reg == 2u) m->pia0.b.in = pia0b_pins(m);
@@ -462,7 +444,6 @@ static uint8_t io_read(coco_t *m, uint16_t a) {
         return v;
     }
     if (off < 0x40u) {
-        if (!pia_selected(m, a)) return open_bus(m);
         before_pia(m);
         if (reg == 2u) m->pia1.b.in = pia1b_pins(m);
         /* PA0 is the cassette's comparator, low with no tape (XRoar; the
@@ -482,7 +463,6 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
     unsigned off = a & 0xFFu;
     unsigned reg = a & 3u;
     if (off < 0x20u) {
-        if (!pia_selected(m, a)) return;
         before_pia(m);
         mc6821_write(&m->pia0, reg, v);
         if (reg & 1u) update_sound(m);   /* CA2 and CB2 choose the source */
@@ -491,7 +471,6 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         return;
     }
     if (off < 0x40u) {
-        if (!pia_selected(m, a)) return;
         before_pia(m);
         mc6821_write(&m->pia1, reg, v);
         if (reg == 3u) cart_q(m, access_tick(m) + m->tpc);
@@ -545,26 +524,6 @@ void coco_init(coco_t *m, const coco_config_t *cfg) {
     m->cfg = *cfg;
     set_ram_org(m);
 
-    /* NTSC's field, from the MC6847's figures as XRoar counts them (§13.1,
-     * §18: medium). */
-    m->line_ticks = 57u * 16u;
-    m->field_lines = 262u;
-    m->fs_fall_line = 13u + 25u + 192u;
-    m->active_line = 13u + 25u;
-    m->hs_low_ticks = 64u;
-    if (cfg->machine == COCO_MACHINE_DRAGON32) {
-        /* The Dragon's PAL field, as XRoar's vdg_pal.c makes it (§13.1,
-         * §18: low): the VDG is held for 25 lines of HS alone at its line
-         * 254 and again at its line 0, where FS has just risen. So 312
-         * lines, every one with its HS; FS falls 25 + 230 lines in. The VDG
-         * starts at its line 0 with nothing held, so the first field lacks
-         * the leading 25. */
-        m->field_lines = 262u + 50u;
-        m->fs_fall_line = 25u + m->fs_fall_line;
-        m->active_line = 25u + m->active_line;
-        m->field_lead = 25u;
-    }
-
     m->tpc = 16u;
     mc6809_init(&m->cpu);
     pcm_init(&m->pcm, 0, COCO_SOUND_LEVEL_MAX, COCO_TICK_HZ, 0, 0);
@@ -572,10 +531,7 @@ void coco_init(coco_t *m, const coco_config_t *cfg) {
 }
 
 bool coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len) {
-    if (base == 0x8000u && len == COCO_ROM_SIZE) {
-        memcpy(m->rom, data, len);
-        m->rom_present[0] = m->rom_present[1] = true;
-    } else if ((base == 0x8000u || base == 0xA000u) && len == COCO_ROM_HALF) {
+    if ((base == 0x8000u || base == 0xA000u) && len == COCO_ROM_HALF) {
         unsigned half = base == 0xA000u;
         memcpy(&m->rom[half * COCO_ROM_HALF], data, len);
         m->rom_present[half] = true;
@@ -618,8 +574,8 @@ void coco_reset(coco_t *m) {
     uint64_t t = coco_ticks(m);
     memset(m->irq_due, 0, sizeof(m->irq_due));
     m->hs_seen = t;
-    m->pia0.a.c1 = hs_level(m, t);
-    m->pia0.b.c1 = t - m->field_start < (uint64_t)m->fs_fall_line * m->line_ticks;
+    m->pia0.a.c1 = hs_level(t);
+    m->pia0.b.c1 = t - m->field_start < (uint64_t)COCO_FS_FALL_LINE * COCO_LINE_TICKS;
     cart_q(m, t + m->tpc);
     update_irq(m);
     update_sound(m);   /* the bus holds what it had: nothing drives it */
@@ -631,9 +587,7 @@ void coco_power_on(coco_t *m) {
     memset(m->keys, 0, sizeof(m->keys));
     mc6809_init(&m->cpu);
     m->tick0 = m->cyc0 = 0;
-    /* The first field began field_lead lines before tick 0: modulo 2^64,
-     * as every use of field_start adds to it or subtracts it. */
-    m->field_start = 0u - (uint64_t)m->field_lead * m->line_ticks;
+    m->field_start = 0;
     m->fields = 0;
     m->sound_fed = false;
     m->sound_level = 0;   /* XRoar's bus starts at 0 */
@@ -689,8 +643,8 @@ uint32_t COCO_HOT2(coco_run)(coco_t *m, uint32_t ticks) {
  * taken (EL §5.6). */
 uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
     uint64_t start = coco_ticks(m);
-    uint64_t fall = m->field_start + (uint64_t)m->fs_fall_line * m->line_ticks;
-    uint64_t end = m->field_start + (uint64_t)m->field_lines * m->line_ticks;
+    uint64_t fall = m->field_start + (uint64_t)COCO_FS_FALL_LINE * COCO_LINE_TICKS;
+    uint64_t end = m->field_start + (uint64_t)COCO_FIELD_LINES * COCO_LINE_TICKS;
 
     uint64_t now = coco_ticks(m);
     if (now < fall) (void)coco_run(m, (uint32_t)(fall - now));
@@ -708,7 +662,7 @@ uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
     if (m->video_split) m->split_fields++;
     m->video_split = false;
 
-    uint64_t active = end + (uint64_t)m->active_line * m->line_ticks;
+    uint64_t active = end + (uint64_t)COCO_ACTIVE_LINE * COCO_LINE_TICKS;
     now = coco_ticks(m);
     if (now < active) (void)coco_run(m, (uint32_t)(active - now));
     /* The samples up to here, for the port to drain with the snapshot. */

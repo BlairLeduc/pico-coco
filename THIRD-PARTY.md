@@ -6,7 +6,7 @@ pico-atom and pico-oric, by the same author under the same licence
 (`docs/design.md` §5, D9); a copied file that carries third-party material
 brings its entry here with it.
 
-## The CoCo's and the Dragon's ROMs
+## The CoCo's ROMs
 
 Not in the tree, and not in the firmware (`docs/design.md` §12.1, D10).
 `roms/` holds only a README; the emulator reads the ROMs from the SD card and

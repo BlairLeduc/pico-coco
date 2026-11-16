@@ -13,8 +13,7 @@
  * path are its. What changes is the guest's: typing is by character
  * (§11.3), so an entry may take the guest's SHIFT away as well as add
  * it, and the CoCo 1 and 2 have no CTRL. M12: game layouts and the
- * keyboard joystick. M14: the Dragon's arrangement of the rows; until
- * then this drives the CoCo's only.
+ * keyboard joystick.
  *
  * Runs on core 0, which owns coco_t. Events reach it through the port's
  * queue from core 1, which owns the I2C bus (§6).

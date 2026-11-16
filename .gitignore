@@ -5,7 +5,7 @@ out/
 test/suites/
 reference/
 
-# The CoCo's and the Dragon's ROMs are copyrighted and not distributed
+# The CoCo's ROMs are copyrighted and not distributed
 # (design.md §12.1, D10): roms/ is a staging area, and only its README is
 # in git.
 roms/*

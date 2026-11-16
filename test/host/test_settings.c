@@ -93,7 +93,7 @@ int main(void) {
             { "volume = -1\n",         SET_BAD_VALUE },
             { "volume = 99999999999\n", SET_BAD_VALUE },
             { "perf = yes\n",          SET_BAD_VALUE },
-            { "machine = dragon32\n",  SET_UNKNOWN },     /* frozen until M14 */
+            { "machine = dragon32\n",  SET_UNKNOWN },     /* the CoCo only (D6) */
             { "layout = games\n",      SET_UNKNOWN },     /* M12 */
         };
         for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {

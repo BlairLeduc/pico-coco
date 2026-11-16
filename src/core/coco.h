@@ -37,13 +37,8 @@ typedef struct {
     uint8_t       *write;
 } page_t;
 
-typedef enum {
-    COCO_MACHINE_COCO = 0,     /* the CoCo 1 and 2 (D6)                    */
-    COCO_MACHINE_DRAGON32 = 1, /* the second wiring: PAL, on the host from M3 */
-} coco_machine_t;
-
+/* The machine is the CoCo 1 or 2, and only that (D6). */
 typedef struct {
-    coco_machine_t machine;
     unsigned       ram_k;      /* 4, 16, 32 or 64                          */
     bool           tape_trap;  /* serve Color BASIC's tape routines (tape.h) */
 } coco_config_t;
@@ -60,7 +55,8 @@ typedef struct {
 } coco_frame_t;
 
 /* The sound bus's level (§10, §18: low): XRoar's voltages, measured on a
- * real Dragon, in hundredths of a volt over 126, so that every input,
+ * real Dragon and assumed the CoCo's, in hundredths of a volt over 126,
+ * so that every input,
  * the DAC's 6 bits over 63 and the idle tape's half, is exact. 4.70 V,
  * the most any source reaches, is the full scale; at 0.3 of it or more,
  * PIA1 PB1 set as an input reads low (coco.c). */
@@ -86,9 +82,7 @@ typedef struct coco_s {
      * cycle count cyc0, and the ticks a cycle takes from there. */
     uint64_t tick0, cyc0;
     uint32_t tpc;
-    uint64_t field_start;      /* the tick the current field began, modulo
-                                * 2^64: before tick 0 on a PAL machine,
-                                * whose first field is short (coco.c)    */
+    uint64_t field_start;      /* the tick the current field began       */
     uint64_t hs_seen;          /* HS edges are accounted up to here     */
     uint64_t irq_due[COCO_PIA_PORTS]; /* PIA0 A, B, PIA1 A, B: a rise due */
     uint32_t fields;
@@ -106,14 +100,6 @@ typedef struct coco_s {
     uint32_t video_bits;
     bool     video_split;
     uint32_t split_fields;
-
-    /* The field's shape, computed at power-on (§13.1, §18: medium). */
-    uint32_t line_ticks;       /* 57 E cycles of 16 ticks               */
-    uint32_t field_lines;      /* 262 on NTSC, 312 on PAL               */
-    uint32_t fs_fall_line;     /* FS falls as this line begins          */
-    uint32_t field_lead;       /* PAL: lines the first field lacks      */
-    uint32_t active_line;      /* the first active line                 */
-    uint32_t hs_low_ticks;     /* HS is low this long from a line's start */
 
     /* RAM: the chips' organisation, from the size (§8.1). */
     uint8_t  ram_addr_bits;    /* address bits of one chip              */
@@ -146,8 +132,7 @@ void     coco_config_default(coco_config_t *cfg);
  * Load the ROMs next, then power on. */
 void     coco_init(coco_t *m, const coco_config_t *cfg);
 
-/* A ROM image at `base`: $8000 or $A000 for 8 KB, $8000 for 16 KB (the
- * Dragon's, or the CoCo's two in one file), $C000 for a cartridge of up to
+/* A ROM image at `base`: $8000 or $A000 for 8 KB, $C000 for a cartridge of up to
  * 16 KB, which autostarts (coco_cart_autostart). False for any other
  * placement. */
 bool     coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len);

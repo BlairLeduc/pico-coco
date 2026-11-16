@@ -171,7 +171,7 @@ int main(void) {
                                           : mc.basic == ROM_COCO_BAS11 ? BOOT_COLOR11 : BOOT_COLOR13),
                romset_images[mc.basic].file,
                mc.extended ? ", extbas11.rom" : "",
-               (unsigned long)(g_coco.line_ticks * g_coco.field_lines),
+               (unsigned long)COCO_FIELD_TICKS,
                (unsigned)PICO_COCO_RAM_TIER,
                PICO_COCO_FIELD_LOG ? ", logging the first fields" : "");
 #if PICO_COCO_AUDIO

@@ -131,14 +131,14 @@ static int four_k(void) {
         printf("  note: no Color BASIC 1.1 (bas11.rom): the 4 KB case is not run\n");
         return 0;
     }
-    guest_build_as(&g, COCO_MACHINE_COCO, 4, ROM_COCO_BAS11, false);
+    guest_build_as(&g, 4, ROM_COCO_BAS11, false);
     CHECK(guest_boot(&g), "boot 4K");
     guest_type(&g, "10 A=A+1:PRINT A;:GOTO 10\n");
     guest_type(&g, "RUN\n");
     CHECK(guest_settle(&g, 50), "the keys did not settle");
     guest_fields(&g, 31);
 
-    guest_build_as(&h, COCO_MACHINE_COCO, 16, ROM_COCO_BAS13, false);
+    guest_build_as(&h, 16, ROM_COCO_BAS13, false);
     CHECK(guest_boot(&h), "boot 16K");
     coco_copy(&saved, &h.m);
     CHECK(mem_save(&snap, &g.m, NULL) == SNAP_OK, "save 4K");
@@ -147,11 +147,11 @@ static int four_k(void) {
     CHECK(mem_load(&snap, &h.m) == SNAP_OTHER_ROM, "loaded into 16K 1.3");
     CHECK(snap_same(&saved, &h.m, "refused"), "the refusing machine changed");
     CHECK(info.ram_k == 4u && info.rom_present[1] && info.rom[1] == ROM_COCO_BAS11 &&
-          !info.rom_present[0] && !info.cart && info.machine == COCO_MACHINE_COCO,
+          !info.rom_present[0] && !info.cart,
           "the info: %u K, ROM %d", info.ram_k, (int)info.rom[1]);
 
     /* Powered on as the info says, as the port does. */
-    guest_build_as(&h, info.machine, info.ram_k, info.rom[1], info.rom_present[0]);
+    guest_build_as(&h, info.ram_k, info.rom[1], info.rom_present[0]);
     guest_fields(&h, 5);
     return meet(&g.m, &h.m, false, "4K Color BASIC 1.1");
 }
@@ -163,7 +163,7 @@ static int four_k(void) {
 static bool step_until(coco_t *m, bool (*pred)(const coco_t *), int max_fields, int enter_fields) {
     for (int f = 0; f < max_fields; f++) {
         coco_key_set(m, 6, 0, f < enter_fields);
-        uint64_t fall = m->field_start + (uint64_t)m->fs_fall_line * m->line_ticks;
+        uint64_t fall = m->field_start + (uint64_t)COCO_FS_FALL_LINE * COCO_LINE_TICKS;
         while (coco_ticks(m) + 64u < fall) {
             coco_run(m, 1);
             if (pred(m)) {
