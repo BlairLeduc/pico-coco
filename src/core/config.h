@@ -156,4 +156,15 @@
 #define COCO_ROM_DIR     "/coco/roms"
 #define COCO_CARD_CHUNK       512u  /* a file read a sector at a time      */
 
+/* The settings file, /coco/coco.ini (§12.6, settings.h). */
+#define COCO_SETTINGS_FILE_MAX 2048u
+#define COCO_SETTINGS_LINE_MAX (COCO_PATH_MAX + 32u)
+
+/* The deck's buffer, the whole of a CAS image (§12.3, §16, tape.h), and
+ * the menu's lists of tapes and cartridges (§14). */
+#define COCO_TAPE_IMAGE_MAX  65536u
+#define COCO_MEDIA_NAME_MAX     16u  /* a new tape's name, typed in        */
+#define COCO_TAPE_LIST_MAX      64u
+#define COCO_CART_LIST_MAX      64u
+
 #endif /* PICO_COCO_CONFIG_H */

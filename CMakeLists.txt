@@ -26,6 +26,7 @@ set(PICO_COCO_CORE_SOURCES
     src/core/pcm.c
     src/core/present.c
     src/core/romset.c
+    src/core/settings.c
     src/core/sam6883.c
     src/core/sha1.c
     src/core/snappool.c

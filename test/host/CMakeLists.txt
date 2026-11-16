@@ -15,6 +15,7 @@ set(PICO_COCO_HOST_TESTS
     test_status
     test_textpage
     test_audio
+    test_settings
 )
 
 foreach(t ${PICO_COCO_HOST_TESTS})
