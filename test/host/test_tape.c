@@ -53,7 +53,7 @@ static bool screen_has(const coco_t *m, const char *s) {
 }
 
 static void boot_with_tape(guest_t *gg, unsigned ram_k, rom_id_t basic, bool ext) {
-    guest_build_as(gg, COCO_MACHINE_COCO, ram_k, basic, ext);
+    guest_build_as(gg, ram_k, basic, ext);
     coco_tape_attach(&gg->m, g_tape, TAPE_CAP);
     guest_boot(gg);
 }

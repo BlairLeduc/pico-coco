@@ -1,4 +1,4 @@
-/* mc6847.h — the MC6847 VDG, as the CoCo and the Dragon wire it
+/* mc6847.h — the MC6847 VDG, as the CoCo wires it
  * (design.md §9), adapted from pico-atom's.
  *
  * There is no decoded framebuffer (§9.1): the picture is a function of

@@ -1,16 +1,14 @@
 # pico-coco
 
 A **Tandy Color Computer 1/2** emulator for the **ClockworkPi PicoCalc**, in C
-against the Raspberry Pi Pico SDK, which will also run the **Dragon 32 and
-64**. It is a member of the pico-atom family: pico-atom's architecture, its
+against the Raspberry Pi Pico SDK, and for that machine only. It is a member of the pico-atom family: pico-atom's architecture, its
 MC6847, its port layer and its menu, with a new MC6809 in place of the 6502.
 
 **Status: M7, the CoCo on the PicoCalc.** Extended Color BASIC boots
 from your ROMs on the card and runs at the machine's own speed, with its
 picture on the panel and the PicoCalc's keyboard as the CoCo's. On the
 workstation the same core runs instruction for instruction as XRoar
-does, and the Dragon 32 boots there too. There is no sound, menu, tape
-or disc yet.
+does. There is no sound, menu, tape or disc yet.
 See [`docs/design.md`](docs/design.md) for the
 design and [`docs/milestones.md`](docs/milestones.md) for what has been
 checked.

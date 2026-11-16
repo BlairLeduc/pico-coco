@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "coco-fields: the ROMs are not in %s\n", dir);
         return 1;
     }
-    guest_build_as(&g, COCO_MACHINE_COCO, ram, basic, ext);
+    guest_build_as(&g, ram, basic, ext);
 
     char line[COCO_FIELD_LOG_LINE];
     for (unsigned f = 0; f < fields; f++) {

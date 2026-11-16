@@ -163,9 +163,9 @@ static void replay_hook(coco_t *m) {
     if (bits != s_bits_seen) {
         uint32_t d = bits ^ s_bits_seen;
         s_bits_seen = bits;
-        uint64_t line = (coco_ticks(m) - m->field_start) / m->line_ticks;
-        if (line >= m->active_line && line < m->active_line + COCO_PIC_H) {
-            int l = (int)(line - m->active_line);
+        uint64_t line = (coco_ticks(m) - m->field_start) / COCO_LINE_TICKS;
+        if (line >= COCO_ACTIVE_LINE && line < COCO_ACTIVE_LINE + COCO_PIC_H) {
+            int l = (int)(line - COCO_ACTIVE_LINE);
             if (d & ((uint32_t)VDG_CSS << 16)) s_rl.changed |= CH_CSS;
             if (d & ((uint32_t)(VDG_AG | VDG_GM_MASK) << 16)) s_rl.changed |= CH_MODE;
             if (d & SAM_V_MASK) s_rl.changed |= CH_SAMV;
@@ -537,7 +537,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "coco-corpus: the ROMs are not in %s\n", dir);
         return 77;
     }
-    guest_build_as(&s_booted, COCO_MACHINE_COCO, ram, basic, ext);
+    guest_build_as(&s_booted, ram, basic, ext);
     if (!guest_boot(&s_booted)) {
         fprintf(stderr, "coco-corpus: BASIC did not reach OK\n");
         return 1;

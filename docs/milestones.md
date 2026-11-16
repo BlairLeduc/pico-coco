@@ -4,6 +4,59 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## The CoCo only: the Dragon and the PAL field removed
+
+On branch `coco-only`, 2026-11-16, between M11 and M12 (`design.md` D6,
+revised). On the owner's board. **Done.**
+
+**Decided.** The owner removed the Dragon 32 and 64 and the PAL field at
+50 Hz, to make this a CoCo 1/2 emulator and optimise for it. M14 is
+withdrawn; the later milestones keep their numbers.
+
+**Built.** The field's shape is `config.h`'s constants
+(`COCO_LINE_TICKS`, `COCO_FIELD_LINES`, `COCO_ACTIVE_LINE`,
+`COCO_FS_FALL_LINE`, `COCO_HS_LOW_TICKS`), no longer six fields of
+`coco_t` set at power-on, so the field loop divides by a constant.
+`coco_config_t` has no machine; the Dragon's PIA decode, PB0 and PB2
+wiring, its ROM in `romset`, the 16 KB ROM placement and the PAL field
+are gone, and `COCO_ROM_IMAGE_MAX` is 8 KB. The host harness types only
+through the PicoCalc's path; `coco-trace` and `trace-coco.sh` lose
+`-machine`. The snapshot format is unchanged: the machine byte must be
+0 and the field the constants, so a Dragon 32's state, which only the
+host could write, is refused as not a snapshot (`test_snapshot`), and
+the owner's slots still load.
+
+**Tests.** `test_boot` loses its two Dragon boots and `test_machine` its
+PAL field and Dragon decode; `test_machine` now holds the CoCo's field
+to 262 lines and its PIAs to repeating over 32 bytes in 4, 16, 32 and
+64 KB. A planted decode answering only with A2 low above 32 KB failed
+it. All 28 host tests pass (Apple clang, 2026-11-16). The trace diff
+agrees with XRoar over 2,187,479 instructions (64 KB, Extended, `PRINT
+2+3`) and 2,217,049 (4 KB, Color BASIC 1.1). The development, release
+and UART0 images build.
+
+**Measured** on the owner's Plus 2 W at tier 2, the M11 image (`m11`
+head) as the control in the same sitting, six workloads of eight
+heartbeats each (`tools/perf-run.sh`, `out/coco-only/`):
+
+| Workload | M11 busy | CoCo only | M11 host cyc/insn | CoCo only |
+|---|---:|---:|---:|---:|
+| compute | 19.1 % | 18.5 % | 110.1 | 108.3 |
+| idle | 23.8 % | 22.7 % | 135.6 | 129.9 |
+| pmode4 | 18.7 % | 18.3 % | 123.6 | 122.9 |
+| scroll | 24.7 % | 22.9 % | 161.2 | 149.3 |
+| set | 18.9 % | 18.5 % | 104.9 | 104.0 |
+| sound | 24.4 % | 23.6 % | 108.0 | 104.9 |
+
+Guest cycles an instruction are equal in every row, rt 0.999 to 1.000,
+nothing dropped. The snapshot's share fell from 3.70-3.78 % to
+3.45-3.54 %. `coco_run` and `coco_run_field` hold one 64-bit library
+division where M11's held two; both grew (`coco_run` 800 to 932 bytes)
+as the compiler turned divisions by the line into multiplications.
+
+**Not checked.** No soak on this image; the panel not looked at, though
+nothing the port draws changed.
+
 ## M11: the perf pass, the archive run, the soak
 
 On branch `m11`, 2026-11-15 and 16 (`design.md` §17). On the owner's
