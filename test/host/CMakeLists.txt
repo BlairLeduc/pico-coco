@@ -12,6 +12,8 @@ set(PICO_COCO_HOST_TESTS
     test_video
     test_present
     test_keymap
+    test_status
+    test_textpage
 )
 
 foreach(t ${PICO_COCO_HOST_TESTS})
@@ -138,3 +140,11 @@ add_test(NAME test_mc6847_golden COMMAND test_mc6847_golden)
 add_executable(vdg-ppm ${PROJECT_SOURCE_DIR}/tools/vdg-ppm.c)
 target_link_libraries(vdg-ppm PRIVATE vdg_scenes)
 target_compile_options(vdg-ppm PRIVATE ${PICO_COCO_WARNINGS})
+
+# The missing-ROM pages, rendered to be looked at (design.md §12.1). roms.c
+# is the port's, and includes no SDK header, so the host builds it here.
+add_executable(page-ppm ${PROJECT_SOURCE_DIR}/tools/page-ppm.c
+               ${PROJECT_SOURCE_DIR}/src/port/roms.c frame_ppm.c)
+target_link_libraries(page-ppm PRIVATE pico_coco_core)
+target_include_directories(page-ppm PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/src/port)
+target_compile_options(page-ppm PRIVATE ${PICO_COCO_WARNINGS})

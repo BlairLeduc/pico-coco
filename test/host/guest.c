@@ -6,8 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SCREEN_ROWS 16
-#define SCREEN_COLS 32
+#include "textpage.h"
+
 
 /* The Dragon's typing: whole fields held, and whole fields between keys,
  * as M3 left it (§17: the Dragon is frozen until M14). */
@@ -186,34 +186,18 @@ void guest_press(guest_t *g, uint8_t code, bool shift, bool alt) {
 
 /* ---- the screen ------------------------------------------------------ */
 
-/* A text cell: bit 7 a semigraphics block; otherwise six bits of the
- * VDG's character set, which runs @ A-Z [ \ ] up-arrow left-arrow, then
- * space to ?, with bit 6 clear for inverse (§3.4, §9.2). */
-static char cell_char(uint8_t b) {
-    if (b & 0x80u) return ' ';
-    uint8_t c = b & 0x3Fu;
-    return (char)(c < 0x20u ? c + 0x40u : c);
-}
-
+/* The core's reading of the screen (textpage.h), which the firmware uses
+ * for the boot's "OK" and the UART's screen dump, so the two agree. */
 const char *guest_row(const coco_t *m, int row) {
-    static char buf[SCREEN_COLS + 1];
-    uint16_t base = (uint16_t)(sam6883_display_base(&m->sam) + row * SCREEN_COLS);
-    int n = 0;
-    for (int c = 0; c < SCREEN_COLS; c++) {
-        int32_t i = coco_ram_index(m, (uint16_t)(base + c));
-        buf[n++] = i < 0 ? ' ' : cell_char(m->ram[i]);
-    }
-    while (n > 0 && buf[n - 1] == ' ') n--;
-    buf[n] = 0;
+    static char buf[TEXT_COLS + 1];
+    textpage_screen_row(m, row, buf);
     return buf;
 }
 
 int guest_find_row(const coco_t *m, const char *s, int from) {
-    for (int r = from; r < SCREEN_ROWS; r++)
-        if (strncmp(guest_row(m, r), s, strlen(s)) == 0) return r;
-    return -1;
+    return textpage_screen_find(m, s, from);
 }
 
 void guest_dump(const coco_t *m, FILE *f) {
-    for (int r = 0; r < SCREEN_ROWS; r++) fprintf(f, "  |%-32s|\n", guest_row(m, r));
+    for (int r = 0; r < TEXT_ROWS; r++) fprintf(f, "  |%-32s|\n", guest_row(m, r));
 }

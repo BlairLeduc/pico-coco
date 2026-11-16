@@ -12,21 +12,23 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M6 is done** (`docs/design.md` §17): the CoCo on the host,
-with its picture and its keyboard, and the board brought up. The MC6809 core, the SAM, the PIAs and
+**Status: M7 is done** (`docs/design.md` §17): the CoCo on the host,
+with its picture and its keyboard, and now on the board. The MC6809 core, the SAM, the PIAs and
 the field loop boot Color BASIC 1.3 and Extended 1.1 in 16 to 64 KB and
-Color BASIC 1.1 in 4 KB, and the trace diff holds every instruction to
+Color BASIC 1.1 in 4 to 64 KB, and the trace diff holds every instruction to
 XRoar 1.13's through boot and typing. The SAM's video counter, the VDG and
 the snapshot are held pixel for pixel to XRoar's MC6883 and MC6847 by
 `test_vdg_oracle`. PicoCalc key events reach the matrix through
 `keymatrix.c` and the table in `keymap_picocalc.c`, settled by sweeping
 the ROMs (`test_keyboard`). **The Dragon is frozen until M14** (the owner,
 2026-11-15): M3's Dragon 32 stays and its tests keep passing, but
-nothing is added to it. On the board, the image brings up the
-southbridge, the panel's test pattern and the card, lists `/coco/roms/` by
-SHA-1 and logs every key event with its cell, on the owner's Plus 2 W (the
-only board; it needs the UART0 build). It does not run the machine until
-M7. The record of each milestone (what was
+nothing is added to it. On the board (the owner's Plus 2 W, the only
+board; it needs the UART0 build), core 1 loads Extended Color BASIC's
+ROMs off the card by SHA-1, or shows the page naming what is missing,
+and presents snapshots in dirty bands with the perf line; core 0 runs
+the CoCo a field at a time, paced on the timer, and its first 150 fields
+equal the host's (`tools/coco-fields.c`, `-DPICO_COCO_FIELD_LOG=ON`).
+The record of each milestone (what was
 verified, on which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
 
@@ -111,6 +113,14 @@ tools/uart-log.sh 30 out/run.log &   # capture UART1 first, so the banner is in 
 tools/flash.sh                       # reset halt + resume, never reset run (HW §2.7)
 tools/flash.sh build/uart0/pico-coco.elf   # the owner's board, which has the clock
 tools/flash.sh build/uart0/pico-coco-bench.elf   # M2's gate: the CPU alone, timed
+tools/uart-type.sh 'PRINT 2+3\r'      # type at the guest over the UART
+tools/uart-screen.sh                 # the guest's text screen into the log
+tools/perf-run.sh build/uart0/pico-coco.elf out/m7/t2   # workloads; perf-summary.sh reduces them
+
+# the board's first 150 fields against the host's (design.md §15.5)
+tools/build.sh -DPICO_COCO_UART_PORT=0 -DPICO_COCO_FIELD_LOG=ON build/fieldlog
+build/host/coco-fields > out/fields-host.txt  # compare with the log's "fieldlog" lines
+build/host/test/host/page-ppm out/pages        # the missing-ROM pages, to look at
 
 # the trace diff against XRoar (design.md §15.2): XRoar built headless by
 # tools/trace/build-xroar.sh, the host build's coco-trace, ROMs in roms/

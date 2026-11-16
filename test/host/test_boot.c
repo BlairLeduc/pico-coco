@@ -6,7 +6,8 @@
  * expanded to 64, the second wiring (§3.1). Each to its banner and "OK",
  * read from video RAM; then a sum typed through the matrix, the CoCo's
  * or the Dragon's, and answered on the screen; every letter, digit and
- * shifted symbol typed and printed back; and PRINT MEM, the ROM's own
+ * shifted symbol typed and printed back; a page of text written from
+ * the screen (textpage.h) equal to what BASIC wrote; and PRINT MEM, the ROM's own
  * sizing of memory, against what XRoar prints, the trace diff having held
  * the two together through it (2026-11-14).
  *
@@ -23,8 +24,33 @@
 
 #include "guest.h"
 #include "test_util.h"
+#include "textpage.h"
 
 static guest_t g;
+static coco_frame_t snap, page;
+
+/* A page written from the screen's text (textpage.h) holds the bytes
+ * Color BASIC wrote, line for line where the VDG fetches them: the page's
+ * writing and the screen's reading agree with the ROM's, and a page is
+ * laid out as the SAM's counter lays out the text screen. Semigraphics
+ * cells (the cursor) read as spaces and are not compared. Returns the
+ * cells that differ. */
+static unsigned page_against_screen(const coco_t *m, unsigned *compared) {
+    coco_video_snapshot(m, &snap);
+    textpage_clear(&page);
+    for (int r = 0; r < TEXT_ROWS; r++) textpage_line(&page, r, guest_row(m, r), false);
+    unsigned bad = 0;
+    *compared = 0;
+    for (unsigned y = 0; y < COCO_PIC_H; y++) {
+        for (unsigned c = 0; c < TEXT_COLS; c++) {
+            uint8_t b = snap.lines[y * COCO_VDG_LINE_BYTES + c];
+            if (b & VDG_BYTE_AS) continue;
+            (*compared)++;
+            if (page.lines[y * COCO_VDG_LINE_BYTES + c] != b) bad++;
+        }
+    }
+    return bad;
+}
 
 typedef struct {
     coco_machine_t machine;
@@ -42,6 +68,8 @@ int main(void) {
     static const boot_t boots[] = {
         { COCO_MACHINE_COCO,     ROM_COCO_BAS11, 4,  false, "COLOR BASIC 1.1",          " 2343"  },
         { COCO_MACHINE_COCO,     ROM_COCO_BAS11, 16, false, "COLOR BASIC 1.1",          " 14631" },
+        /* The board's fallback without 1.3 (src/port/roms.c). */
+        { COCO_MACHINE_COCO,     ROM_COCO_BAS11, 64, false, "COLOR BASIC 1.1",          NULL     },
         { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 16, false, "COLOR BASIC 1.3",          " 14631" },
         { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 32, false, "COLOR BASIC 1.3",          " 31015" },
         { COCO_MACHINE_COCO,     ROM_COCO_BAS13, 64, false, "COLOR BASIC 1.3",          " 31015" },
@@ -68,6 +96,12 @@ int main(void) {
         if (!ok) { guest_dump(&g.m, stderr); continue; }
         CHECK(guest_find_row(&g.m, b->banner, 0) >= 0, "%u KB: no \"%s\" on the screen",
               b->ram_k, b->banner);
+        if (b->machine == COCO_MACHINE_COCO) {
+            unsigned compared, bad = page_against_screen(&g.m, &compared);
+            CHECK(bad == 0 && compared > 180u * TEXT_COLS,
+                  "%u KB %s: a page of the screen's text differs in %u of %u line bytes",
+                  b->ram_k, b->banner, bad, compared);
+        }
 
         guest_type(&g, "PRINT 2+3\n");
         int r = guest_find_row(&g.m, "PRINT 2+3", 0);

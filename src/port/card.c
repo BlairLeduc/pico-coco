@@ -56,7 +56,40 @@ static FRESULT hash_file(const char *path, uint32_t *len, uint8_t digest[SHA1_DI
     return fr;
 }
 
-static void one_rom(card_job_t *j, const FILINFO *fi) {
+/* A recognised image read whole into `dst`, which is its size. */
+static bool load_file(const char *path, uint8_t *dst, uint32_t size) {
+    FIL *f = &s_file;
+    if (f_open(f, path, FA_READ) != FR_OK) return false;
+    UINT got = 0;
+    FRESULT fr = f_read(f, dst, size, &got);
+    f_close(f);
+    return fr == FR_OK && got == size;
+}
+
+/* The images the CoCo boots from (card.h): 1.3 over 1.1, whichever the
+ * card lists first. */
+static void maybe_load(card_job_t *j, rom_id_t id, const char *path, const char *name,
+                       uint8_t *basic, uint8_t *ext) {
+    uint8_t *dst = NULL;
+    if (id == ROM_COCO_EXTBAS11) dst = ext;
+    else if (id == ROM_COCO_BAS13) dst = basic;
+    else if (id == ROM_COCO_BAS11 && j->basic != ROM_COCO_BAS13) dst = basic;
+    if (!dst) return;
+    uint32_t size = romset_images[id].size;
+    uint32_t t0 = time_us_32();
+    bool ok = size == COCO_ROM_HALF && load_file(path, dst, size);
+    j->load_us += time_us_32() - t0;
+    if (!ok) {
+        log_core1("  rom          : %s: could not be read again to load it\n", name);
+        if (dst == ext) j->extended = false;
+        else j->basic = ROM_UNKNOWN;   /* the buffer is no longer what it held */
+        return;
+    }
+    if (dst == ext) j->extended = true;
+    else j->basic = id;
+}
+
+static void one_rom(card_job_t *j, const FILINFO *fi, uint8_t *basic, uint8_t *ext) {
     char path[COCO_PATH_MAX];
     j->files++;
     if (snprintf(path, sizeof path, "%s/%s", COCO_ROM_DIR, fi->fname) >= (int)sizeof path) {
@@ -90,10 +123,12 @@ static void one_rom(card_job_t *j, const FILINFO *fi) {
     log_core1("  rom          : %s, %lu bytes, sha1 %s, %s%s, %lu us\n", fi->fname,
               (unsigned long)len, hex, id == ROM_UNKNOWN ? "" : "recognised as ", what,
               (unsigned long)us);
+    if (id != ROM_UNKNOWN) maybe_load(j, id, path, fi->fname, basic, ext);
 }
 
-void card_roms(card_job_t *j) {
+void card_roms(card_job_t *j, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM_HALF]) {
     memset(j, 0, sizeof *j);
+    j->basic = ROM_UNKNOWN;
     if (!sd_present()) {
         j->state = CARD_NONE;
         log_core1("  card         : no card\n");
@@ -126,7 +161,7 @@ void card_roms(card_job_t *j) {
          * §7.1), and a directory is not a ROM. */
         if (fi->fattrib & AM_DIR) continue;
         if (fi->fname[0] == '.' && fi->fname[1] == '_') continue;
-        one_rom(j, fi);
+        one_rom(j, fi, basic, ext);
     }
     f_closedir(dir);
     storage_unmount();
@@ -141,6 +176,9 @@ void card_roms(card_job_t *j) {
     }
     log_core1("  card         : %s has %u files, %u unrecognised; missing:%s\n",
               COCO_ROM_DIR, j->files, j->unknown, at ? missing : " none");
+    log_core1("  card         : loaded %s at $A000%s, %lu us\n",
+              j->basic == ROM_UNKNOWN ? "no Color BASIC" : romset_images[j->basic].file,
+              j->extended ? ", extbas11.rom at $8000" : "", (unsigned long)j->load_us);
 }
 
 bool card_poll(void) {

@@ -1,79 +1,157 @@
-/* display.c — what core 1 puts on the panel (design.md §9). */
+/* display.c — what core 1 puts on the panel (display.h, design.md §9). */
 
 #include "display.h"
+
+#include <string.h>
 
 #include "pico/stdlib.h"
 
 #include "config.h"
 #include "lcd.h"
-
-#define RGB565(r, g, b) \
-    (uint16_t)((((r) & 0xF8u) << 8) | (((g) & 0xFCu) << 3) | ((b) >> 3))
+#include "mc6847.h"
+#include "mc6847_font.h"
+#include "present.h"
+#include "textpage.h"
 
 #define PIC_W COCO_PIC_W
 #define PIC_H COCO_PIC_H
 
-_Static_assert(COCO_PIC_X + PIC_W <= COCO_PANEL_W && COCO_PIC_Y + PIC_H <= COCO_PANEL_H,
-               "the picture must fit on the panel");
-_Static_assert(COCO_LINEBUF_PIXELS >= PIC_W, "a line buffer holds a picture row");
+_Static_assert(COCO_PIC_X >= COCO_BORDER_X && COCO_PIC_Y >= COCO_BORDER_Y &&
+               COCO_PIC_X + PIC_W + COCO_BORDER_X <= COCO_PANEL_W &&
+               COCO_PIC_Y + PIC_H + COCO_BORDER_Y <= COCO_PANEL_H,
+               "the border must fit on the panel");
+_Static_assert(COCO_TEXT_COLS * COCO_TEXT_GLYPH_W == COCO_PANEL_W,
+               "a text line spans the panel");
+_Static_assert(COCO_PERF_Y + COCO_TEXT_GLYPH_H <= COCO_PIC_Y - COCO_BORDER_Y,
+               "the perf line must sit above the border");
+_Static_assert(COCO_STATUS_Y >= COCO_PIC_Y + PIC_H + COCO_BORDER_Y &&
+               COCO_STATUS_Y + COCO_TEXT_GLYPH_H <= COCO_PANEL_H,
+               "the status line must sit below the border");
+_Static_assert(COCO_TEXT_GLYPH_H == MC6847_FONT_ROWS, "the text lines use the VDG's glyphs");
+_Static_assert(COCO_LINEBUF_PIXELS >= COCO_PANEL_W, "a line buffer holds a text line");
 
-/* DMA ping-pong (hardware-notes.md §4.6). */
+#define BORDER_PIXELS \
+    ((PIC_W + 2u * COCO_BORDER_X) * (PIC_H + 2u * COCO_BORDER_Y) - PIC_W * PIC_H)
+
+/* The renderer lives here, on core 1, so its table is rebuilt by the only
+ * core that reads it (§9.3). */
+static mc6847_t  s_vdg;
+static present_t s_present;
+
+/* The colour the border was last filled with: black to begin with, since
+ * lcd_init clears the panel. Nothing else draws there, so an invalidate
+ * leaves it be. M9: the setting that turns it off. */
+static uint16_t s_border_rgb = 0x0000u;
+
+/* DMA ping-pong (hardware-notes.md §4.6), the panel's width so that the
+ * text lines can use them too. */
 static uint16_t s_line[COCO_LINEBUF_COUNT][COCO_LINEBUF_PIXELS];
 
-void display_test_pattern(void) {
-    const unsigned x = COCO_PIC_X, y = COCO_PIC_Y;
-    const unsigned w = PIC_W, h = PIC_H;
-    const unsigned pw = COCO_PANEL_W, ph = COCO_PANEL_H;
-    const uint16_t white = RGB565(0xFF, 0xFF, 0xFF);
-    const uint16_t grey = RGB565(0x80, 0x80, 0x80);
+/* What each text line shows now: blank, as lcd_init left the panel. */
+typedef struct {
+    unsigned y;
+    char     text[COCO_TEXT_COLS];
+} text_line_t;
 
-    lcd_fill(0, 0, pw, ph, 0x0000);
+static text_line_t s_perf   = { .y = COCO_PERF_Y };
+static text_line_t s_status = { .y = COCO_STATUS_Y };
 
-    lcd_fill(0, 0, pw, 1, grey);
-    lcd_fill(0, ph - 1u, pw, 1, grey);
-    lcd_fill(0, 0, 1, ph, grey);
-    lcd_fill(pw - 1u, 0, 1, ph, grey);
-
-    lcd_fill(x, y, w, 1, white);               /* top    */
-    lcd_fill(x, y + h - 1u, w, 1, white);      /* bottom */
-    lcd_fill(x, y, 1, h, white);               /* left   */
-    lcd_fill(x + w - 1u, y, 1, h, white);      /* right  */
-
-    lcd_fill(x + 2u, y + 2u, 16, 16, RGB565(0xFF, 0x00, 0x00));
-    lcd_fill(x + w - 18u, y + 2u, 16, 16, RGB565(0x00, 0xFF, 0x00));
-    lcd_fill(x + 2u, y + h - 18u, 16, 16, RGB565(0x00, 0x00, 0xFF));
-    lcd_fill(x + w - 18u, y + h - 18u, 16, 16, RGB565(0xFF, 0xFF, 0x00));
+void display_init(void) {
+    mc6847_init(&s_vdg);
+    mc6847_set_font(&s_vdg, font_6847);
+    mc6847_set_artefact(&s_vdg, VDG_ARTEFACT_KBRW);   /* §9.5: on, on a CoCo */
+    memset(s_perf.text, ' ', sizeof s_perf.text);
+    memset(s_status.text, ' ', sizeof s_status.text);
+    present_invalidate(&s_present);
 }
 
-void display_measure(uint32_t *fill_us, uint32_t *blit_us, uint32_t *row_us,
-                     uint32_t *panel_us) {
-    const unsigned x = COCO_PIC_X, y = COCO_PIC_Y;
+void display_invalidate(void) {
+    present_invalidate(&s_present);
+}
 
-    /* Two different rows, so the blit is seen to happen. */
-    for (unsigned i = 0; i < PIC_W; i++) {
-        s_line[0][i] = RGB565(i, 0x40, 0xFF - i);
-        s_line[1][i] = RGB565(0xFF - i, i, 0x40);
-    }
+/* A frame COCO_BORDER_X wide and COCO_BORDER_Y tall around the picture,
+ * in four fills, sent only when its colour changes (EL §5.4): between
+ * alphanumeric and graphics, or of CSS in graphics. */
+static bool fill_border(uint8_t mode) {
+    uint16_t rgb = s_vdg.col[mc6847_border(mode)];
+    if (rgb == s_border_rgb) return false;
+    const unsigned bx = COCO_BORDER_X, by = COCO_BORDER_Y;
+    const unsigned x0 = COCO_PIC_X - bx, w = PIC_W + 2u * bx;
+    const unsigned x1 = COCO_PIC_X + PIC_W, y1 = COCO_PIC_Y + PIC_H;
+    lcd_fill(x0, COCO_PIC_Y - by, w, by, rgb);
+    lcd_fill(x0, y1, w, by, rgb);
+    lcd_fill(x0, COCO_PIC_Y, bx, PIC_H, rgb);
+    lcd_fill(x1, COCO_PIC_Y, bx, PIC_H, rgb);
+    s_border_rgb = rgb;
+    return true;
+}
 
+void display_present(const coco_frame_t *f, display_stats_t *st) {
     uint32_t t0 = time_us_32();
-    lcd_fill(x, y, PIC_W, PIC_H, RGB565(0x00, 0x00, 0x80));
-    *fill_us = time_us_32() - t0;
+    display_stats_t s = { .full = !s_present.valid || f->mode != s_present.mode };
 
-    /* Rows as the presenter will send them: lcd_blit_row waits out the
-     * previous row's DMA before starting this one. */
-    t0 = time_us_32();
-    lcd_blit_begin(x, y, PIC_W, PIC_H);
-    for (unsigned r = 0; r < PIC_H; r++) lcd_blit_row(s_line[r & 1u], PIC_W);
+    /* The mode first: a new one rebuilds the table, and present_plan
+     * repaints every band, since every byte can stay while every pixel
+     * changes (EL §5.3). */
+    mc6847_set_mode(&s_vdg, f->mode);
+    s.border = fill_border(f->mode);
+
+    present_band_t bands[COCO_BANDS];
+    present_plan(&s_present, f, bands);
+
+    unsigned cur = 0;
+    for (unsigned b = 0; b < COCO_BANDS; b++) {
+        if (!bands[b].dirty) continue;
+        unsigned x0 = bands[b].x0, w = bands[b].x1 - x0 + 1u;
+        unsigned y0 = b * COCO_BAND_ROWS;
+        lcd_blit_begin(COCO_PIC_X + x0, COCO_PIC_Y + y0, w, COCO_BAND_ROWS);
+        for (unsigned y = y0; y < y0 + COCO_BAND_ROWS; y++) {
+            /* The buffer not on the wire: lcd_blit_row waits out the
+             * previous row's DMA before starting this one. */
+            cur ^= 1u;
+            mc6847_render_line(&s_vdg, &f->lines[y * COCO_VDG_LINE_BYTES], y, s_line[cur]);
+            lcd_blit_row(&s_line[cur][x0], w);
+        }
+        lcd_blit_end();
+        s.bands++;
+        s.pixels += w * COCO_BAND_ROWS;
+    }
+    if (s.border) s.pixels += BORDER_PIXELS;
+
+    s.us = time_us_32() - t0;
+    if (st) *st = s;
+}
+
+static void draw_line(text_line_t *l, const char *text) {
+    char line[COCO_TEXT_COLS];
+    size_t n = strnlen(text, COCO_TEXT_COLS);
+    memcpy(line, text, n);
+    memset(line + n, ' ', COCO_TEXT_COLS - n);
+    if (memcmp(line, l->text, COCO_TEXT_COLS) == 0) return;
+    memcpy(l->text, line, COCO_TEXT_COLS);
+
+    /* The screen's own green on black (pico-atom's). */
+    const uint16_t ink = s_vdg.col[VDG_GREEN], paper = 0x0000u;
+    unsigned cur = 0;
+    lcd_blit_begin(0, l->y, COCO_PANEL_W, COCO_TEXT_GLYPH_H);
+    for (unsigned r = 0; r < COCO_TEXT_GLYPH_H; r++) {
+        cur ^= 1u;
+        uint16_t *px = s_line[cur];
+        for (unsigned c = 0; c < COCO_TEXT_COLS; c++) {
+            /* Drawn as the byte stands, bit 7 leftmost (mc6847.h). */
+            uint8_t bits = font_6847[textpage_glyph(l->text[c]) * MC6847_FONT_ROWS + r];
+            for (unsigned b = 0; b < COCO_TEXT_GLYPH_W; b++)
+                *px++ = (bits & (0x80u >> b)) ? ink : paper;
+        }
+        lcd_blit_row(s_line[cur], COCO_PANEL_W);
+    }
     lcd_blit_end();
-    *blit_us = time_us_32() - t0;
+}
 
-    t0 = time_us_32();
-    lcd_blit_begin(x, y + PIC_H / 2u, PIC_W, 1);
-    lcd_blit_row(s_line[0], PIC_W);
-    lcd_blit_end();
-    *row_us = time_us_32() - t0;
+void display_perf(const char *text) {
+    draw_line(&s_perf, text);
+}
 
-    t0 = time_us_32();
-    lcd_fill(0, 0, COCO_PANEL_W, COCO_PANEL_H, 0x0000);
-    *panel_us = time_us_32() - t0;
+void display_status(const char *text) {
+    draw_line(&s_status, text);
 }
