@@ -12,8 +12,13 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M10 is done** (`docs/design.md` §17): save states in four
-slots in `/coco/snaps/`, loaded into the machine they name
+**Status: M11 is done** (`docs/design.md` §17): the perf pass (tier 2
+stays), the archive run over the Color Computer Archive
+(`tools/archive-run.sh`), and a clean 30-minute soak on the development
+and release builds (`tools/soak.sh`, `tools/swd-counters.py`). From it,
+**D12**: undocumented opcodes run as the NMOS chip runs them, held by the
+oracle; and split-field rendering is M12's (§9.4). M10: save states in
+four slots in `/coco/snaps/`, loaded into the machine they name
 (`snapshot.h`, `snapio.h`). Before it, M9: the CoCo on the host,
 with its picture, its keyboard and its sound, and on the board, with the
 menu, the settings file `/coco/coco.ini`, ROM cartridges from
@@ -49,7 +54,7 @@ one `pico2` image at 150 MHz, no PSRAM (D3); **the CoCo comes first** and is
 the default machine, the Dragon second (D6); the family's menu and
 `key = value` settings (D5); **ROMs from the SD card by SHA-1**, none shipped,
 no flash writes (D10); 256×192 at 1:1 at (32, 64) (D11); undocumented
-opcodes trapped and counted (D12); **GPL-3.0** (D9); one branch and pull
+opcodes executed as the chip does and counted (D12); **GPL-3.0** (D9); one branch and pull
 request per milestone (D14). Do not reopen these without the owner.
 
 ## The documents
@@ -139,6 +144,16 @@ build/host/test/host/page-ppm out/pages        # the missing-ROM pages, to look 
 tools/trace/trace-coco.sh -ram 64 -ext -fields 600 -type "$(printf 'PRINT 2+3\r')"
 tools/trace/trace-coco.sh -bas bas11 -ram 4 -fields 600   # a 4 KB CoCo
 tools/trace/trace-coco.sh -machine dragon32 -fields 500   # PAL: 50 fields a second
+
+# the archive run (design.md §15.4): the Color Computer Archive, fetched
+# politely into out/corpus, then run on the host and reported
+tools/fetch-archive.sh && tools/archive-run.sh   # out/m11/archive/report.txt
+
+# the soak (design.md §15.5): 30 minutes over the UART, and the release
+# build's over SWD once SOAK.CAS (test_soak --write DIR) is on the card
+# and CLOAD"SOAK" and RUN have been typed on the PicoCalc
+caffeinate -d tools/soak.sh build/uart0/pico-coco.elf 30 out/m11/soak
+caffeinate -d tools/swd-counters.py soak build/pico-release/pico-coco.elf --every 20
 
 # the golden images (design.md §9.6): look at every changed one before
 # committing it
