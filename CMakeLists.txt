@@ -22,6 +22,7 @@ set(PICO_COCO_CORE_SOURCES
     src/core/mc6821.c
     src/core/mc6847.c
     src/core/mc6847_font.c
+    src/core/pcm.c
     src/core/present.c
     src/core/romset.c
     src/core/sam6883.c
@@ -237,7 +238,14 @@ else()
     # The first fields' registers logged, to hold the board to
     # tools/coco-fields.c on the host (design.md §15.5). A scratch build.
     option(PICO_COCO_FIELD_LOG "Log the machine at the end of each of the first fields" OFF)
-    foreach(opt PERF_LINE FIELD_LOG)
+    # Sound on GP26/GP27 and core 0 paced on its queue (design.md §10).
+    # OFF paces on the microsecond timer and leaves the PWM alone: the
+    # control for audio's cost (EL §6.3).
+    option(PICO_COCO_AUDIO "Sound on GP26/GP27, and pacing on its queue" ON)
+    # A scratch build that masks core 0's interrupts for 9 ms every 250
+    # fields, to force the audio's late refill path (EL §6.4).
+    option(PICO_COCO_FORCE_LATE "Hold core 0's interrupts off now and then" OFF)
+    foreach(opt PERF_LINE FIELD_LOG AUDIO FORCE_LATE)
         if (PICO_COCO_${opt})
             set(PICO_COCO_${opt}_ON 1)
         else()
@@ -247,6 +255,7 @@ else()
 
     # The emulator (design.md §17 M7).
     add_executable(pico-coco
+        src/port/audio.c
         src/port/board.c
         src/port/card.c
         src/port/core0.c
@@ -266,11 +275,14 @@ else()
     pico_coco_firmware(pico-coco)
     target_compile_definitions(pico-coco PRIVATE
         PICO_COCO_PERF_LINE=${PICO_COCO_PERF_LINE_ON}
-        PICO_COCO_FIELD_LOG=${PICO_COCO_FIELD_LOG_ON})
+        PICO_COCO_FIELD_LOG=${PICO_COCO_FIELD_LOG_ON}
+        PICO_COCO_AUDIO=${PICO_COCO_AUDIO_ON}
+        PICO_COCO_FORCE_LATE=${PICO_COCO_FORCE_LATE_ON})
     target_link_libraries(pico-coco
         pico_coco_fatfs
         hardware_dma
         hardware_i2c
+        hardware_pwm
         hardware_spi
         hardware_sync
         pico_multicore

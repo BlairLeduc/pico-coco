@@ -20,17 +20,17 @@ void status_perf_format(const perf_line_t *p, char out[COCO_TEXT_COLS + 1]) {
     unsigned pct = clamp(nearest(p->busy1000, 10u), 100u);
     unsigned head = clamp(p->head100, 999u * 100u + 99u);
     unsigned ms10 = clamp(nearest(p->present_us, 100u), 9999u);
-    /* Every figure clamped, the line is at most 44 characters with two
-     * spaces between the groups and 41 with one: one too many for 40
-     * only when every figure is at its widest, and then the last
-     * figure's tail is cut. */
+    /* Every figure clamped, the line is at most 53 characters with two
+     * spaces between the groups and 49 with one; with figures as they
+     * run, 40 and 37. Past 40 the tail is cut. */
     char text[64];
     int n = 0;
     for (unsigned gap = 2; gap >= 1; gap--) {
         const char *sp = gap == 2 ? "  " : " ";
-        n = snprintf(text, sizeof text, "C0 %u%% %u.%02ux%sLCD %u.%ums%sDrop %u%s%uHz", pct,
+        n = snprintf(text, sizeof text, "C0 %u%% %u.%02ux%sLCD %u.%ums%sDrop %u%sUR %u %u", pct,
                      head / 100u, head % 100u, sp, ms10 / 10u, ms10 % 10u, sp,
-                     clamp(p->dropped, 999u), sp, clamp(p->hz, 99u));
+                     clamp(p->dropped, 999u), sp, clamp(p->underruns, 9999u),
+                     clamp(p->late, 999u));
         if (n >= 0 && (size_t)n <= W) break;
     }
     size_t len = n < 0 ? 0u : (size_t)n < W ? (size_t)n : W;

@@ -68,6 +68,7 @@ void guest_build_as(guest_t *g, coco_machine_t machine, unsigned ram_k, rom_id_t
     coco_power_on(&g->m);
     keymatrix_init(&g->k);
     g->ok_ticks = 0;
+    g->after_field = NULL;
 }
 
 void guest_build(guest_t *g, unsigned ram_k, bool extended) {
@@ -82,6 +83,7 @@ void guest_fields(guest_t *g, int n) {
     for (int i = 0; i < n; i++) {
         if (is_coco(g)) keymatrix_field(&g->k, &g->m);
         coco_run_field(&g->m);
+        if (g->after_field) g->after_field(g);
     }
 }
 
@@ -94,6 +96,7 @@ bool guest_boot(guest_t *g) {
     uint64_t t0 = coco_ticks(&g->m);
     for (int f = 0; f < 600; f++) {
         coco_run_field(&g->m);
+        if (g->after_field) g->after_field(g);
         if (guest_find_row(&g->m, "OK", 0) >= 0) {
             g->ok_ticks = coco_ticks(&g->m) - t0;
             guest_fields(g, 5);

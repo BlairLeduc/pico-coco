@@ -24,9 +24,12 @@
 #include "keymatrix.h"
 #include "romset.h"
 
-typedef struct {
+typedef struct guest_s {
     coco_t      m;
     keymatrix_t k;
+    /* Called after every field the harness runs, when set: the audio
+     * tests drain the samples there. */
+    void      (*after_field)(struct guest_s *g);
     /* Ticks from power-on until "OK" first showed, to within a field; 0
      * if it never did. */
     uint64_t ok_ticks;

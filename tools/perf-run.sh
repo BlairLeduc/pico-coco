@@ -12,8 +12,10 @@
 # Extended Color BASIC's ROMs.
 #
 # Measured in the mode that ships, with core 1 presenting while the guest
-# runs. Until M8 the guest is paced on the microsecond timer, and the
-# heartbeat's rt is the control: it must read 1.000 in every row. Every
+# runs. From M8 the guest is paced on the audio queue, and the
+# heartbeat's audio line is the control: samples consumed a second at
+# the PWM's 36,621 and no underrun; with PICO_COCO_AUDIO=OFF it is paced
+# on the microsecond timer, and rt must read 1.000 in every row. Every
 # program was run on the host first (test/host's guest harness), and none
 # returns to the prompt.
 #
@@ -25,7 +27,7 @@ elf="${1:?usage: perf-run.sh ELF OUTDIR [WORKLOAD...]}"
 outdir="${2:?usage: perf-run.sh ELF OUTDIR [WORKLOAD...]}"
 shift 2
 workloads=("$@")
-[ ${#workloads[@]} -gt 0 ] || workloads=(idle compute scroll pmode4 set)
+[ ${#workloads[@]} -gt 0 ] || workloads=(idle compute scroll pmode4 set sound)
 
 here="$(cd "$(dirname "$0")" && pwd)"
 dwell="${PERF_DWELL:-45}"   # seconds each program runs: ~9 heartbeats
@@ -34,7 +36,8 @@ dwell="${PERF_DWELL:-45}"   # seconds each program runs: ~9 heartbeats
 # scroll prints without a newline, so the screen scrolls a row every
 # line printed; pmode4 draws lines in PMODE 4, the 256-pixel mode with
 # artefact colours, clearing between passes; set plots random
-# semigraphics 4 blocks over the text screen.
+# semigraphics 4 blocks over the text screen; sound plays a PLAY scale
+# and a sweep of SOUND tones, over and over (M8).
 program() {
     case "$1" in
         idle)    ;;
@@ -43,6 +46,8 @@ program() {
         pmode4)  printf '%s\n' '10 PMODE 4,1:SCREEN 1,1:PCLS' \
                      '20 FOR I=0 TO 191 STEP 8:LINE(0,I)-(255,191-I),PSET:NEXT:PCLS:GOTO 20' RUN ;;
         set)     printf '%s\n' '10 SET(RND(64)-1,RND(32)-1,RND(8)):GOTO 10' RUN ;;
+        sound)   printf '%s\n' '10 PLAY "T8O2CDEFGAB;O3C"' \
+                     '20 FOR T=1 TO 255 STEP 16:SOUND T,1:NEXT:GOTO 10' RUN ;;
         *) echo "perf-run.sh: unknown workload $1" >&2; exit 2 ;;
     esac
 }

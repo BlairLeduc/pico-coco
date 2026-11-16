@@ -12,8 +12,8 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M7 is done** (`docs/design.md` §17): the CoCo on the host,
-with its picture and its keyboard, and now on the board. The MC6809 core, the SAM, the PIAs and
+**Status: M8 is done** (`docs/design.md` §17): the CoCo on the host,
+with its picture, its keyboard and its sound, and on the board. The MC6809 core, the SAM, the PIAs and
 the field loop boot Color BASIC 1.3 and Extended 1.1 in 16 to 64 KB and
 Color BASIC 1.1 in 4 to 64 KB, and the trace diff holds every instruction to
 XRoar 1.13's through boot and typing. The SAM's video counter, the VDG and
@@ -26,8 +26,12 @@ nothing is added to it. On the board (the owner's Plus 2 W, the only
 board; it needs the UART0 build), core 1 loads Extended Color BASIC's
 ROMs off the card by SHA-1, or shows the page naming what is missing,
 and presents snapshots in dirty bands with the perf line; core 0 runs
-the CoCo a field at a time, paced on the timer, and its first 150 fields
-equal the host's (`tools/coco-fields.c`, `-DPICO_COCO_FIELD_LOG=ON`).
+the CoCo a field at a time, paced on the audio queue (`PICO_COCO_AUDIO=OFF`
+paces on the timer, the control), and its first 150 fields equal the
+host's (`tools/coco-fields.c`, `-DPICO_COCO_FIELD_LOG=ON`). The sound bus
+(DAC, single bit, multiplexer) is XRoar's measured-voltage model, every
+sample held to 1 LSB by an independent model (`test_audio`,
+`test_audio_rom`, `test/host/sound_model.h`).
 The record of each milestone (what was
 verified, on which board, on what date, and what was not checked) is in
 `docs/milestones.md`. Add to it there.
@@ -105,6 +109,8 @@ tools/build.sh                                          # build/pico/pico-coco.u
 tools/build.sh -DPICO_COCO_UART=OFF build/pico-release  # the build that ships
 tools/build.sh -DPICO_COCO_RAM_TIER=0 build/tier0       # one directory per tier; 2 is the default
 tools/build.sh -DPICO_COCO_UART_PORT=0 build/uart0      # UART0 on GP2/GP3: a DS3231 holds GP4/GP5
+tools/build.sh -DPICO_COCO_UART_PORT=0 -DPICO_COCO_AUDIO=OFF build/noaudio   # timer pacing, audio's control
+tools/build.sh -DPICO_COCO_UART_PORT=0 -DPICO_COCO_FORCE_LATE=ON build/late  # forces late refills (EL §6.4)
 
 # hardware, with the Debug Probe's SWD and UART both connected, and the
 # Mac's display kept awake (caffeinate -d): a sleeping display wedges the
