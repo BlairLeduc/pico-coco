@@ -12,8 +12,12 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M8 is done** (`docs/design.md` §17): the CoCo on the host,
-with its picture, its keyboard and its sound, and on the board. The MC6809 core, the SAM, the PIAs and
+**Status: M9 is done** (`docs/design.md` §17): the CoCo on the host,
+with its picture, its keyboard and its sound, and on the board, with the
+menu, the settings file `/coco/coco.ini`, ROM cartridges from
+`/coco/carts/` and CAS tapes from `/coco/tapes/` served by a trap on
+Color BASIC's cassette routines (`tape.h`). A 4 KB CoCo runs Color
+BASIC 1.1 alone (`roms_basic_for`); the CoCo's word is *disk*. The MC6809 core, the SAM, the PIAs and
 the field loop boot Color BASIC 1.3 and Extended 1.1 in 16 to 64 KB and
 Color BASIC 1.1 in 4 to 64 KB, and the trace diff holds every instruction to
 XRoar 1.13's through boot and typing. The SAM's video counter, the VDG and

@@ -822,9 +822,9 @@ INLINE uint32_t step(coco_t *m, uint32_t remaining) {
     case 0x6D: ea = IDX(); (void)op_tst(c, RDA(ea, cyc - 2u)); break;
     case 0x7D: ea = EXT(); (void)op_tst(c, RDA(ea, cyc - 2u)); break;
 
-    case 0x0E: c->pc = DIR(); break;                  /* JMP */
-    case 0x6E: c->pc = IDX(); break;
-    case 0x7E: c->pc = EXT(); break;
+    case 0x0E: c->pc = DIR(); bus_jump(m, c->pc); break;   /* JMP */
+    case 0x6E: c->pc = IDX(); bus_jump(m, c->pc); break;
+    case 0x7E: c->pc = EXT(); bus_jump(m, c->pc); break;
 
     INH(0x0, op_neg)
     INH(0x3, op_com)
@@ -856,6 +856,7 @@ INLINE uint32_t step(coco_t *m, uint32_t remaining) {
         w = IMM16();
         push16(m, &c->s, c->pc);
         c->pc = (uint16_t)(c->pc + w);
+        bus_jump(m, c->pc);
         break;
 
     case 0x19: c->a = op_daa(c, c->a); break;         /* DAA */
@@ -1036,6 +1037,7 @@ INLINE uint32_t step(coco_t *m, uint32_t remaining) {
         int8_t o = (int8_t)IMM8();
         push16(m, &c->s, c->pc);
         c->pc = (uint16_t)(c->pc + o);
+        bus_jump(m, c->pc);
         break;
     }
     case 0x9D: ea = DIR(); goto jsr;                          /* JSR  */
@@ -1044,6 +1046,7 @@ INLINE uint32_t step(coco_t *m, uint32_t remaining) {
     jsr:
         push16(m, &c->s, c->pc);
         c->pc = ea;
+        bus_jump(m, ea);
         break;
 
     default:

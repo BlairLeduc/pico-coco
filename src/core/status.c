@@ -1,4 +1,5 @@
-/* status.c — what the perf line says (status.h, design.md §7.5). */
+/* status.c — what the perf and status lines say (status.h, design.md §7.5,
+ * §9.6). */
 
 #include "status.h"
 
@@ -36,5 +37,48 @@ void status_perf_format(const perf_line_t *p, char out[COCO_TEXT_COLS + 1]) {
     size_t len = n < 0 ? 0u : (size_t)n < W ? (size_t)n : W;
     memset(out, ' ', W);
     memcpy(out, text, len);
+    out[W] = 0;
+}
+
+static const char *base_name(const char *path) {
+    const char *b = strrchr(path, '/');
+    return b ? b + 1 : path;
+}
+
+void status_format(const char *tape, bool unsaved, const char *cart,
+                   char out[COCO_TEXT_COLS + 1]) {
+    enum { W = COCO_TEXT_COLS, CART_MAX = 14 };
+    memset(out, ' ', W);
+    out[W] = 0;
+
+    /* The cartridge first, its name capped, so the tape has what is left. */
+    char right[W + 1] = "";
+    int rn = 0;
+    if (cart && cart[0]) {
+        rn = snprintf(right, sizeof right, "CART: %.*s", CART_MAX, base_name(cart));
+        if (rn < 0) rn = 0;
+        if (rn > W) rn = W;
+        memcpy(out + W - rn, right, (size_t)rn);
+    }
+
+    char left[W + 1] = "";
+    int ln = 0;
+    if ((tape && tape[0]) || unsaved) {
+        const char *tail = unsaved ? ", NEW" : "";
+        const char *name = tape && tape[0] ? base_name(tape) : "NEW TAPE";
+        int fixed = (int)strlen("TAPE: ") + (int)strlen(tail) + (rn ? rn + 1 : 0);
+        int room = fixed < W ? W - fixed : 0;
+        ln = snprintf(left, sizeof left, "TAPE: %.*s%s", room, name, tail);
+        if (ln < 0) ln = 0;
+        if (ln > W - (rn ? rn + 1 : 0)) ln = W - (rn ? rn + 1 : 0);
+        memcpy(out, left, (size_t)ln);
+    }
+}
+
+void status_paused_format(char out[COCO_TEXT_COLS + 1]) {
+    enum { W = COCO_TEXT_COLS };
+    static const char text[] = "PAUSED: ANY KEY RESUMES";
+    memset(out, ' ', W);
+    memcpy(out, text, sizeof text - 1u);
     out[W] = 0;
 }

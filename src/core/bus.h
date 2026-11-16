@@ -36,6 +36,13 @@ static inline void bus_write_at(coco_t *m, uint16_t a, uint8_t v, uint32_t at) {
     }
 }
 
+/* A jump or a call to `target` (the CPU's JSR, BSR, LBSR and JMP): one
+ * into Color BASIC's page of tape routines may arm the trap (tape.h).
+ * One compare, on those instructions alone. */
+static inline void bus_jump(coco_t *m, uint16_t target) {
+    if (__builtin_expect((target >> 8) == TAPE_PAGE, 0)) tape_jump(m, target);
+}
+
 static inline uint8_t bus_read(coco_t *m, uint16_t a) {
     return bus_read_at(m, a, 0);
 }

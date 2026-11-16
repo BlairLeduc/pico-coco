@@ -3,8 +3,8 @@
  * Pico-oric's loop, in the CoCo's clock: the guest is counted in
  * master-oscillator ticks (§13.2). Paced on the audio queue (§10, M8),
  * or with PICO_COCO_AUDIO=OFF on the timer against a deadline from the
- * ticks run, the control for audio's cost (EL §6.3). The park and the
- * menu (M9) are left out, each marked where it will go.
+ * ticks run, the control for audio's cost (EL §6.3). The park, between
+ * two fields, serves the tape, the menu and pause (park.h).
  */
 
 #include "core0.h"
@@ -24,7 +24,10 @@
 #include "handoff.h"
 #include "kbd.h"
 #include "log.h"
+#include "park.h"
+#include "roms.h"
 #include "southbridge.h"
+#include "tapeio.h"
 #include "textpage.h"
 
 /* The heartbeat's period. */
@@ -62,17 +65,23 @@ static void dump_screen(const coco_t *m) {
  * (§17 M6, tools/uart-type.sh). A byte is taken only while keymatrix has
  * room for its events and their releases, so a fast sender loses
  * characters in the UART's FIFO rather than in the replay. */
-static void uart_keys(keymatrix_t *k, const coco_t *m) {
+/* US asks for pause and RS for the menu, as the siblings' do; GS holds
+ * the guest for a card job (park.h). Returns the park asked for. */
+#define UART_PAUSE 0x1Fu
+#define UART_MENU  0x1Eu
+
+static uint32_t uart_keys(keymatrix_t *k, const coco_t *m) {
 #if PICO_COCO_UART
-    if (k->q_len + k->n_open + 2u * COCO_KEY_TEXT_EVENTS > COCO_KEY_EVENT_QUEUE) return;
+    if (k->q_len + k->n_open + 2u * COCO_KEY_TEXT_EVENTS > COCO_KEY_EVENT_QUEUE) return PARK_NONE;
     int ch = getchar_timeout_us(0);
-    if (ch == PICO_ERROR_TIMEOUT) return;
+    if (ch == PICO_ERROR_TIMEOUT) return PARK_NONE;
     if (ch == UART_SCREEN_DUMP) {
         dump_screen(m);
-        return;
+        return PARK_NONE;
     }
-    /* M9: the bytes that hold the guest for a card job, open the menu
-     * and pause, as the siblings' do. */
+    if (ch == UART_HOLD) return PARK_HOLD;
+    if (ch == UART_PAUSE) return PARK_PAUSE;
+    if (ch == UART_MENU) return PARK_MENU;
     picocalc_event_t ev[COCO_KEY_TEXT_EVENTS];
     unsigned n = keymap_picocalc_text((uint8_t)ch, ev);
     for (unsigned i = 0; i < n; i++) keymatrix_event(k, ev[i].state, ev[i].code);
@@ -80,21 +89,72 @@ static void uart_keys(keymatrix_t *k, const coco_t *m) {
     (void)k;
     (void)m;
 #endif
+    return PARK_NONE;
 }
 
 /* The keys that ask the emulator rather than the guest for something
- * (§14). Alt+K presses the reset button: RESET, which Color BASIC takes
- * as a warm start, the program kept (§8.3, §13.3). */
-static void requests(keymatrix_t *k, coco_t *m) {
+ * (§14): the menu and pause park the guest at the next boundary; Alt+K
+ * presses the reset button: RESET, which Color BASIC takes as a warm
+ * start, the program kept (§8.3, §13.3). Returns the park, or
+ * PARK_NONE. */
+static uint32_t requests(keymatrix_t *k, coco_t *m) {
+    uint32_t why = PARK_NONE;
     if (k->reset_request) {
         coco_reset(m);
         log_printf("  keys         : the reset button\n");
     }
-    /* M9: the menu, pause and screenshots park the guest. */
-    if (k->menu_request || k->pause_request || k->shot_request)
-        log_printf("  keys         : %s is not in this firmware yet (M9)\n",
-                   k->menu_request ? "the menu" : k->pause_request ? "pause" : "the screenshot");
+    if (k->menu_request) why = PARK_MENU;
+    else if (k->pause_request) why = PARK_PAUSE;
+    if (k->shot_request) log_printf("  keys         : screenshots are not in this firmware yet\n");
     k->reset_request = k->pause_request = k->menu_request = k->shot_request = false;
+    return why;
+}
+
+void core0_power_on(coco_t *m, const machine_t *mc) {
+    coco_config_t cfg;
+    coco_config_default(&cfg);
+    cfg.ram_k = mc->ram_k;
+    coco_init(m, &cfg);
+    /* Color BASIC 1.1 kept apart for a 4 KB CoCo (roms.h); otherwise the
+     * job's image, 1.3 or 1.1 without it. */
+    bool use11 = mc->basic == ROM_COCO_BAS11 && g_boot.job.bas11;
+    coco_load_rom(m, 0xA000u, use11 ? g_boot.basic11 : g_boot.basic, COCO_ROM_HALF);
+    if (mc->extended) coco_load_rom(m, 0x8000u, g_boot.ext, COCO_ROM_HALF);
+    bool cart = mc->cart && g_boot.cart_len > 0;
+    if (cart) coco_load_rom(m, 0xC000u, g_boot.cart, g_boot.cart_len);
+    coco_power_on(m);
+    tapeio_attach(m);
+#if PICO_COCO_AUDIO
+    uint32_t rate_num, rate_den;
+    audio_rate(&rate_num, &rate_den);
+    coco_audio_set_rate(m, rate_num, rate_den);
+#endif
+    g_machine = *mc;
+    g_machine.cart = cart;
+}
+
+/* What the menu changed, applied by the core that owns it (EL §2.5).
+ * True if the machine was powered on again. */
+static bool apply_ui(coco_t *m) {
+#if PICO_COCO_AUDIO
+    audio_set_volume(g_ui.volume * 32u);
+#endif
+    if (g_ui.reset) {
+        g_ui.reset = false;
+        coco_reset(m);
+        log_printf("  menu         : reset (the RESET line)\n");
+    }
+    if (g_ui.restart) {
+        machine_t mc = g_ui.restart_cfg;
+        g_ui.restart = false;
+        core0_power_on(m, &mc);
+        log_printf("  menu         : powered on, %u KB, %s (%s)%s%s\n", mc.ram_k,
+                   mc.extended ? "Extended Color BASIC" : "Color BASIC",
+                   romset_images[mc.basic].file,
+                   g_machine.cart ? ", cartridge " : "", g_machine.cart ? g_boot.cart_path : "");
+        return true;
+    }
+    return false;
 }
 
 /* The heartbeat's battery and die: "87%, 31 C", "87% charging, 31 C",
@@ -215,6 +275,11 @@ void core0_run(coco_t *m, keymatrix_t *k) {
     window_start(&hb, m, late);
     window_start(&sec, m, late);
     bool ok_seen = false;
+    uint32_t why = PARK_NONE;
+    unsigned page = 0;
+    bool alt = false;
+    park_init(m);
+    (void)apply_ui(m);
 
     for (;;) {
         uint64_t now;
@@ -234,22 +299,55 @@ void core0_run(coco_t *m, keymatrix_t *k) {
         }
 #endif
 
-        /* M9: between two fields is the one place the guest parks
-         * (§6), and the windows start again after it. */
+        /* Between two fields: the one place the guest parks (§6).
+         * Guest time does not pass, so the schedule and the measuring
+         * windows start again from now. After a hold, the menu or a
+         * pause the keys start again from none held: theirs were not the
+         * guest's. A tape request goes first. */
+        while (why != PARK_NONE || tapeio_wanted(m)) {
+            bool tape = tapeio_wanted(m);
+            uint32_t w = tape ? PARK_TAPE : why;
+            uint32_t parked = park(w, page, alt);
+            if (w != PARK_TAPE) {
+                keymatrix_init(k);
+                why = PARK_NONE;
+            }
+            if (apply_ui(m)) ok_seen = false;
+            g_c0.tape_unsaved = tapeio_unsaved(m);
+            window_start(&hb, m, late);
+            window_start(&sec, m, late);
+#if PICO_COCO_AUDIO
+            audio_stats(&au_last, true);
+            hb_edges = m->sound_edges;
+#else
+            sched_us = time_us_64() + 1000u;
+            sched_ticks = 0;
+#endif
+            log_printf("  park         : %s%lu us parked\n", w == PARK_TAPE ? "tape, " : "",
+                       (unsigned long)parked);
+        }
 
         uint32_t t_busy = time_us_32();
 
         /* Keys first, so the matrix the guest scans this field is the
          * one the events describe (§11.1). */
-        uart_keys(k, m);
+        uint32_t uart_park = uart_keys(k, m);
         uint8_t state, code;
         while (kbd_pop(&state, &code)) keymatrix_event(k, state, code);
         keymatrix_field(k, m);
-        requests(k, m);
+        page = k->menu_page;
+        alt = k->alt;
+        why = requests(k, m);
+        if (uart_park != PARK_NONE) {
+            why = uart_park;
+            page = 0;
+            alt = false;
+        }
 
         uint32_t t_run = time_us_32();
         uint32_t ran = coco_run_field(m);
         uint32_t run_us = time_us_32() - t_run;
+        g_c0.tape_unsaved = tapeio_unsaved(m);
 #if PICO_COCO_AUDIO
         (void)ran;
 #else

@@ -17,6 +17,7 @@
 void coco_config_default(coco_config_t *cfg) {
     cfg->machine = COCO_MACHINE_COCO;
     cfg->ram_k = 64;
+    cfg->tape_trap = true;
 }
 
 /* The chips for each size, as XRoar fits them: 4K x 1, 16K x 1, 32K x 1
@@ -91,10 +92,26 @@ static bool page_in_order(const coco_t *m, uint16_t base, int32_t *first) {
     return true;
 }
 
+/* Is Color BASIC's page of tape routines to be trapped (tape.h)? */
+static bool tape_armed(const coco_t *m) {
+    return m->cfg.tape_trap && m->tape.rom_ok && m->rom_present[1];
+}
+
+static const uint8_t *rom_page(const coco_t *m, unsigned p) {
+    unsigned half = (p - 0x80u) / (COCO_ROM_HALF / COCO_PAGE_SIZE);
+    if (p == TAPE_PAGE && m->tape.hot && tape_armed(m)) return NULL;
+    return m->rom_present[half] ? &m->rom[(p - 0x80u) * COCO_PAGE_SIZE] : NULL;
+}
+
+void coco_tape_page(coco_t *m) {
+    if (!sam6883_ty(&m->sam)) m->page[TAPE_PAGE].read = rom_page(m, TAPE_PAGE);
+}
+
 /* Rebuilt when a bit that chooses the map changes: the SAM's M, P and TY,
  * and a ROM loaded. A RAM page takes the fast path when its 256 bytes lie
  * in order in one chip bank; otherwise every byte is translated on the
- * slow path. */
+ * slow path. The page of tape routines takes the slow path while a
+ * routine of it is about to be trapped (tape.h). */
 static void map(coco_t *m) {
     bool ty = sam6883_ty(&m->sam);
     for (unsigned p = 0; p < COCO_IO_PAGE; p++) {
@@ -106,8 +123,7 @@ static void map(coco_t *m) {
             pg->read = flat ? &m->ram[i0] : NULL;
             pg->write = flat ? &m->ram[i0] : NULL;
         } else if (p < 0xC0u) {
-            unsigned half = (p - 0x80u) / (COCO_ROM_HALF / COCO_PAGE_SIZE);
-            pg->read = m->rom_present[half] ? &m->rom[(p - 0x80u) * COCO_PAGE_SIZE] : NULL;
+            pg->read = rom_page(m, p);
             pg->write = NULL;
         } else {
             pg->read = m->cart_present ? &m->cart[(p - 0xC0u) * COCO_PAGE_SIZE] : NULL;
@@ -181,6 +197,18 @@ static uint64_t next_due(const coco_t *m) {
     for (unsigned i = 0; i < COCO_PIA_PORTS; i++)
         if (m->irq_due[i] && m->irq_due[i] < d) d = m->irq_due[i];
     return d;
+}
+
+/* A cartridge's CART line tied to the Q clock reaches PIA1 CB1 as an
+ * edge every cycle (§12.2), so its flag is set again a cycle after
+ * anything clears it: a read of port B's data, the RESET line, or a
+ * change of CB1's polarity. XRoar toggles the line every 100 ms instead
+ * (its cart.c), and BASIC, which waits for the flag, cannot tell. */
+static void cart_q(coco_t *m, uint64_t t) {
+    if (!m->cart_present || !m->cart_autostart) return;
+    bool active = (m->pia1.b.cr & MC6821_CR_C1_RISE) != 0;
+    c1_edge(m, 3, !active, t);
+    c1_edge(m, 3, active, t);
 }
 
 /* HS, on PIA0 CA1, is brought up to date lazily (§8.3, EL §4.3): lines run
@@ -441,6 +469,7 @@ static uint8_t io_read(coco_t *m, uint16_t a) {
          * trace agrees, §18). M9: the tape. */
         m->pia1.a.in = 0xFEu;
         uint8_t v = mc6821_read(&m->pia1, reg);
+        if (reg == 2u) cart_q(m, access_tick(m) + m->tpc);
         update_irq(m);
         return v;
     }
@@ -465,6 +494,7 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         if (!pia_selected(m, a)) return;
         before_pia(m);
         mc6821_write(&m->pia1, reg, v);
+        if (reg == 3u) cart_q(m, access_tick(m) + m->tpc);
         update_sound(m);
         note_video(m, access_tick(m));
         update_irq(m);
@@ -492,6 +522,7 @@ uint8_t COCO_HOT1(coco_slow_read)(coco_t *m, uint16_t a) {
         int32_t i = coco_ram_index(m, a);
         return i < 0 ? 0xFFu : m->ram[i];
     }
+    if ((a >> 8) == TAPE_PAGE && tape_armed(m)) return tape_page_read(m, a);
     return open_bus(m);   /* an empty ROM socket or cartridge slot */
 }
 
@@ -549,20 +580,39 @@ bool coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len) {
         memcpy(&m->rom[half * COCO_ROM_HALF], data, len);
         m->rom_present[half] = true;
     } else if (base == 0xC000u && len > 0 && len <= COCO_CART_SIZE) {
-        memset(m->cart, 0xFF, sizeof(m->cart));   /* M9: mirrors */
+        /* A ROM smaller than the window ignores the address lines above
+         * it, so a power-of-two image repeats through the window, as
+         * XRoar's ROM bank does; any other size is followed by $FF. */
+        memset(m->cart, 0xFF, sizeof(m->cart));
         memcpy(m->cart, data, len);
+        if ((len & (len - 1u)) == 0)
+            for (size_t at = len; at < COCO_CART_SIZE; at += len) memcpy(&m->cart[at], data, len);
         m->cart_present = true;
+        m->cart_autostart = true;
     } else {
         return false;
     }
+    if (m->rom_present[1]) tape_rom_loaded(m, &m->rom[COCO_ROM_HALF], COCO_ROM_HALF);
     map(m);
     return true;
+}
+
+void coco_cart_remove(coco_t *m) {
+    memset(m->cart, 0xFF, sizeof(m->cart));
+    m->cart_present = false;
+    m->cart_autostart = false;
+    map(m);
+}
+
+void coco_cart_autostart(coco_t *m, bool on) {
+    m->cart_autostart = on;
 }
 
 void coco_reset(coco_t *m) {
     mc6821_reset(&m->pia0);
     mc6821_reset(&m->pia1);
     sam6883_reset(&m->sam);
+    tape_reset(m);
     map(m);
     retime(m);
     uint64_t t = coco_ticks(m);
@@ -570,6 +620,7 @@ void coco_reset(coco_t *m) {
     m->hs_seen = t;
     m->pia0.a.c1 = hs_level(m, t);
     m->pia0.b.c1 = t - m->field_start < (uint64_t)m->fs_fall_line * m->line_ticks;
+    cart_q(m, t + m->tpc);
     update_irq(m);
     update_sound(m);   /* the bus holds what it had: nothing drives it */
     mc6809_reset(m);

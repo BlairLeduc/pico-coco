@@ -10,13 +10,14 @@
  * the underrun samples and the late refills since boot; its field rate
  * is not, the CoCo's 40 cells having no room for both, and on the
  * audio's pacing a guest behind real time shows as underruns (§9.6,
- * M8). The status line's own text, the tape and the disc, comes with M9
- * and M13. It is drawn in the VDG's character set, which has no lower
+ * M8). The status line's own text is the tape and the cartridge from
+ * M9, the disc's to come in M13. It is drawn in the VDG's character set, which has no lower
  * case (§9.6), so the line reads in capitals on the panel.
  */
 #ifndef PICO_COCO_STATUS_H
 #define PICO_COCO_STATUS_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "config.h"
@@ -37,5 +38,18 @@ typedef struct {
  * close to one space when the figures have grown, so the last goes only
  * when every figure is near its widest. */
 void status_perf_format(const perf_line_t *p, char out[COCO_TEXT_COLS + 1]);
+
+/* The status line's text (§9.6, §14), COCO_TEXT_COLS characters
+ * space-padded and a NUL: the deck on the left, `TAPE: NAME.CAS`, with
+ * `, NEW` while it holds a recording not yet on the card, and the
+ * cartridge on the right, `CART: NAME.CCC`. `tape` and `cart` are paths,
+ * "" for none, each shown without its folder; the cartridge's name is
+ * capped and the tape's shortened to fit what is left. */
+void status_format(const char *tape, bool unsaved, const char *cart,
+                   char out[COCO_TEXT_COLS + 1]);
+
+/* The status line while the guest is paused, whether or not the line
+ * is on (§14). */
+void status_paused_format(char out[COCO_TEXT_COLS + 1]);
 
 #endif /* PICO_COCO_STATUS_H */

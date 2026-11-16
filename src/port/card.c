@@ -69,7 +69,15 @@ static bool load_file(const char *path, uint8_t *dst, uint32_t size) {
 /* The images the CoCo boots from (card.h): 1.3 over 1.1, whichever the
  * card lists first. */
 static void maybe_load(card_job_t *j, rom_id_t id, const char *path, const char *name,
-                       uint8_t *basic, uint8_t *ext) {
+                       uint8_t *basic, uint8_t *basic11, uint8_t *ext) {
+    /* Color BASIC 1.1 is also kept apart: a 4 KB CoCo runs it and not
+     * 1.3 (roms.h). */
+    if (id == ROM_COCO_BAS11 && basic11) {
+        uint32_t t0 = time_us_32();
+        j->bas11 = load_file(path, basic11, COCO_ROM_HALF);
+        j->load_us += time_us_32() - t0;
+        if (!j->bas11) log_core1("  rom          : %s: could not be read again to load it\n", name);
+    }
     uint8_t *dst = NULL;
     if (id == ROM_COCO_EXTBAS11) dst = ext;
     else if (id == ROM_COCO_BAS13) dst = basic;
@@ -89,7 +97,8 @@ static void maybe_load(card_job_t *j, rom_id_t id, const char *path, const char 
     else j->basic = id;
 }
 
-static void one_rom(card_job_t *j, const FILINFO *fi, uint8_t *basic, uint8_t *ext) {
+static void one_rom(card_job_t *j, const FILINFO *fi, uint8_t *basic, uint8_t *basic11,
+                    uint8_t *ext) {
     char path[COCO_PATH_MAX];
     j->files++;
     if (snprintf(path, sizeof path, "%s/%s", COCO_ROM_DIR, fi->fname) >= (int)sizeof path) {
@@ -123,10 +132,11 @@ static void one_rom(card_job_t *j, const FILINFO *fi, uint8_t *basic, uint8_t *e
     log_core1("  rom          : %s, %lu bytes, sha1 %s, %s%s, %lu us\n", fi->fname,
               (unsigned long)len, hex, id == ROM_UNKNOWN ? "" : "recognised as ", what,
               (unsigned long)us);
-    if (id != ROM_UNKNOWN) maybe_load(j, id, path, fi->fname, basic, ext);
+    if (id != ROM_UNKNOWN) maybe_load(j, id, path, fi->fname, basic, basic11, ext);
 }
 
-void card_roms(card_job_t *j, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM_HALF]) {
+void card_roms(card_job_t *j, uint8_t basic[COCO_ROM_HALF], uint8_t basic11[COCO_ROM_HALF],
+               uint8_t ext[COCO_ROM_HALF]) {
     memset(j, 0, sizeof *j);
     j->basic = ROM_UNKNOWN;
     if (!sd_present()) {
@@ -144,14 +154,25 @@ void card_roms(card_job_t *j, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM
                   (unsigned long)j->mount_us);
         return;
     }
-    j->state = CARD_MOUNTED;
     log_core1("  card         : mounted in %lu us\n", (unsigned long)j->mount_us);
+    card_roms_mounted(j, basic, basic11, ext);
+    storage_unmount();
+}
+
+void card_roms_mounted(card_job_t *j, uint8_t basic[COCO_ROM_HALF], uint8_t basic11[COCO_ROM_HALF],
+                       uint8_t ext[COCO_ROM_HALF]) {
+    int fresult = j->fresult;
+    uint32_t mount_us = j->mount_us;
+    memset(j, 0, sizeof *j);
+    j->basic = ROM_UNKNOWN;
+    j->fresult = fresult;
+    j->mount_us = mount_us;
+    j->state = CARD_MOUNTED;
 
     DIR *dir = &s_dir;
     FRESULT fr = f_opendir(dir, COCO_ROM_DIR);
     if (fr != FR_OK) {
         log_core1("  card         : no %s (FatFs %d)\n", COCO_ROM_DIR, (int)fr);
-        storage_unmount();
         return;
     }
     j->dir = true;
@@ -161,10 +182,9 @@ void card_roms(card_job_t *j, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM
          * §7.1), and a directory is not a ROM. */
         if (fi->fattrib & AM_DIR) continue;
         if (fi->fname[0] == '.' && fi->fname[1] == '_') continue;
-        one_rom(j, fi, basic, ext);
+        one_rom(j, fi, basic, basic11, ext);
     }
     f_closedir(dir);
-    storage_unmount();
 
     char missing[96] = "";
     size_t at = 0;
@@ -176,7 +196,7 @@ void card_roms(card_job_t *j, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM
     }
     log_core1("  card         : %s has %u files, %u unrecognised; missing:%s\n",
               COCO_ROM_DIR, j->files, j->unknown, at ? missing : " none");
-    log_core1("  card         : loaded %s at $A000%s, %lu us\n",
+    if (basic || ext) log_core1("  card         : loaded %s at $A000%s, %lu us\n",
               j->basic == ROM_UNKNOWN ? "no Color BASIC" : romset_images[j->basic].file,
               j->extended ? ", extbas11.rom at $8000" : "", (unsigned long)j->load_us);
 }
@@ -216,4 +236,50 @@ const char *card_state_str(card_state_t st) {
     case CARD_MOUNTED:  return "mounted";
     }
     return "?";
+}
+
+/* ---- cartridges (design.md §12.2) ------------------------------------- */
+
+static bool cart_name(const char *name) {
+    size_t n = strlen(name);
+    if (n < 5 || name[n - 4] != '.') return false;
+    char e[4] = { (char)(name[n - 3] | 0x20), (char)(name[n - 2] | 0x20), (char)(name[n - 1] | 0x20), 0 };
+    return strcmp(e, "ccc") == 0 || strcmp(e, "rom") == 0;
+}
+
+unsigned card_cart_list(char paths[][COCO_PATH_MAX], unsigned max) {
+    unsigned n = 0;
+    if (f_opendir(&s_dir, COCO_CART_DIR) != FR_OK) return 0;
+    while (n < max && f_readdir(&s_dir, &s_info) == FR_OK && s_info.fname[0]) {
+        if (s_info.fattrib & AM_DIR) continue;
+        if (s_info.fname[0] == '.' && s_info.fname[1] == '_') continue;
+        if (!cart_name(s_info.fname)) continue;
+        if (snprintf(paths[n], COCO_PATH_MAX, "%s/%s", COCO_CART_DIR, s_info.fname) >= (int)COCO_PATH_MAX)
+            continue;
+        n++;
+    }
+    f_closedir(&s_dir);
+    return n;
+}
+
+const char *card_cart_load(const char *path, uint8_t dst[COCO_CART_SIZE], uint32_t *len) {
+    char full[COCO_PATH_MAX + 16];
+    /* A bare name is in /coco/carts/, as the settings file writes it. */
+    if (path[0] == '/') snprintf(full, sizeof full, "%s", path);
+    else snprintf(full, sizeof full, "%s/%s", COCO_CART_DIR, path);
+    FIL *f = &s_file;
+    FRESULT fr = f_open(f, full, FA_READ);
+    if (fr != FR_OK) return fr == FR_NO_FILE || fr == FR_NO_PATH ? "NOT ON THE CARD" : "CANNOT OPEN";
+    FSIZE_t size = f_size(f);
+    if (size == 0 || size > COCO_CART_SIZE) {
+        f_close(f);
+        return size ? "OVER 16 KB" : "EMPTY";
+    }
+    UINT got = 0;
+    fr = f_read(f, dst, (UINT)size, &got);
+    f_close(f);
+    if (fr != FR_OK || got != size) return "CANNOT READ";
+    *len = got;
+    log_core1("  cart         : %s, %lu bytes\n", full, (unsigned long)got);
+    return NULL;
 }

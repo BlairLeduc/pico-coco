@@ -11,7 +11,8 @@ boot_report_t g_boot;
 bringup_t g_bringup;
 volatile core1_stats_t g_c1 = { .sb_version = -1, .battery = -1, .temp_c = INT32_MIN };
 volatile core0_perf_t  g_c0;
-ui_t g_ui = { .perf_line = PICO_COCO_PERF_LINE };
+ui_t g_ui = { .volume = 8u, .perf_line = PICO_COCO_PERF_LINE, .status = true };
+machine_t g_machine;
 board_info_t g_board;
 
 void handoff_init(void) {

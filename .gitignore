@@ -11,4 +11,9 @@ reference/
 roms/*
 !roms/README.md
 
+# The owner's cartridges, tapes and discs, for the host tests that load
+# real software (design.md §15.3): not ours to distribute either.
+media/*
+!media/README.md
+
 .DS_Store

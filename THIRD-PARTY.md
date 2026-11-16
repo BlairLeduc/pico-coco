@@ -80,6 +80,21 @@ GitHub detects no licence file in that repository at that revision. The
 southbridge reply layout in `src/port/southbridge.c` was likewise checked
 against the same repository's keyboard firmware, but no code was taken from it.
 
+## The shell's return call — picocalc-shell
+
+`third_party/picocalc-shell/picocalc_shell.h` is copied **verbatim** from
+`include/picocalc_shell.h` in <https://github.com/BlairLeduc/picocalc-shell>
+at commit `55f338ef6c3c1dc89291f1c9ae6f11d114f6ed97`, by way of pico-oric,
+which took it at that commit. It is the call the menu's *Exit to shell*
+makes to have UF2 Loader start the PicoCalc shell from the card
+(design.md §14, D7).
+
+> Copyright (c) 2026 Blair Leduc.
+> SPDX-License-Identifier: GPL-3.0-or-later OR MIT
+
+It is taken here under the GPL-3.0-or-later, this project's licence. To
+update it, copy the file again unchanged and record the new commit above.
+
 ## FatFs — ChaN
 
 The firmware links FatFs R0.15 (with patch 1) for the SD card, as its

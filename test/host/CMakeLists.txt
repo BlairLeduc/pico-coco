@@ -15,6 +15,7 @@ set(PICO_COCO_HOST_TESTS
     test_status
     test_textpage
     test_audio
+    test_settings
 )
 
 foreach(t ${PICO_COCO_HOST_TESTS})
@@ -28,7 +29,7 @@ foreach(t ${PICO_COCO_HOST_TESTS})
 endforeach()
 # The tests that run the real ROMs share the harness (§15.3), and find
 # the images in roms/ unless PICO_COCO_ROMS says otherwise.
-foreach(t test_boot test_romset test_screen test_keyboard test_audio_rom)
+foreach(t test_boot test_romset test_screen test_keyboard test_audio_rom test_tape test_cart)
     add_executable(${t} ${t}.c guest.c frame_ppm.c)
     target_link_libraries(${t} PRIVATE pico_coco_core m)
     target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -141,6 +142,13 @@ add_test(NAME test_mc6847_golden COMMAND test_mc6847_golden)
 add_executable(vdg-ppm ${PROJECT_SOURCE_DIR}/tools/vdg-ppm.c)
 target_link_libraries(vdg-ppm PRIVATE vdg_scenes)
 target_compile_options(vdg-ppm PRIVATE ${PICO_COCO_WARNINGS})
+
+# Which BASIC each size runs (roms.h): roms.c has no SDK header.
+add_executable(test_roms test_roms.c ${PROJECT_SOURCE_DIR}/src/port/roms.c)
+target_link_libraries(test_roms PRIVATE pico_coco_core)
+target_include_directories(test_roms PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/src/port)
+target_compile_options(test_roms PRIVATE ${PICO_COCO_WARNINGS})
+add_test(NAME test_roms COMMAND test_roms)
 
 # The missing-ROM pages, rendered to be looked at (design.md §12.1). roms.c
 # is the port's, and includes no SDK header, so the host builds it here.

@@ -66,5 +66,25 @@ int main(void) {
     CHECK(strcmp(trimmed(), "C0 0% 0.00x  LCD 0.0ms  Drop 0  UR 0 0") == 0,
           "before the first second: [%s]", line);
 
+    /* ---- the status line (§9.6, §14) ------------------------------- */
+    status_format("", false, "", line);
+    CHECK(strlen(line) == COCO_TEXT_COLS && trimmed()[0] == 0, "nothing: [%s]", line);
+    status_format("/coco/tapes/PIPES.CAS", false, "", line);
+    CHECK(strcmp(trimmed(), "TAPE: PIPES.CAS") == 0, "a tape: [%s]", line);
+    status_format("/coco/tapes/PIPES.CAS", true, "", line);
+    CHECK(strcmp(trimmed(), "TAPE: PIPES.CAS, NEW") == 0, "a recording: [%s]", line);
+    status_format("", true, "", line);
+    CHECK(strcmp(trimmed(), "TAPE: NEW TAPE, NEW") == 0, "a new tape, unnamed: [%s]", line);
+    status_format("", false, "/coco/carts/EDTASM.CCC", line);
+    CHECK(strcmp(line + COCO_TEXT_COLS - 16, "CART: EDTASM.CCC") == 0 && line[0] == ' ',
+          "a cartridge on the right: [%s]", line);
+    status_format("/coco/tapes/A VERY LONG TAPE NAME INDEED.CAS", true,
+                  "/coco/carts/Dungeons of Daggorath (1982).ccc", line);
+    CHECK(strlen(line) == COCO_TEXT_COLS, "both, long: one line [%s]", line);
+    CHECK(strncmp(line, "TAPE: ", 6) == 0 && strstr(line, "CART: Dungeons of Da") &&
+          line[COCO_TEXT_COLS - 21] == ' ', "both, long: each in its place [%s]", line);
+    status_paused_format(line);
+    CHECK(strcmp(trimmed(), "PAUSED: ANY KEY RESUMES") == 0, "paused: [%s]", line);
+
     TEST_DONE();
 }

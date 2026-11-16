@@ -14,6 +14,7 @@ option(PICO_COCO_HOST "Build the portable core and its host tests, with no Pico 
 # Every fixed capacity lives in src/core/config.h; nothing here duplicates one.
 set(PICO_COCO_CORE_SOURCES
     src/core/bus.c
+    src/core/cas.c
     src/core/coco.c
     src/core/fieldlog.c
     src/core/keymap_picocalc.c
@@ -25,9 +26,11 @@ set(PICO_COCO_CORE_SOURCES
     src/core/pcm.c
     src/core/present.c
     src/core/romset.c
+    src/core/settings.c
     src/core/sam6883.c
     src/core/sha1.c
     src/core/snappool.c
+    src/core/tape.c
     src/core/status.c
     src/core/textpage.c
 )
@@ -267,12 +270,18 @@ else()
         src/port/lcd.c
         src/port/log.c
         src/port/main.c
+        src/port/menu.c
+        src/port/park.c
         src/port/roms.c
         src/port/sd.c
+        src/port/settingsio.c
         src/port/southbridge.c
         src/port/storage.c
+        src/port/tapeio.c
     )
     pico_coco_firmware(pico-coco)
+    # picocalc_shell.h, the shell's return call (design.md §14, D7).
+    target_include_directories(pico-coco SYSTEM PRIVATE third_party/picocalc-shell)
     target_compile_definitions(pico-coco PRIVATE
         PICO_COCO_PERF_LINE=${PICO_COCO_PERF_LINE_ON}
         PICO_COCO_FIELD_LOG=${PICO_COCO_FIELD_LOG_ON}
