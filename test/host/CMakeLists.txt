@@ -16,6 +16,7 @@ set(PICO_COCO_HOST_TESTS
     test_textpage
     test_audio
     test_settings
+    test_snapshot
 )
 
 foreach(t ${PICO_COCO_HOST_TESTS})
@@ -29,7 +30,8 @@ foreach(t ${PICO_COCO_HOST_TESTS})
 endforeach()
 # The tests that run the real ROMs share the harness (§15.3), and find
 # the images in roms/ unless PICO_COCO_ROMS says otherwise.
-foreach(t test_boot test_romset test_screen test_keyboard test_audio_rom test_tape test_cart)
+foreach(t test_boot test_romset test_screen test_keyboard test_audio_rom test_tape test_cart
+          test_snapshot_rom)
     add_executable(${t} ${t}.c guest.c frame_ppm.c)
     target_link_libraries(${t} PRIVATE pico_coco_core m)
     target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
