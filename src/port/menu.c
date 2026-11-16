@@ -3,8 +3,8 @@
  * pico-oric's menu, page for page and row for row, so that the family
  * reads as one: the same items in the same order, the same function
  * keys, and Esc going back a page, or to the guest from the main page or
- * a page a key opened. On the CoCo's 32 cells and in capitals. The Discs
- * and Snapshots items are in their places and say when they come (M13,
+ * a page a key opened. On the CoCo's 32 cells and in capitals. The Disks
+ * (the CoCo's word, §12.6) and Snapshots items are in their places and say when they come (M13,
  * M10). The Machine page stages BASIC, the RAM and the cartridge (§14).
  * Setup has no keys row and no fast tape yet: the layouts and the
  * signal are M12's.
@@ -54,7 +54,7 @@
 #define ROW_STATUS (TEXT_ROWS - 2)
 #define ROW_KEYS   (TEXT_ROWS - 1)
 
-enum { I_TAPES, I_DISCS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_SAVE, I_SHELL, I_ABOUT,
+enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_SAVE, I_SHELL, I_ABOUT,
        I_COUNT };
 
 enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_COUNT };
@@ -136,10 +136,14 @@ static unsigned ram_index(unsigned ram_k) {
     return 3;
 }
 
-/* The machine as a line: "64K EXTENDED COLOR BASIC". */
+/* The machine as a line: "64K EXTENDED COLOR BASIC", "4K COLOR BASIC
+ * 1.1", for the BASIC that RAM runs (roms.h). */
 static const char *machine_name(bool ext, unsigned ram_k) {
     static char text[TEXT_COLS + 1];
-    snprintf(text, sizeof text, "%uK %s", ram_k, ext ? "EXTENDED COLOR BASIC" : "COLOR BASIC");
+    const char *why;
+    rom_id_t b = roms_basic_for(&g_boot.job, ram_k, &ext, &why);
+    snprintf(text, sizeof text, "%uK %s%s", ram_k, ext ? "EXTENDED COLOR BASIC" : "COLOR BASIC",
+             ext ? "" : b == ROM_COCO_BAS11 ? " 1.1" : b == ROM_COCO_BAS13 ? " 1.3" : "");
     return text;
 }
 
@@ -147,7 +151,7 @@ static const char *machine_name(bool ext, unsigned ram_k) {
 
 static void draw_main(void) {
     static const char *const items[I_COUNT] = {
-        " TAPES...", " DISCS...", " SNAPSHOTS...", " SETUP...", " MACHINE...", " RESET",
+        " TAPES...", " DISKS...", " SNAPSHOTS...", " SETUP...", " MACHINE...", " RESET",
         " SAVE SETTINGS", " EXIT TO SHELL", " ABOUT...",
     };
     for (int i = 0; i < I_COUNT; i++)
@@ -226,7 +230,8 @@ static void draw_machine(void) {
         char mark = machine_changed(i) ? '*' : ' ';
         switch (i) {
         case M_BASIC:
-            snprintf(line, sizeof line, "%cBASIC   < %s >", mark, s.st_ext ? "EXTENDED" : "COLOR");
+            snprintf(line, sizeof line, "%cBASIC   < %s >", mark,
+                     s.st_ext ? "EXTENDED" : k_rams[s.st_ram] <= 4u ? "COLOR 1.1" : "COLOR");
             break;
         case M_RAM:
             snprintf(line, sizeof line, "%cRAM     < %uK >", mark, k_rams[s.st_ram]);
@@ -254,7 +259,7 @@ static void draw_machine(void) {
 static void about_rom(int row, rom_id_t id) {
     char line[TEXT_COLS + 1];
     const char *word = !s.about_job ? "" : s_job.found[id] ? "FOUND" : "--";
-    bool running = (id == ROM_COCO_EXTBAS11 && g_machine.extended) || id == g_boot.job.basic;
+    bool running = (id == ROM_COCO_EXTBAS11 && g_machine.extended) || id == g_machine.basic;
     snprintf(line, sizeof line, "%c%-13s %s", running ? '*' : ' ', romset_images[id].file, word);
     textpage_line(s_scr, row, line, false);
 }
@@ -396,7 +401,7 @@ static void open_about(void) {
     s.sb_ver = sb_read(SB_REG_VER, r) == SB_OK ? r[1] : -1;
     s.temp_c = board_temp_c();
     s.about_job = s.card;
-    if (s.card) card_roms_mounted(&s_job, NULL, NULL);
+    if (s.card) card_roms_mounted(&s_job, NULL, NULL, NULL);
     log_core1("  about        : %s, %s, id %s, %lu MHz, southbridge %d, die %d C, %s, settings %s\n",
               PICO_COCO_VERSION, g_board.chip, g_board.unique_id,
               (unsigned long)(g_board.clk_sys_hz / 1000000u), s.sb_ver, s.temp_c,
@@ -430,9 +435,12 @@ static void apply_machine(void) {
     /* Refused while a recording is not on the card yet (EL §10): the
      * power-on would drop it. */
     if (tapeio_unsaved(s.m)) { say(" A RECORDING IS NOT SAVED", ""); return; }
-    if (s.st_ext && !g_boot.job.extended) { say(" NO EXTBAS11.ROM ON THE CARD", ""); return; }
-    if (s.st_ext && g_boot.job.basic != ROM_COCO_BAS13) { say(" EXTENDED NEEDS BAS13.ROM", ""); return; }
-    machine_t mc = { k_rams[s.st_ram], s.st_ext, s.st_cart >= 0 };
+    bool ext = s.st_ext;
+    const char *why;
+    rom_id_t basic = roms_basic_for(&g_boot.job, k_rams[s.st_ram], &ext, &why);
+    if (basic == ROM_UNKNOWN || ext != s.st_ext) { say(" %.30s", why ? why : "NO BASIC"); return; }
+    machine_t mc = { .ram_k = k_rams[s.st_ram], .basic = basic, .extended = ext,
+                     .cart = s.st_cart >= 0 };
     if (s.st_cart != s.run_cart) {
         if (s.st_cart >= 0) {
             say(" READING %.20s...", base(s_carts[s.st_cart]));
@@ -472,7 +480,7 @@ static void open_item(void) {
     s.status[0] = 0;
     switch (s.item) {
     case I_TAPES:   open_tapes(); break;
-    case I_DISCS:   say(" DISCS COME WITH RS-DOS (M13)", ""); break;
+    case I_DISKS:   say(" DISKS COME WITH RS-DOS (M13)", ""); break;
     case I_SNAPS:   say(" SNAPSHOTS COME IN M10", ""); break;
     case I_SETUP:   s.page = P_SETUP; s.setup_sel = D_STATUS; break;
     case I_MACHINE: open_machine(); break;
@@ -613,8 +621,15 @@ static void key_machine(uint8_t c) {
     case PICOCALC_KEY_LEFT:
     case PICOCALC_KEY_RIGHT:
         switch (s.machine_sel) {
-        case M_BASIC: s.st_ext = !s.st_ext; break;
-        case M_RAM:   s.st_ram = (s.st_ram + 4u + (unsigned)dir) % 4u; break;
+        case M_BASIC:
+            /* A 4 KB CoCo runs Color BASIC 1.1 alone (roms.h). */
+            if (k_rams[s.st_ram] <= 4u) { say(" EXTENDED NEEDS 16K", ""); return; }
+            s.st_ext = !s.st_ext;
+            break;
+        case M_RAM:
+            s.st_ram = (s.st_ram + 4u + (unsigned)dir) % 4u;
+            if (k_rams[s.st_ram] <= 4u) s.st_ext = false;
+            break;
         case M_CART: {
             /* None, the card's, and the running one if the card has it
              * no longer. */
@@ -685,7 +700,7 @@ void menu_run(coco_t *m, unsigned page, bool alt) {
     memcpy(said, s.status, sizeof said);
     switch (page) {
     case KM_PAGE_TAPE:     s.item = I_TAPES; open_item(); break;
-    case KM_PAGE_DISC:     s.item = I_DISCS; open_item(); s.direct = false; break;
+    case KM_PAGE_DISC:     s.item = I_DISKS; open_item(); s.direct = false; break;
     case KM_PAGE_SNAPSHOT: s.item = I_SNAPS; open_item(); s.direct = false; break;
     case KM_PAGE_SETUP:    s.item = I_SETUP; open_item(); break;
     case KM_PAGE_MACHINE:  s.item = I_MACHINE; open_item(); break;

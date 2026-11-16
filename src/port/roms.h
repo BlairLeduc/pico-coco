@@ -35,6 +35,15 @@ boot_basic_t roms_choice(const card_job_t *job);
  * Color BASIC alone. */
 bool roms_start_now(const card_job_t *job, bool want_extended);
 
+/* The Color BASIC a CoCo with `ram_k` runs, from what the job loaded
+ * (the owner, 2026-11-15): a 4 KB CoCo runs Color BASIC 1.1 alone,
+ * never 1.3, never Extended and never Disk BASIC (M13 takes its rule
+ * from here); Extended Color BASIC needs 16 KB or more and 1.3 under it; otherwise 1.3, or 1.1 without it. *extended is what
+ * was asked, and comes back as what can run. Returns the BASIC, or
+ * ROM_UNKNOWN when none can; *why says what was changed or missing,
+ * NULL if nothing was. */
+rom_id_t roms_basic_for(const card_job_t *job, unsigned ram_k, bool *extended, const char **why);
+
 /* "EXTENDED COLOR BASIC 1.1", "COLOR BASIC 1.3", ... */
 const char *roms_basic_name(boot_basic_t b);
 

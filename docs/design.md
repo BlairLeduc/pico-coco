@@ -1113,7 +1113,11 @@ image reads zeros past its end and grows when written (EL §8.4). DMK,
 which stores raw tracks, is deferred (§20).
 
 What READY and the motor mean to each DOS, and how each notices a disc
-change, are read from the DOS ROMs (EL §8.4). The archive's images are
+change, are read from the DOS ROMs (EL §8.4).
+
+Disk BASIC does not run on a 4 KB CoCo (the owner, 2026-11-15): the
+Machine page refuses the RS-DOS cartridge with 4K, by the rule
+`roms_basic_for` keeps (§14). The archive's images are
 surveyed before any check the chip makes is trusted, and the whole
 archive is held to XRoar by screen, since XRoar's disc timing differs
 (EL §8.4).
@@ -1137,8 +1141,13 @@ deferred (§20).
 ```
 /coco/
   coco.ini         settings: key = value (EL §8.7)
-  roms/  tapes/  discs/  carts/  snaps/  keymaps/
+  roms/  tapes/  disks/  carts/  snaps/  keymaps/
 ```
+
+**Disks, not discs** (the owner, 2026-11-15): in North America, and so
+on the Color Computer, it is *disk*. The card's folder is
+`/coco/disks/`, and what the user sees says *disk*: the menu's Disks
+item and page, and the status line.
 
 The family's settings file and rules without change (EL §8.7): every
 default in one function, a wrong line changes nothing, saving is a
@@ -1227,7 +1236,7 @@ The family's (EL §10), by D5:
 
 - **Boots straight into the guest.** One Alt chord opens the menu, which
   parks the guest; function keys open its pages directly.
-- **Pages**: Tapes, Discs, Snapshots, Keys (layouts and the keyboard
+- **Pages**: Tapes, Disks, Snapshots, Keys (layouts and the keyboard
   joystick), Machine, Settings, About. Where the Atom and the Oric have
   an item, it is in the same place under the same key.
 - **The Machine page** stages changes and applies them by a restart that
@@ -1245,7 +1254,7 @@ The family's (EL §10), by D5:
 
 **As built in M9** (2026-11-15): pico-oric's `menu.c`, `park.c` and
 pause, on the VDG's 32 by 16 cells in capitals. The main page has the
-family's nine items in their order; Discs and Snapshots say which
+family's nine items in their order; Disks and Snapshots say which
 milestone brings them (M13, M10). The Tapes page ejects, rewinds, makes
 a named tape and inserts any CAS in `/coco/tapes/`, showing each one's
 first file. Setup has the two lines, the backlight and the volume. The
@@ -1253,7 +1262,14 @@ Machine page stages BASIC (Extended or Color), the RAM (4, 16, 32,
 64 KB) and the cartridge (none, or any `.ccc` or `.rom` in
 `/coco/carts/`), and Apply powers on as staged; it refuses while a
 recording is not on the card, and refuses Extended without its ROMs.
-The machine and television choices wait for M14. The status line
+**A 4 KB CoCo runs Color BASIC 1.1 alone** (the owner, 2026-11-15): never
+1.3, never Extended, which needs 16 KB or more and 1.3 under it, and
+never Disk BASIC (§12.4).
+`roms_basic_for` (`roms.c`, `test_roms`) is the one rule the boot, the
+power-on and the Machine page take it from; the card job keeps 1.1's
+image apart from 1.3's for it. Setting RAM to 4K on the page sets BASIC
+to Color 1.1; `ram = 4` with no `bas11.rom` on the card boots 16 KB
+and says why. The machine and television choices wait for M14. The status line
 shows the deck and the cartridge (`status_format`, `test_status`).
 F6's screenshot is not yet in.
 

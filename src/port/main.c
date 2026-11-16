@@ -152,12 +152,24 @@ int main(void) {
         .extended = basic == BOOT_EXTENDED && g_boot.settings.extended,
         .cart = g_boot.cart_len > 0,
     };
+    /* The BASIC that RAM runs (roms.h): 4 KB is Color BASIC 1.1 alone. A
+     * 4 KB machine the card cannot start boots with 16 KB instead. */
+    const char *why;
+    mc.basic = roms_basic_for(&g_boot.job, mc.ram_k, &mc.extended, &why);
+    if (mc.basic == ROM_UNKNOWN && mc.ram_k <= 4u) {
+        log_printf("  guest        : ram = 4: %s; 16 KB instead\n", why);
+        mc.ram_k = 16u;
+        mc.extended = basic == BOOT_EXTENDED && g_boot.settings.extended;
+        mc.basic = roms_basic_for(&g_boot.job, mc.ram_k, &mc.extended, &why);
+    }
+    if (why) log_printf("  guest        : %s\n", why);
     core0_power_on(&g_coco, &mc);
     coco_config_t cfg = g_coco.cfg;
     log_printf("  guest        : CoCo, %u KB, %s (%s%s), %lu ticks a field, "
                "hot code in SRAM to tier %u (hot.h)%s\n",
-               cfg.ram_k, roms_basic_name(mc.extended ? BOOT_EXTENDED : roms_choice(&g_boot.job) == BOOT_EXTENDED ? BOOT_COLOR13 : basic),
-               romset_images[g_boot.job.basic].file,
+               cfg.ram_k, roms_basic_name(mc.extended ? BOOT_EXTENDED
+                                          : mc.basic == ROM_COCO_BAS11 ? BOOT_COLOR11 : BOOT_COLOR13),
+               romset_images[mc.basic].file,
                mc.extended ? ", extbas11.rom" : "",
                (unsigned long)(g_coco.line_ticks * g_coco.field_lines),
                (unsigned)PICO_COCO_RAM_TIER,

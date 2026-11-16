@@ -118,10 +118,10 @@ static bool serve_hold(void) {
     if (!serving) {
         serving = true;
         log_core1("  park         : held; GS again to resume\n");
-        card_roms(&j, NULL, NULL);
+        card_roms(&j, NULL, NULL, NULL);
     } else if (card_poll()) {
         log_core1("  card         : %s while parked\n", card_present() ? "in" : "out");
-        card_roms(&j, NULL, NULL);
+        card_roms(&j, NULL, NULL, NULL);
     }
     if (!g_release) return true;
     serving = false;

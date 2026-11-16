@@ -39,6 +39,7 @@ typedef struct {
      * BASIC for $8000. */
     rom_id_t     basic;
     bool         extended;
+    bool         bas11;       /* Color BASIC 1.1 kept apart, for 4 KB     */
     uint32_t     load_us;     /* reading the loaded images again          */
 } card_job_t;
 
@@ -46,13 +47,16 @@ typedef struct {
  * file a sector at a time, hash it, name what it is, and log a line for
  * each; then read the images the CoCo boots from (Color BASIC 1.3, or
  * 1.1 without it, and Extended Color BASIC 1.1) into `basic` and `ext`,
- * each chosen by its SHA-1 whatever the file is called. Without a usable
- * card the job says so. */
-void card_roms(card_job_t *job, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM_HALF]);
+ * and Color BASIC 1.1 into `basic11` as well, each chosen by its SHA-1
+ * whatever the file is called; any of the three may be NULL. Without a
+ * usable card the job says so. */
+void card_roms(card_job_t *job, uint8_t basic[COCO_ROM_HALF], uint8_t basic11[COCO_ROM_HALF],
+               uint8_t ext[COCO_ROM_HALF]);
 
 /* The same with the card already mounted, for the menu (About) and the
  * boot's job, which mount it once for everything they read. */
-void card_roms_mounted(card_job_t *job, uint8_t basic[COCO_ROM_HALF], uint8_t ext[COCO_ROM_HALF]);
+void card_roms_mounted(card_job_t *job, uint8_t basic[COCO_ROM_HALF], uint8_t basic11[COCO_ROM_HALF],
+                       uint8_t ext[COCO_ROM_HALF]);
 
 /* Cartridge images in COCO_CART_DIR, .ccc or .rom, up to max, in
  * directory order. The card must be mounted. */

@@ -123,7 +123,7 @@ static void boot_rom(void) {
         g_boot.job.fresult = fr;
         if (fr == 0) {
             settingsio_load(&g_boot.settings);
-            card_roms_mounted(&g_boot.job, g_boot.basic, g_boot.ext);
+            card_roms_mounted(&g_boot.job, g_boot.basic, g_boot.basic11, g_boot.ext);
             const settings_t *st = &g_boot.settings;
             if (st->cart[0]) {
                 uint32_t len = 0;
@@ -144,11 +144,11 @@ static void boot_rom(void) {
             }
             storage_unmount();
         } else {
-            card_roms(&g_boot.job, g_boot.basic, g_boot.ext);
+            card_roms(&g_boot.job, g_boot.basic, g_boot.basic11, g_boot.ext);
             settingsio_none(&g_boot.settings);
         }
     } else {
-        card_roms(&g_boot.job, g_boot.basic, g_boot.ext);
+        card_roms(&g_boot.job, g_boot.basic, g_boot.basic11, g_boot.ext);
         settingsio_none(&g_boot.settings);
     }
     apply_settings(&g_boot.settings);

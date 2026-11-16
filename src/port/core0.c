@@ -115,7 +115,10 @@ void core0_power_on(coco_t *m, const machine_t *mc) {
     coco_config_default(&cfg);
     cfg.ram_k = mc->ram_k;
     coco_init(m, &cfg);
-    coco_load_rom(m, 0xA000u, g_boot.basic, COCO_ROM_HALF);
+    /* Color BASIC 1.1 kept apart for a 4 KB CoCo (roms.h); otherwise the
+     * job's image, 1.3 or 1.1 without it. */
+    bool use11 = mc->basic == ROM_COCO_BAS11 && g_boot.job.bas11;
+    coco_load_rom(m, 0xA000u, use11 ? g_boot.basic11 : g_boot.basic, COCO_ROM_HALF);
     if (mc->extended) coco_load_rom(m, 0x8000u, g_boot.ext, COCO_ROM_HALF);
     bool cart = mc->cart && g_boot.cart_len > 0;
     if (cart) coco_load_rom(m, 0xC000u, g_boot.cart, g_boot.cart_len);
@@ -145,8 +148,9 @@ static bool apply_ui(coco_t *m) {
         machine_t mc = g_ui.restart_cfg;
         g_ui.restart = false;
         core0_power_on(m, &mc);
-        log_printf("  menu         : powered on, %u KB, %s%s%s\n", mc.ram_k,
+        log_printf("  menu         : powered on, %u KB, %s (%s)%s%s\n", mc.ram_k,
                    mc.extended ? "Extended Color BASIC" : "Color BASIC",
+                   romset_images[mc.basic].file,
                    g_machine.cart ? ", cartridge " : "", g_machine.cart ? g_boot.cart_path : "");
         return true;
     }

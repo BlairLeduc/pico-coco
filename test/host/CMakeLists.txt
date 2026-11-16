@@ -143,6 +143,13 @@ add_executable(vdg-ppm ${PROJECT_SOURCE_DIR}/tools/vdg-ppm.c)
 target_link_libraries(vdg-ppm PRIVATE vdg_scenes)
 target_compile_options(vdg-ppm PRIVATE ${PICO_COCO_WARNINGS})
 
+# Which BASIC each size runs (roms.h): roms.c has no SDK header.
+add_executable(test_roms test_roms.c ${PROJECT_SOURCE_DIR}/src/port/roms.c)
+target_link_libraries(test_roms PRIVATE pico_coco_core)
+target_include_directories(test_roms PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/src/port)
+target_compile_options(test_roms PRIVATE ${PICO_COCO_WARNINGS})
+add_test(NAME test_roms COMMAND test_roms)
+
 # The missing-ROM pages, rendered to be looked at (design.md §12.1). roms.c
 # is the port's, and includes no SDK header, so the host builds it here.
 add_executable(page-ppm ${PROJECT_SOURCE_DIR}/tools/page-ppm.c

@@ -74,6 +74,7 @@ extern bringup_t g_bringup;
 typedef struct {
     card_job_t job;          /* what the card had, and what was loaded    */
     uint8_t    basic[COCO_ROM_HALF];   /* job.basic's bytes, for $A000    */
+    uint8_t    basic11[COCO_ROM_HALF]; /* Color BASIC 1.1's, for 4 KB     */
     uint8_t    ext[COCO_ROM_HALF];     /* Extended's, for $8000           */
     /* The settings file at boot (settings.h), and the cartridge it or
      * the Machine page names, read off the card: cart_len 0 for none. */
@@ -107,6 +108,7 @@ extern volatile core0_perf_t g_c0;
  * core0_power_on builds, with the ROMs and the cartridge from g_boot. */
 typedef struct {
     unsigned ram_k;            /* 4, 16, 32 or 64                       */
+    rom_id_t basic;            /* the Color BASIC at $A000 (roms.h)     */
     bool     extended;         /* Extended Color BASIC at $8000         */
     bool     cart;             /* g_boot.cart at $C000                  */
 } machine_t;

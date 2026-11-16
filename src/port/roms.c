@@ -18,6 +18,25 @@ bool roms_start_now(const card_job_t *job, bool want_extended) {
     return b == BOOT_EXTENDED || (!want_extended && b != BOOT_NONE);
 }
 
+rom_id_t roms_basic_for(const card_job_t *job, unsigned ram_k, bool *extended, const char **why) {
+    *why = NULL;
+    if (ram_k <= 4u) {
+        if (*extended) *why = "EXTENDED NEEDS 16K";
+        *extended = false;
+        if (job->bas11) return ROM_COCO_BAS11;
+        *why = "4K NEEDS BAS11.ROM";
+        return ROM_UNKNOWN;
+    }
+    if (*extended) {
+        if (job->extended && job->basic == ROM_COCO_BAS13) return ROM_COCO_BAS13;
+        *why = !job->extended ? "NO EXTBAS11.ROM" : "EXTENDED NEEDS BAS13.ROM";
+        *extended = false;
+    }
+    if (job->basic == ROM_COCO_BAS13 || job->basic == ROM_COCO_BAS11) return job->basic;
+    *why = "NO COLOR BASIC";
+    return ROM_UNKNOWN;
+}
+
 const char *roms_basic_name(boot_basic_t b) {
     switch (b) {
     case BOOT_EXTENDED: return "EXTENDED COLOR BASIC 1.1";

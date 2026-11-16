@@ -16,7 +16,11 @@ In the port: `park.c`, `settingsio.c`, `menu.c` (from pico-oric),
 `tapeio.c` (new, for CAS), cartridge listing and loading in `card.c`,
 and core 0's park between fields. `design.md` §12.2, §12.3, §12.6 and
 §14 say what was built. New tests: `test_tape`, `test_cart`,
-`test_settings`, and the status line in `test_status`. `media/` is a
+`test_settings`, and the status line in `test_status`. The owner settled two things on 2026-11-15: the CoCo's
+word is *disk*, so the card's folder is `/coco/disks/` and the menu
+says Disks; and a 4 KB CoCo runs Color BASIC 1.1 alone, never 1.3, Extended
+or Disk BASIC (`roms_basic_for`, `test_roms`; the disk part is M13's
+to apply). `media/` is a
 gitignored staging area for the owner's cartridges and tapes, which the
 host tests load when they find them.
 
@@ -58,6 +62,8 @@ All 24 host tests pass.
   button pressed, the program kept.
 - The Machine page listed the card's five cartridges; Doodle Bug applied
   and started (VDG in a graphics mode); taken out again.
+- RAM set to 4K on the Machine page: COLOR BASIC 1.1 started, and
+  `PRINT MEM` gave 2,343.
 - Save settings wrote `/coco/coco.ini`, 68 bytes; after a reset the boot
   read it and put `TAPE01.CAS` in the deck.
 
@@ -72,8 +78,6 @@ of 117 KB since M8.
 - The menu on the panel by eye, and pause.
 - Exit to shell.
 - A tape larger than 64 KB, which is refused.
-- The card's disc folder is `/coco/disks/`; `design.md` §12.6 says
-  `/coco/discs/` (M13 decides).
 
 ## M8: audio
 
