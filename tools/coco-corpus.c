@@ -270,6 +270,14 @@ static uint32_t read_file(const char *path, uint8_t *buf, uint32_t cap) {
 /* A directory's tapes, joined in name order into the deck: a title in
  * parts asks for each by name, and the trap finds the next file where the
  * tape stands. */
+/* strdup is POSIX, which glibc hides under -std=c11 (CI, 2026-11-16). */
+static char *dup_str(const char *s) {
+    size_t n = strlen(s) + 1;
+    char *d = malloc(n);
+    if (d) memcpy(d, s, n);
+    return d;
+}
+
 static int cmp_str(const void *a, const void *b) {
     return strcmp(*(const char *const *)a, *(const char *const *)b);
 }
@@ -282,7 +290,7 @@ static uint32_t load_dir(const char *path) {
     struct dirent *e;
     while ((e = readdir(d)) != NULL && n < 64) {
         size_t l = strlen(e->d_name);
-        if (l > 4 && strcasecmp(e->d_name + l - 4, ".cas") == 0) names[n++] = strdup(e->d_name);
+        if (l > 4 && strcasecmp(e->d_name + l - 4, ".cas") == 0) names[n++] = dup_str(e->d_name);
     }
     closedir(d);
     qsort(names, n, sizeof names[0], cmp_str);
