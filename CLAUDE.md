@@ -12,9 +12,9 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M12 is built and checked on the host and over the UART; it is
-done once the owner has played a joystick game and looked at the split
-titles on the panel** (`docs/design.md` §17, `docs/milestones.md`). M12:
+**Status: M12 is built and checked on the host, over the UART and by
+the owner's hand with both joysticks; it is done once the owner has
+looked at the split titles on the panel** (`docs/design.md` §17, `docs/milestones.md`). M12:
 the tape's signal with fast loading off, the player held edge for edge
 to the ROM's own save and a recorder whose image is the trap's
 (`cassette.h`, `test_cassette`, `test_recorder`), turbo while it runs;

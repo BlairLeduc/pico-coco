@@ -7,9 +7,9 @@ and done-when criteria; this file keeps the full record (EL §14.3).
 ## M12: the tape's signal, the keyboard joystick and layouts, split fields
 
 On branch `m12`, 2026-11-16 (`design.md` §17). On the owner's board.
-**Built, and checked on the host and over the UART. Not done**: the
-owner has not yet played a joystick game or looked at a split title on
-the panel.
+**Built, and checked on the host, over the UART and by the owner's
+hand. Not done**: the owner has not yet looked at a split title on the
+panel.
 
 **Built.** In the core: `cassette.c`, the tape's signal, a player and
 a recorder (`design.md` §12.3, `cassette.h`), with `fast_tape = off`
@@ -126,6 +126,10 @@ every snapshot presented, zero underruns; then the menu's Reset. Zero
 late fields, slips, dropped snapshots, lost keys, I2C errors,
 undocumented opcodes, underruns and late refills throughout.
 
+**The keyboard joystick by hand**, 2026-11-16: the owner, on the same
+board and image, from the PicoCalc's own keys: both joysticks, `JOY
+RIGHT` and `JOY LEFT`, move and fire, the button working on each.
+
 **Measured** against M11's merged image (`main`), back to back in one
 sitting, the idle prompt then a scrolling `PRINT` loop, eight to ten
 five-second windows each (`out/m12/dev3.sh`, `perf-*.log`):
@@ -148,11 +152,8 @@ not measured again. The image: 188,148 bytes of text and 325,928 of bss.
 
 **Not checked:**
 
-- The owner on the panel: a joystick game played, and the split titles
-  looked at there (§17's row); the pictures were looked at only as the
-  host draws them.
-- The keyboard joystick from the PicoCalc's own keys, and its chords
-  with `]` (EL §7.3); over the UART only `]` alone.
+- The owner on the panel: the split titles looked at there (§17's
+  row); the pictures were looked at only as the host draws them.
 - A `.map` file on the card; the parser is tested on the host only.
 - The split loop's cost on the committed image; a soak on this image.
 - A real CoCo against any of: the writer's counts (taken from the ROM
