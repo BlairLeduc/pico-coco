@@ -128,7 +128,15 @@ undocumented opcodes, underruns and late refills throughout.
 
 **The keyboard joystick by hand**, 2026-11-16: the owner, on the same
 board and image, from the PicoCalc's own keys: both joysticks, `JOY
-RIGHT` and `JOY LEFT`, move and fire, the button working on each.
+RIGHT` and `JOY LEFT`, move and fire, the button working on each; and
+**a joystick game played**, Doodle Bug (Computerware, 1982, the
+cartridge). Its bug runs left with no arrow held, and that is the
+game's: it reads JOYSTK's values through Color BASIC ($A9DE), takes
+the axis further from 31 with a tie to the horizontal, and x at 31 or
+less as left ($D4B3 in the cartridge), so a centred stick, which reads
+31 here and about 31 or 32 on a real stick at rest, always asks for a
+direction. Traced on the host. Left as it is (the owner, 2026-11-16):
+the keyboard joystick centres, as a real one does.
 
 **Measured** against M11's merged image (`main`), back to back in one
 sitting, the idle prompt then a scrolling `PRINT` loop, eight to ten
