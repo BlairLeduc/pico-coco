@@ -67,7 +67,7 @@ int32_t coco_ram_index(const coco_t *m, uint16_t a) {
 /* The VDG's fetch goes through the same multiplexer, but XRoar's takes
  * neither the page bit nor the second bank (its VRAM_TRANSLATE and the
  * fetch from bank 0; §18). */
-int32_t coco_vram_index(const coco_t *m, uint16_t a) {
+int32_t COCO_HOT1(coco_vram_index)(const coco_t *m, uint16_t a) {
     return ram_index(m, a, true);
 }
 
@@ -288,28 +288,40 @@ static uint32_t video_bits(const coco_t *m) {
 
 /* After a write that may change the video bits: if they changed while the
  * VDG was showing an active line, this field shows more than one mode,
- * which the snapshot cannot (§9.4), and it is counted. */
+ * and it is counted. A change of the VDG's mode or the SAM's is kept
+ * with the line and the pixel it fell on, by the tick of the write
+ * (§9.4): before the line's pixels, the line's first; after them, the
+ * next line's. The display offset is loaded only as the field begins,
+ * so a change of it alone is not kept. */
 static void note_video(coco_t *m, uint64_t t) {
     uint32_t bits = video_bits(m);
     if (bits == m->video_bits) return;
+    uint32_t changed = bits ^ m->video_bits;
     m->video_bits = bits;
-    uint64_t line = (t - m->field_start) / COCO_LINE_TICKS;
-    if (line >= COCO_ACTIVE_LINE && line < COCO_ACTIVE_LINE + COCO_PIC_H) m->video_split = true;
+    uint64_t in_field = t - m->field_start;
+    uint64_t line = in_field / COCO_LINE_TICKS;
+    if (line < COCO_ACTIVE_LINE || line >= COCO_ACTIVE_LINE + COCO_PIC_H) return;
+    m->video_split = true;
+    if (!(changed & ~(uint32_t)SAM_F_MASK)) return;
+
+    unsigned y = (unsigned)(line - COCO_ACTIVE_LINE);
+    unsigned off = (unsigned)(in_field % COCO_LINE_TICKS), x = 0;
+    if (off > COCO_LINE_ACTIVE_TICKS) {
+        x = (off - COCO_LINE_ACTIVE_TICKS + COCO_PIXEL_TICKS - 1u) / COCO_PIXEL_TICKS;
+        if (x >= COCO_PIC_W) {
+            x = 0;
+            y++;
+        }
+    }
+    if (y >= COCO_PIC_H) return;
+    coco_split_t s = { (uint8_t)y, (uint8_t)x, coco_vdg_mode(m), (uint8_t)sam6883_v(&m->sam) };
+    coco_split_t *last = m->n_split_now ? &m->split_now[m->n_split_now - 1u] : NULL;
+    if (last && last->line == y && last->x == x) *last = s;
+    else if (m->n_split_now < COCO_SPLIT_MAX) m->split_now[m->n_split_now++] = s;
+    else m->split_dropped++;
 }
 
 /* ---- the PIAs' pins (§3.3) -------------------------------------------- */
-
-/* PIA0 port A: the keyboard's rows, low where a pressed key's column is
- * driven low, and PA7 the joystick comparator. With no joystick the axis
- * reads at its middle and is compared with the DAC, as XRoar does (§11.4). */
-static uint8_t pia0a_pins(const coco_t *m) {
-    uint8_t cols_low = (uint8_t)~mc6821_out(&m->pia0.b);
-    uint8_t rows = 0x7Fu;
-    for (unsigned c = 0; c < COCO_KEY_COLS; c++)
-        if (cols_low & (1u << c)) rows &= (uint8_t)~m->keys[c];
-    unsigned dac = (((unsigned)mc6821_out(&m->pia1.a) & 0xFCu) | 2u) << 8;
-    return (uint8_t)(rows | (32767u >= dac ? 0x80u : 0u));
-}
 
 /* A 32 or 64 KB CoCo wires PIA0 PB6 to PIA1 PB2 (XRoar; §18). */
 static bool linked_pb(const coco_t *m) {
@@ -352,6 +364,37 @@ static bool ca2_level(const mc6821_port_t *a) {
 
 static bool cb2_level(const mc6821_port_t *b) {
     return (b->cr & MC6821_CR_C2_OUT) ? mc6821_c2_out(b) : false;
+}
+
+/* PIA0 port A: the keyboard's rows, low where a pressed key's column is
+ * driven low, and PA7 the joystick comparator (§11.4): the axis PIA0's
+ * CA2 chooses, of the stick its CB2 chooses, the multiplexer's two
+ * select lines, against the DAC, high when the axis is at the DAC's
+ * level or above. A stick's button pulls its row line low whatever the
+ * columns: the right's PA0, the left's PA1. All as XRoar has them
+ * (its dragon.c; §18). */
+static uint8_t pia0a_pins(coco_t *m) {
+    uint8_t cols_low = (uint8_t)~mc6821_out(&m->pia0.b);
+    uint8_t rows = 0x7Fu;
+    for (unsigned c = 0; c < COCO_KEY_COLS; c++)
+        if (cols_low & (1u << c)) rows &= (uint8_t)~m->keys[c];
+    rows &= (uint8_t)~(m->joy_buttons & 3u);
+    unsigned stick = cb2_level(&m->pia0.b), axis = ca2_level(&m->pia0.a);
+    uint8_t out = mc6821_out(&m->pia1.a);
+    unsigned dac = (((unsigned)out & 0xFCu) | 2u) << 8;
+
+#if COCO_SURVEY
+    /* The survey's counts (coco.h), on the host alone: BASIC's prompt
+     * reads this port all the time. */
+    if ((out & 0xFCu) != m->joy_dac_read) {
+        m->joy_dac_read = out & 0xFCu;
+        m->joy_samples[stick]++;
+    }
+    if (cols_low && !(cols_low & (cols_low - 1u)) && (m->cpu.pc < 0x8000u || m->cpu.pc >= 0xC000u))
+        m->key_col_reads[__builtin_ctz(cols_low)]++;
+#endif
+
+    return (uint8_t)(rows | (m->joy_axis[stick][axis] >= dac ? 0x80u : 0u));
 }
 
 /* The bus's level by source and by the single bit, XRoar's measured
@@ -418,6 +461,13 @@ size_t coco_audio_drain(coco_t *m, int16_t *dst, size_t max) {
     return pcm_drain(&m->pcm, dst, max);
 }
 
+/* The cassette's relay, PIA1 CA2 driven high (§12.3): an input, as
+ * after RESET, leaves it open. */
+static bool motor_on(const coco_t *m) {
+    const mc6821_port_t *a = &m->pia1.a;
+    return (a->cr & MC6821_CR_C2_OUT) && mc6821_c2_out(a);
+}
+
 /* ---- the I/O page ----------------------------------------------------- */
 
 /* What an address nothing drives reads: the data bus as the last cycle
@@ -447,8 +497,10 @@ static uint8_t io_read(coco_t *m, uint16_t a) {
         before_pia(m);
         if (reg == 2u) m->pia1.b.in = pia1b_pins(m);
         /* PA0 is the cassette's comparator, low with no tape (XRoar; the
-         * trace agrees, §18). M9: the tape. */
-        m->pia1.a.in = 0xFEu;
+         * trace agrees, §18), and the signal's level while one plays
+         * (cassette.h). */
+        m->pia1.a.in = (m->cas.playing || m->cas.ended) && cassette_level(m, access_tick(m))
+                           ? 0xFFu : 0xFEu;
         uint8_t v = mc6821_read(&m->pia1, reg);
         if (reg == 2u) cart_q(m, access_tick(m) + m->tpc);
         update_irq(m);
@@ -474,6 +526,9 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         before_pia(m);
         mc6821_write(&m->pia1, reg, v);
         if (reg == 3u) cart_q(m, access_tick(m) + m->tpc);
+        if (reg == 1u) cassette_motor(m, motor_on(m), access_tick(m));
+        else if (reg == 0u && !m->cas.fast)
+            cassette_dac(m, mc6821_out(&m->pia1.a) & 0xFCu, access_tick(m));
         update_sound(m);
         note_video(m, access_tick(m));
         update_irq(m);
@@ -519,12 +574,22 @@ void COCO_HOT1(coco_slow_write)(coco_t *m, uint16_t a, uint8_t v) {
 
 /* ---- the machine ------------------------------------------------------ */
 
+/* Both sticks let go: centred, as XRoar reads a port with nothing in it,
+ * and no button. */
+static void joysticks_centre(coco_t *m) {
+    for (unsigned s = 0; s < COCO_JOYSTICKS; s++)
+        m->joy_axis[s][0] = m->joy_axis[s][1] = COCO_JOY_CENTRE;
+    m->joy_buttons = 0;
+}
+
 void coco_init(coco_t *m, const coco_config_t *cfg) {
     memset(m, 0, sizeof(*m));
     m->cfg = *cfg;
     set_ram_org(m);
 
     m->tpc = 16u;
+    m->cas.fast = true;
+    joysticks_centre(m);
     mc6809_init(&m->cpu);
     pcm_init(&m->pcm, 0, COCO_SOUND_LEVEL_MAX, COCO_TICK_HZ, 0, 0);
     map(m);
@@ -572,6 +637,7 @@ void coco_reset(coco_t *m) {
     map(m);
     retime(m);
     uint64_t t = coco_ticks(m);
+    cassette_motor(m, false, t);
     memset(m->irq_due, 0, sizeof(m->irq_due));
     m->hs_seen = t;
     m->pia0.a.c1 = hs_level(t);
@@ -585,6 +651,9 @@ void coco_reset(coco_t *m) {
 void coco_power_on(coco_t *m) {
     memset(m->ram, 0, sizeof(m->ram));   /* §13.3 */
     memset(m->keys, 0, sizeof(m->keys));
+    joysticks_centre(m);
+    memset(m->joy_samples, 0, sizeof m->joy_samples);
+    memset(m->key_col_reads, 0, sizeof m->key_col_reads);
     mc6809_init(&m->cpu);
     m->tick0 = m->cyc0 = 0;
     m->field_start = 0;
@@ -597,6 +666,8 @@ void coco_power_on(coco_t *m) {
     pcm_set_level(&m->pcm, 0, 0);
     m->video_split = false;
     m->split_fields = 0;
+    m->n_split_now = m->n_split_last = 0;
+    m->split_dropped = 0;
     coco_reset(m);
     m->video_bits = video_bits(m);
 }
@@ -661,6 +732,10 @@ uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
     m->fields++;
     if (m->video_split) m->split_fields++;
     m->video_split = false;
+    /* The changes the field just shown had are the coming one's (§9.4). */
+    memcpy(m->split_last, m->split_now, m->n_split_now * sizeof m->split_now[0]);
+    m->n_split_last = m->n_split_now;
+    m->n_split_now = 0;
 
     uint64_t active = end + (uint64_t)COCO_ACTIVE_LINE * COCO_LINE_TICKS;
     now = coco_ticks(m);
@@ -678,21 +753,54 @@ uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
  * (§18: medium). In matched modes the extra bytes change nothing; in
  * some mismatched ones they move the X divider. Only the active lines
  * fetch, and HS clears part of the counter before each. */
-void coco_video_snapshot(const coco_t *m, coco_frame_t *out) {
+/* In SRAM from tier 1 with the counter it walks: from flash it cost core
+ * 0 4.8 % at the idle prompt once it drew each line's mode (§9.4;
+ * docs/milestones.md, M12). */
+void COCO_HOT1(coco_video_snapshot)(const coco_t *m, coco_frame_t *out) {
     uint8_t mode = coco_vdg_mode(m);
-    const mc6847_mode_info_t *info = mc6847_mode_info(mode);
-    unsigned shown = info->bytes_per_line;
-    unsigned fetched = shown == 32u ? 42u : 22u;
+    unsigned v = sam6883_v(&m->sam);
 
     out->mode = mode;
-    out->sam_v = (uint8_t)sam6883_v(&m->sam);
+    out->sam_v = (uint8_t)v;
     out->base = sam6883_display_base(&m->sam);
     out->field = m->fields;
+    /* The last field's changes (§9.4): a title that splits the screen
+     * does it every field, at the same places. A line is fetched by the
+     * VDG's mode as it begins, with the SAM's dividers chosen by V as it
+     * was then, the counter going on from where it stood; a change along
+     * the line is drawn from its pixel, from the bytes the line fetched,
+     * and its V is the next line's. */
+    out->splits = m->n_split_last;
+    const coco_split_t *s = m->split_last, *end = s + m->n_split_last;
+
+    /* The bytes a line fetches, worked out when its mode is a new one. */
+    uint8_t fetch_mode = mode;
+    unsigned shown = mc6847_mode_info(mode)->bytes_per_line;
+    unsigned fetched = shown == 32u ? 42u : 22u;
 
     sam6883_vc_t vc;
     sam6883_vc_load(&vc, &m->sam);
     for (unsigned y = 0; y < COCO_PIC_H; y++) {
         uint8_t *dst = &out->lines[y * COCO_VDG_LINE_BYTES];
+        coco_line_t *how = &out->how[y];
+        for (; s < end && s->line == y && s->x == 0; s++) {
+            mode = s->mode;
+            v = s->sam_v;
+        }
+        *how = (coco_line_t){ .mode = mode };
+        vc.v = (uint8_t)v;
+        if (mode != fetch_mode) {
+            fetch_mode = mode;
+            shown = mc6847_mode_info(mode)->bytes_per_line;
+            fetched = shown == 32u ? 42u : 22u;
+        }
+        for (unsigned k = 0; s < end && s->line == y; s++) {
+            /* More than a line has room for: the last takes the newest. */
+            if (k == COCO_LINE_SPLITS) k--;
+            else how->x[k] = s->x;
+            how->m[k++] = mode = s->mode;
+            v = s->sam_v;
+        }
         sam6883_vc_hsync(&vc);
         unsigned got = 0;
         while (got < fetched) {
@@ -712,6 +820,21 @@ void coco_video_snapshot(const coco_t *m, coco_frame_t *out) {
     }
 }
 
+void coco_frame_plain(coco_frame_t *f) {
+    f->splits = 0;
+    for (unsigned y = 0; y < COCO_PIC_H; y++) f->how[y] = (coco_line_t){ .mode = f->mode };
+}
+
+uint8_t coco_frame_border_mode(const coco_frame_t *f) {
+    /* Lines beginning in each mode, by its five bits. */
+    uint8_t lines[32] = { 0 };
+    for (unsigned y = 0; y < COCO_PIC_H; y++) lines[f->how[y].mode >> 3]++;
+    unsigned best = f->how[0].mode >> 3;
+    for (unsigned y = 1; y < COCO_PIC_H; y++)
+        if (lines[f->how[y].mode >> 3] > lines[best]) best = f->how[y].mode >> 3;
+    return (uint8_t)(best << 3);
+}
+
 /* ---- a state restored (snapshot.h, §12.5) ------------------------------ */
 
 /* What a state does not carry because it follows from what it does: the
@@ -723,6 +846,12 @@ void coco_video_snapshot(const coco_t *m, coco_frame_t *out) {
 void coco_restored(coco_t *m) {
     m->tape.op = TAPE_NONE;
     memset(m->keys, 0, sizeof(m->keys));
+    joysticks_centre(m);
+    m->n_split_now = m->n_split_last = 0;   /* a field brings them back (§9.4) */
+    /* The signal from a byte's start, the relay as the PIA has it. */
+    m->cas.motor = false;
+    cassette_moved(m);
+    cassette_motor(m, motor_on(m), coco_ticks(m));
     map(m);
     m->cpu.irq = m->cpu.firq = 0;
     update_irq(m);
@@ -735,6 +864,14 @@ void coco_key_set(coco_t *m, int row, int col, bool down) {
     if (row < 0 || row >= COCO_KEY_ROWS || col < 0 || col >= COCO_KEY_COLS) return;
     if (down) m->keys[col] |= (uint8_t)(1u << row);
     else      m->keys[col] &= (uint8_t)~(1u << row);
+}
+
+void coco_joystick_set(coco_t *m, unsigned stick, int x, int y, bool fire) {
+    if (stick >= COCO_JOYSTICKS) return;
+    m->joy_axis[stick][0] = x < 0 ? 0u : x > 0 ? 65535u : COCO_JOY_CENTRE;
+    m->joy_axis[stick][1] = y < 0 ? 0u : y > 0 ? 65535u : COCO_JOY_CENTRE;
+    if (fire) m->joy_buttons |= (uint8_t)(1u << stick);
+    else      m->joy_buttons &= (uint8_t)~(1u << stick);
 }
 
 void coco_copy(coco_t *dst, const coco_t *src) {

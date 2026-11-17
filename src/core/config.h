@@ -43,6 +43,16 @@
 #define COCO_KEY_COLS           8
 #define COCO_KEY_ROWS           7
 
+/* The archive's survey of what titles read (§11.3, coco.h): counted in
+ * the host build alone, which defines it. */
+#ifndef COCO_SURVEY
+#define COCO_SURVEY 0
+#endif
+
+/* The joystick ports, right and left (§11.4). */
+#define COCO_JOYSTICKS          2u
+#define COCO_JOY_CENTRE     32767u
+
 /* The held-key set (§11.1, keymatrix.h). */
 #define COCO_KEY_EVENT_QUEUE   64u  /* southbridge FIFO holds 31 (HW §6.2) */
 #define COCO_KEY_HELD_MAX       8u  /* keys down at once                   */
@@ -59,6 +69,17 @@
  * when the next key comes (test_keyboard's long program). */
 #define COCO_KEY_MIN_FIELDS     4u
 #define COCO_KEY_GAP_FIELDS     2u
+
+/* Game layouts (§11.3, keymatrix.h): the built-in ones and the card's
+ * together, and what one .map file may hold. A file a layout goes with
+ * is named as the archive names it, less its extension. */
+#define COCO_KEYMAP_NAME_LEN    16u  /* a layout's name                     */
+#define COCO_KEYMAP_LAYOUTS     10u  /* built-in and card layouts together  */
+#define COCO_KEYMAP_BINDINGS    16u  /* bindings a layout                   */
+#define COCO_KEYMAP_FILES        4u  /* tapes and cartridges it names       */
+#define COCO_KEYMAP_FILE_LEN    48u  /* one of them, without its extension  */
+#define COCO_KEYMAP_FILE_MAX  1024u  /* the largest .map file read          */
+#define COCO_KEYMAP_DIR  "/coco/keymaps"
 
 /* ---- Timing (design.md §13.2) ---------------------------------------- */
 
@@ -114,6 +135,7 @@
 #define COCO_PIC_Y             64u
 #define COCO_PANEL_W          320u
 #define COCO_PANEL_H          320u
+#define COCO_SPLIT_MAX       (COCO_LINE_SPLITS * COCO_PIC_H)
 
 /* The VDG's border (§9.5): 32 px at the sides and 48 rows above and
  * below, as pico-atom draws its MC6847's, so it stops 16 rows short of
@@ -137,6 +159,21 @@
 #define COCO_VDG_LINE_BYTES    32u
 #define COCO_SNAP_BUFFERS       3u
 #define COCO_SNAP_VRAM_MAX   (COCO_PIC_H * COCO_VDG_LINE_BYTES)   /* 6144 */
+/* §9.4: the changes of the video bits a field's picture is drawn by, and
+ * how many of them one line shows part-way along. Dark Star, Rommel's
+ * Revenge and Dragon Fire of M11's archive run change CSS twice on a
+ * line, on and off (docs/milestones.md, M12); more on a line fold into
+ * its last, and more in a field than two a line are dropped and
+ * counted. COCO_SPLIT_MAX is given its value below, with the
+ * picture's. */
+#define COCO_LINE_SPLITS        2u
+/* Where a line's 256 pixels begin, in ticks from HS's fall: the pulse,
+ * the back porch and the left border, XRoar's MC6847 figures (§18), and
+ * the ticks a pixel takes. A change of the video bits before them shows
+ * on the whole line, one among them from its pixel on, and one after
+ * them from the next line (§9.4). */
+#define COCO_LINE_ACTIVE_TICKS (64u + 70u + 120u)
+#define COCO_PIXEL_TICKS        2u
 /* The graphics table's widest entry: a byte of a 16-byte mode is 16
  * pixels (§9.2). */
 #define COCO_LUT_PX_MAX        16u

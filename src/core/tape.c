@@ -142,6 +142,7 @@ static uint8_t blkin(coco_t *m, uint16_t pc) {
     m->cpu.a = t->buf[t->pos++];
     m->cpu.x = x;
     t->blocks_in++;
+    cassette_moved(m);
     return resume(m, PC_BLKIN_SUM);
 }
 
@@ -226,12 +227,18 @@ void tape_jump(coco_t *m, uint16_t target) {
 
 static uint8_t serve(coco_t *m, uint16_t a) {
     coco_tape_t *t = &m->tape;
-    if (a == PC_DELAY) {
+    if (a == PC_DELAY && m->cas.fast) {
         m->cpu.x = 0;
         m->cpu.cc |= MC6809_CC_Z;
         return resume(m, PC_DELAY_END);
     }
     if (!t->buf) return rom_at(m, a);   /* no deck: the ROM's own routines */
+    if (!m->cas.fast) {
+        /* The signal (cassette.h): the ROM's own routines, but for the
+         * port's cue, CSRDON with the deck empty. */
+        if (a == PC_CSRDON && !t->inserted) return csrdon(m, a);
+        return rom_at(m, a);
+    }
     switch (a) {
     case PC_BLKIN:  return blkin(m, a);
     case PC_CSRDON: return csrdon(m, a);
@@ -277,6 +284,7 @@ void coco_tape_insert(coco_t *m, uint32_t len) {
     t->len = t->saved = len <= t->cap ? len : t->cap;
     t->pos = 0;
     t->overflow = false;
+    cassette_moved(m);
 }
 
 void coco_tape_eject(coco_t *m) {
@@ -284,10 +292,12 @@ void coco_tape_eject(coco_t *m) {
     t->inserted = false;
     t->len = t->pos = t->saved = 0;
     t->overflow = false;
+    cassette_moved(m);
 }
 
 void coco_tape_rewind(coco_t *m) {
     m->tape.pos = 0;
+    cassette_moved(m);
 }
 
 bool coco_tape_unsaved(const coco_t *m, uint32_t *from, uint32_t *to) {
@@ -308,6 +318,7 @@ tape_op_t coco_tape_pending(const coco_t *m) {
 
 void coco_tape_resume(coco_t *m) {
     m->tape.op = TAPE_NONE;
+    m->cas.end_reads = 0;
     mc6809_set_halt(&m->cpu, false);
 }
 

@@ -45,7 +45,7 @@ static const char *base_name(const char *path) {
     return b ? b + 1 : path;
 }
 
-void status_format(const char *tape, bool unsaved, const char *cart,
+void status_format(const char *tape, bool unsaved, unsigned deck, const char *cart,
                    char out[COCO_TEXT_COLS + 1]) {
     enum { W = COCO_TEXT_COLS, CART_MAX = 14 };
     memset(out, ' ', W);
@@ -63,8 +63,9 @@ void status_format(const char *tape, bool unsaved, const char *cart,
 
     char left[W + 1] = "";
     int ln = 0;
-    if ((tape && tape[0]) || unsaved) {
-        const char *tail = unsaved ? ", NEW" : "";
+    if ((tape && tape[0]) || unsaved || deck == STATUS_DECK_RECORDING) {
+        const char *tail = deck == STATUS_DECK_RECORDING ? ", REC"
+                         : deck == STATUS_DECK_PLAYING ? ", PLAY" : unsaved ? ", NEW" : "";
         const char *name = tape && tape[0] ? base_name(tape) : "NEW TAPE";
         int fixed = (int)strlen("TAPE: ") + (int)strlen(tail) + (rn ? rn + 1 : 0);
         int room = fixed < W ? W - fixed : 0;

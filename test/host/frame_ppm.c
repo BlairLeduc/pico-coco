@@ -5,11 +5,15 @@
 #include <stdio.h>
 #include <string.h>
 
+const mc6847_t *frame_vdg(void *ctx, uint8_t mode) {
+    mc6847_set_mode(ctx, mode);
+    return ctx;
+}
+
 void frame_rgb(mc6847_t *v, const coco_frame_t *f, uint8_t *rgb) {
-    uint16_t px[COCO_PIC_W];
-    mc6847_set_mode(v, f->mode);
+    uint16_t px[COCO_PIC_W], tmp[COCO_PIC_W];
     for (unsigned y = 0; y < COCO_PIC_H; y++) {
-        mc6847_render_line(v, &f->lines[y * COCO_VDG_LINE_BYTES], y, px);
+        present_render_line(f, y, frame_vdg, v, px, tmp);   /* each line as it is drawn (§9.4) */
         for (unsigned x = 0; x < COCO_PIC_W; x++) {
             uint16_t c = px[x];
             unsigned r = (c >> 11) & 0x1Fu, g = (c >> 5) & 0x3Fu, b = c & 0x1Fu;

@@ -17,6 +17,7 @@ void settings_default(settings_t *s) {
     s->perf      = false;
     s->status    = true;
     s->backlight = 0u;
+    s->fast_tape = true;
 }
 
 /* strcasecmp is POSIX, not C11. */
@@ -86,12 +87,22 @@ static settings_status_t ram(settings_t *s, const char *v) {
     return SET_BAD_VALUE;
 }
 
+static settings_status_t layout(settings_t *s, const char *v) {
+    if (same_name(v, "standard")) { s->layout[0] = 0; return SET_OK; }
+    size_t n = strlen(v);
+    if (n > COCO_KEYMAP_NAME_LEN) return SET_TOO_LONG;
+    for (size_t i = 0; i <= n; i++) s->layout[i] = (char)toupper((unsigned char)v[i]);
+    return SET_OK;
+}
+
 /* Every setting the file may give, in settings.h's order. Only the
  * cartridge and the boot tape may be left empty, meaning none. */
-enum { K_BASIC, K_RAM, K_CART, K_VOLUME, K_PERF, K_STATUS, K_BACKLIGHT, K_BOOT_TAPE, K_COUNT };
+enum { K_BASIC, K_RAM, K_CART, K_VOLUME, K_PERF, K_STATUS, K_BACKLIGHT, K_LAYOUT, K_FAST_TAPE,
+       K_BOOT_TAPE, K_COUNT };
 
 static const char *const k_names[K_COUNT] = {
-    "basic", "ram", "cart", "volume", "perf", "status", "backlight", "boot_tape",
+    "basic", "ram", "cart", "volume", "perf", "status", "backlight", "layout", "fast_tape",
+    "boot_tape",
 };
 
 static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
@@ -104,6 +115,8 @@ static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
     case K_PERF:      return on_off(v, &s->perf);
     case K_STATUS:    return on_off(v, &s->status);
     case K_BACKLIGHT: return number(v, 1u, 15u, &s->backlight);
+    case K_LAYOUT:    return layout(s, v);
+    case K_FAST_TAPE: return on_off(v, &s->fast_tape);
     case K_BOOT_TAPE: return path(v, s->boot_tape);
     }
     return SET_UNKNOWN;
@@ -227,6 +240,8 @@ static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
     case K_PERF:      return a->perf == b->perf;
     case K_STATUS:    return a->status == b->status;
     case K_BACKLIGHT: return b->backlight == 0 || a->backlight == b->backlight;
+    case K_LAYOUT:    return strcmp(a->layout, b->layout) == 0;
+    case K_FAST_TAPE: return a->fast_tape == b->fast_tape;
     case K_BOOT_TAPE: return same_path(SETTINGS_TAPE_DIR, a->boot_tape, b->boot_tape);
     }
     return true;
@@ -248,6 +263,8 @@ static const char *value_of(unsigned k, const settings_t *s, char num[4]) {
     }
     case K_PERF:      return s->perf ? "on" : "off";
     case K_STATUS:    return s->status ? "on" : "off";
+    case K_LAYOUT:    return s->layout[0] ? s->layout : "standard";
+    case K_FAST_TAPE: return s->fast_tape ? "on" : "off";
     case K_BOOT_TAPE: return s->boot_tape;
     }
     return "";

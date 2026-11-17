@@ -21,6 +21,7 @@
 #include "display.h"
 #include "handoff.h"
 #include "kbd.h"
+#include "keymapio.h"
 #include "lcd.h"
 #include "log.h"
 #include "menu.h"
@@ -72,7 +73,7 @@ static void draw_status(void) {
     }
     char text[COCO_TEXT_COLS + 1] = "";
     if (g_ui.status)
-        status_format(tapeio_inserted(), g_c0.tape_unsaved != 0,
+        status_format(tapeio_inserted(), g_c0.tape_unsaved != 0, g_c0.deck,
                       g_machine.cart ? g_boot.cart_path : "", text);
     display_status(text);
 }
@@ -100,6 +101,7 @@ static void apply_settings(const settings_t *st) {
     g_ui.volume = st->volume;
     g_ui.perf_line = st->perf;
     g_ui.status = st->status;
+    g_ui.fast_tape = st->fast_tape;
     uint8_t r[2];
     if (st->backlight) {
         g_ui.backlight = st->backlight;
@@ -125,6 +127,15 @@ static void boot_rom(void) {
             settingsio_load(&g_boot.settings);
             card_roms_mounted(&g_boot.job, g_boot.basic, g_boot.basic11, g_boot.ext);
             const settings_t *st = &g_boot.settings;
+            /* The card's layouts, and the one the file names (§11.3); a
+             * cartridge or boot tape a layout names may choose another
+             * after it. */
+            keymapio_scan();
+            if (st->layout[0]) {
+                int li = keymapio_find(st->layout);
+                if (li >= 0) keymapio_choose(keymapio_get((unsigned)li));
+                else settingsio_fail("layout", "no such layout");
+            }
             if (st->cart[0]) {
                 uint32_t len = 0;
                 const char *err = card_cart_load(st->cart, g_boot.cart, &len);
@@ -136,6 +147,7 @@ static void boot_rom(void) {
                         : snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s/%s",
                                    COCO_CART_DIR, st->cart);
                     if (n >= (int)sizeof g_boot.cart_path) g_boot.cart_path[0] = 0;
+                    keymapio_file_loaded(g_boot.cart_path);
                 }
             }
             if (st->boot_tape[0]) {

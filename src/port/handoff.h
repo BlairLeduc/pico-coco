@@ -100,6 +100,7 @@ typedef struct {
     uint32_t underruns;      /* underrun samples since boot (§10)        */
     uint32_t late_refills;   /* late DMA refills since boot              */
     uint32_t tape_unsaved;   /* the deck holds a recording not on the card */
+    uint32_t deck;           /* the signal: a STATUS_DECK_ state (status.h) */
 } core0_perf_t;
 
 extern volatile core0_perf_t g_c0;
@@ -152,11 +153,16 @@ extern machine_t g_machine;
 
 /* What the menu changes (design.md §9.6, §14), applied by the core that
  * owns it when the guest is handed back (EL §2.5). */
+struct keylayout_s;
 typedef struct {
     volatile unsigned volume;      /* 0-8, as settings_t has it           */
     volatile bool     perf_line;   /* the top line (status.h)             */
     volatile bool     status;      /* the bottom line                     */
     volatile unsigned backlight;   /* 1-15 as the Setup page has it; 0 unread */
+    /* The game layout in force, NULL for the standard map (keymapio.h),
+     * and fast loading (cassette.h): core 0 takes both after every park. */
+    const struct keylayout_s *volatile layout;
+    volatile bool     fast_tape;
     volatile bool     reset;       /* the menu's Reset: core 0 clears it  */
     /* The Machine page's Apply: power on as restart_cfg, with the ROMs
      * and the cartridge core 1 has left in g_boot. Core 0 clears it. */

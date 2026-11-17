@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "cassette.h"
 #include "config.h"
 #include "mc6809.h"
 #include "mc6821.h"
@@ -43,16 +44,48 @@ typedef struct {
     bool           tape_trap;  /* serve Color BASIC's tape routines (tape.h) */
 } coco_config_t;
 
+/* A change of the video bits while the picture was being drawn (§9.4):
+ * from pixel `x` of active line `line` on, the VDG's mode and the SAM's
+ * are these. */
+typedef struct {
+    uint8_t  line;        /* 0 to COCO_PIC_H - 1                         */
+    uint8_t  x;           /* 0 to COCO_PIC_W - 1                         */
+    uint8_t  mode;        /* the VDG's, packed (mc6847.h)                */
+    uint8_t  sam_v;       /* the SAM's video mode                        */
+} coco_split_t;
+
+/* How one line of a frame is drawn (§9.4): in `mode` from its first
+ * pixel, and from pixel x[i], where that is not 0, in m[i]. */
+typedef struct {
+    uint8_t  mode;
+    uint8_t  x[COCO_LINE_SPLITS], m[COCO_LINE_SPLITS];
+} coco_line_t;
+
 /* What the VDG shows in a field (§9.3): its mode and the SAM's, and for
  * each active line the bytes the VDG fetched on it, COCO_VDG_LINE_BYTES
- * apart, the first 16 or 32 of them used by the mode. */
+ * apart, the first 16 or 32 of them used by the mode. The mode is the
+ * one in force as the first line begins; each line's own is in `how`,
+ * which differs from it where the video bits changed part-way down the
+ * field before, or along a line (§9.4). */
 typedef struct {
     uint8_t  mode;        /* the VDG's, packed (mc6847.h)               */
     uint8_t  sam_v;       /* the SAM's video mode                        */
     uint16_t base;        /* the display offset, F x 512                 */
     uint32_t field;       /* coco_t.fields when taken                    */
-    uint8_t  lines[COCO_SNAP_VRAM_MAX];
+    uint16_t splits;      /* the changes the lines are drawn by          */
+    /* On a word boundary, which the snapshot's copies of 16 bytes want:
+     * after `how`, at an odd offset, they cost core 0 0.6 of a point
+     * (docs/milestones.md, M12). */
+    _Alignas(4) uint8_t lines[COCO_SNAP_VRAM_MAX];
+    coco_line_t how[COCO_PIC_H];
 } coco_frame_t;
+
+/* Every line of a frame in its `mode`, as a page's author leaves it. */
+void     coco_frame_plain(coco_frame_t *f);
+
+/* The mode most of the frame's lines begin in, the first such: the one
+ * whose border is drawn (§9.5). */
+uint8_t  coco_frame_border_mode(const coco_frame_t *f);
 
 /* The sound bus's level (§10, §18: low): XRoar's voltages, measured on a
  * real Dragon and assumed the CoCo's, in hundredths of a volt over 126,
@@ -78,6 +111,20 @@ typedef struct coco_s {
     /* Pressed keys: per column, a bit per row. */
     uint8_t  keys[COCO_KEY_COLS];
 
+    /* The joysticks (§11.4), the right then the left: each axis, X then
+     * Y, as the comparator weighs it against the DAC, 0 left or up and
+     * 65,535 right or down, and the buttons, bit 0 the right stick's.
+     * Like the keys, not state. */
+    uint16_t joy_axis[COCO_JOYSTICKS][2];
+    uint8_t  joy_buttons;
+    /* For the archive's survey (§11.3, tools/coco-corpus.c): reads of
+     * the comparator after the DAC moved, by stick, and reads of the
+     * rows with one column alone driven low, by column, made by code
+     * outside BASIC's ROMs. */
+    uint8_t  joy_dac_read;
+    uint32_t joy_samples[COCO_JOYSTICKS];
+    uint32_t key_col_reads[COCO_KEY_COLS];
+
     /* Time, in master-oscillator ticks (§13.2): the tick count at the CPU
      * cycle count cyc0, and the ticks a cycle takes from there. */
     uint64_t tick0, cyc0;
@@ -100,6 +147,12 @@ typedef struct coco_s {
     uint32_t video_bits;
     bool     video_split;
     uint32_t split_fields;
+    /* Those changes: this field's so far, and the last whole field's,
+     * which the snapshot draws the coming one by (§9.4). Not state: a
+     * restored machine has them again after a field. */
+    coco_split_t split_now[COCO_SPLIT_MAX], split_last[COCO_SPLIT_MAX];
+    uint16_t n_split_now, n_split_last;
+    uint32_t split_dropped;    /* changes past COCO_SPLIT_MAX in a field */
 
     /* RAM: the chips' organisation, from the size (§8.1). */
     uint8_t  ram_addr_bits;    /* address bits of one chip              */
@@ -110,8 +163,10 @@ typedef struct coco_s {
     bool     cart_present;     /* a ROM at $C000 (§12.2)                */
     bool     cart_autostart;   /* its CART line on the Q clock (coco.c) */
 
-    /* The tape deck and the trap's request (tape.h). */
+    /* The tape deck and the trap's request (tape.h), and its signal
+     * (cassette.h). */
     coco_tape_t tape;
+    cassette_t  cas;
 
     /* The trace driver's hook (tools/trace/coco-trace.c): when set, each
      * run slice is one step, an instruction, an interrupt's entry or a
@@ -188,6 +243,13 @@ void     coco_restored(coco_t *m);
 
 /* A key, by the matrix's own row and column (§11.2). */
 void     coco_key_set(coco_t *m, int row, int col, bool down);
+
+/* A joystick, 0 the right and 1 the left (§11.4): each axis at an end or
+ * its centre, x -1 left, 0 or 1 right, y -1 up, 0 or 1 down, and its
+ * button. */
+#define COCO_JOY_RIGHT 0u
+#define COCO_JOY_LEFT  1u
+void     coco_joystick_set(coco_t *m, unsigned stick, int x, int y, bool fire);
 
 /* The machine's copy: never `=`, since the page table points into the
  * struct (§6, EL §2.2). */

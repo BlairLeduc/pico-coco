@@ -39,13 +39,17 @@ typedef struct {
  * when every figure is near its widest. */
 void status_perf_format(const perf_line_t *p, char out[COCO_TEXT_COLS + 1]);
 
+/* What the deck's signal is doing (cassette.h). */
+enum { STATUS_DECK_IDLE = 0, STATUS_DECK_PLAYING, STATUS_DECK_RECORDING };
+
 /* The status line's text (§9.6, §14), COCO_TEXT_COLS characters
  * space-padded and a NUL: the deck on the left, `TAPE: NAME.CAS`, with
- * `, NEW` while it holds a recording not yet on the card, and the
+ * `, NEW` while it holds a recording not yet on the card, or `, PLAY`
+ * or `, REC` while its signal runs (`deck`), and the
  * cartridge on the right, `CART: NAME.CCC`. `tape` and `cart` are paths,
  * "" for none, each shown without its folder; the cartridge's name is
  * capped and the tape's shortened to fit what is left. */
-void status_format(const char *tape, bool unsaved, const char *cart,
+void status_format(const char *tape, bool unsaved, unsigned deck, const char *cart,
                    char out[COCO_TEXT_COLS + 1]);
 
 /* The status line while the guest is paused, whether or not the line

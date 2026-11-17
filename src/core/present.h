@@ -9,6 +9,12 @@
  * same while every pixel changes. Otherwise a band is sent where its
  * bytes differ from the shadow, across the columns that differ.
  *
+ * A frame's lines may have modes of their own, and changes of mode
+ * along them (§9.4), so the shadow keeps how each line is drawn: a band
+ * is repainted whole where that changed for any of its lines, and a band
+ * whose lines are not all drawn one way is sent whole when any byte of
+ * it changes.
+ *
  * Here, not in the port, so the host can hold it to a full render.
  */
 #ifndef PICO_COCO_PRESENT_H
@@ -26,15 +32,29 @@ typedef struct {
 
 typedef struct {
     bool    valid;     /* false: the next plan repaints everything      */
-    uint8_t mode;      /* the mode the panel shows                      */
+    uint8_t mode;      /* the mode whose border the panel shows
+                        * (coco_frame_border_mode)                      */
+    bool    full;      /* the last plan repainted for that mode, or all */
+    coco_line_t how[COCO_PIC_H];          /* each line's, as shown      */
     uint8_t shadow[COCO_SNAP_VRAM_MAX];   /* the bytes the panel shows  */
 } present_t;
 
 static inline void present_invalidate(present_t *p) { p->valid = false; }
 
 /* Plan the present of `f`: fill `bands` and return how many are dirty.
- * The shadow and mode then describe `f`, as the panel will once the
+ * The shadow and modes then describe `f`, as the panel will once the
  * dirty bands are sent. */
 unsigned present_plan(present_t *p, const coco_frame_t *f, present_band_t bands[COCO_BANDS]);
+
+/* The renderer for a mode: the caller's, which may keep one table or
+ * several (display.c keeps two, for a title that alternates). */
+typedef const mc6847_t *(*present_vdg_fn)(void *ctx, uint8_t mode);
+
+/* Line y of `f` as COCO_PIC_W pixels into `dst`, drawn as f->how[y]
+ * says (§9.4): in the line's mode, and from each change along it in
+ * that change's, from the same bytes. `tmp` is COCO_PIC_W pixels of
+ * scratch. */
+void present_render_line(const coco_frame_t *f, unsigned y, present_vdg_fn vdg, void *ctx,
+                         uint16_t *dst, uint16_t *tmp);
 
 #endif /* PICO_COCO_PRESENT_H */

@@ -10,6 +10,8 @@
  *    runs.
  * 4. A long program typed through the replay, every line stored and run,
  *    against the scan's bare minimum.
+ * 5. The joysticks (§11.4): the sweep with a button held, and BASIC's
+ *    JOYSTK and the buttons through the keyboard joystick's layouts.
  *
  * In Color BASIC 1.1, Color BASIC 1.3, and Extended Color BASIC 1.1 over
  * 1.3, each in 64 KB; a case whose ROM is absent is left out, and with
@@ -483,6 +485,118 @@ static int program_margin(const rom_case_t *rc) {
     return 0;
 }
 
+/* ---- 5. the joysticks (§11.4) -------------------------------------------- */
+
+/* The sweep with a stick's button held. A button pulls a row line low
+ * whatever the columns, and the ROMs' KEYIN, having found a new key,
+ * reads the rows with no column driven and gives the key up if any is
+ * low ($A211 in Color BASIC 1.1: LDB #$FF, read, INCA, BNE). So while a
+ * button is held BASIC takes no key at all, from any cell; let go, it
+ * types again. Read off the ROM and seen here in all three (2026-11-16). */
+static int sweep_with_button(unsigned stick) {
+    unsigned taken = 0;
+    for (int r = 0; r < COCO_KEY_ROWS; r++)
+        for (int c = 0; c < COCO_KEY_COLS; c++) {
+            if (unchecked(r, c)) continue;
+            fresh();
+            coco_joystick_set(&g.m, stick, 0, 0, true);
+            fields_raw(2);
+            coco_key_set(&g.m, r, c, true);
+            fields_raw(4);
+            coco_key_set(&g.m, r, c, false);
+            fields_raw(4);
+            taken += (unsigned)n_decoded;
+        }
+    CHECK(taken == 0, "%s: %u key(s) taken with stick %u's button held", label, taken, stick);
+
+    /* The control: the same press with the button let go first. */
+    fresh();
+    coco_joystick_set(&g.m, stick, 0, 0, true);
+    fields_raw(6);
+    coco_joystick_set(&g.m, stick, 0, 0, false);
+    fields_raw(2);
+    coco_key_set(&g.m, 0, 1, true);
+    fields_raw(4);
+    coco_key_set(&g.m, 0, 1, false);
+    fields_raw(4);
+    CHECK(n_decoded == 1 && decoded[0] == 'A', "%s: A after the button was let go: %d decoded",
+          label, n_decoded);
+    return 0;
+}
+
+/* What `expr` prints, as a number, with the PicoCalc key `hold` down
+ * (0 for none) while BASIC works it out: the line is typed first, since
+ * a held key is never let the replay go idle. -1 if nothing was
+ * printed. */
+static int basic_value(const char *expr, uint8_t hold) {
+    char line[64];
+    snprintf(line, sizeof line, "CLS:?%s", expr);
+    guest_type(&g, line);
+    if (hold) keymatrix_event(&g.k, KEY_EV_PRESSED, hold);
+    guest_fields(&g, 3);
+    keymatrix_event(&g.k, KEY_EV_PRESSED, PICOCALC_KEY_ENTER);
+    keymatrix_event(&g.k, KEY_EV_RELEASED, PICOCALC_KEY_ENTER);
+    guest_fields(&g, 30);
+    if (hold) keymatrix_event(&g.k, KEY_EV_RELEASED, hold);
+    guest_settle(&g, 60);
+    int v = -1;
+    return sscanf(guest_row(&g.m, 0), " %d", &v) == 1 ? v : -1;
+}
+
+/* BASIC's own JOYSTK and the button's bit, through the keyboard joystick
+ * (keymatrix.h): JOYSTK(0) and (1) are the right stick's X and Y, (2)
+ * and (3) the left's, 0 to 63, and an axis at its centre reads 31, the
+ * comparator being high at the DAC's level or above. The buttons are
+ * PIA0's PA0 and PA1, low when pressed. The other stick's layout is the
+ * control. */
+static int joystick_basic(void) {
+    static const struct { uint8_t key; unsigned axis; int want; const char *name; } dirs[] = {
+        { PICOCALC_KEY_LEFT, 0, 0, "Left" }, { PICOCALC_KEY_RIGHT, 0, 63, "Right" },
+        { PICOCALC_KEY_UP, 1, 0, "Up" },     { PICOCALC_KEY_DOWN, 1, 63, "Down" },
+    };
+    for (unsigned stick = 0; stick < COCO_JOYSTICKS; stick++) {
+        const keylayout_t *l = &keylayout_builtin[stick];
+        char expr[32];
+        fresh();
+        g.m.step_hook = NULL;
+        keymatrix_set_layout(&g.k, l);
+        /* JOYSTK(0) reads all four; the others give what it read. */
+        for (unsigned j = 0; j < 4u; j++) {
+            snprintf(expr, sizeof expr, "JOYSTK(0)*0+JOYSTK(%u)", j);
+            int v = basic_value(expr, 0);
+            CHECK(v == 31, "%s, %s: JOYSTK(%u) is %d with nothing held", label, l->name, j, v);
+        }
+        for (size_t d = 0; d < sizeof dirs / sizeof dirs[0]; d++) {
+            for (unsigned j = 0; j < 4u; j++) {
+                snprintf(expr, sizeof expr, "JOYSTK(0)*0+JOYSTK(%u)", j);
+                int v = basic_value(expr, dirs[d].key);
+                int want = j == stick * 2u + dirs[d].axis ? dirs[d].want : 31;
+                CHECK(v == want, "%s, %s, %s held: JOYSTK(%u) is %d, not %d", label, l->name,
+                      dirs[d].name, j, v, want);
+            }
+        }
+        /* The button: a program, since BASIC takes no key while it is
+         * held. It reads the port for some seconds and keeps the lowest
+         * it saw of the two bits. */
+        guest_type(&g, "CLS:B=3:FORI=1TO600:B=B AND PEEK(65280):NEXT:?B AND 3\r");
+        guest_fields(&g, 20);
+        keymatrix_event(&g.k, KEY_EV_PRESSED, ']');
+        guest_fields(&g, 30);
+        keymatrix_event(&g.k, KEY_EV_RELEASED, ']');
+        int v = -1;
+        for (int f = 0; f < 1200 && v < 0; f += 10) {
+            guest_fields(&g, 10);
+            if (guest_find_row(&g.m, "OK", 1) > 0) (void)sscanf(guest_row(&g.m, 0), " %d", &v);
+        }
+        int want = stick == COCO_JOY_RIGHT ? 2 : 1;
+        CHECK(v == want, "%s, %s: the port's low bits fell to %d with ] held, not %d", label,
+              l->name, v, want);
+    }
+    printf("  %s: JOYSTK reads 0, 31 and 63 from the keyboard joystick as either stick, and "
+           "its button\n", label);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     const char *dir;
     guest_find_roms(&dir);
@@ -522,6 +636,9 @@ int main(int argc, char **argv) {
         type_ahead();
         program_at_speed();
         program_margin(rc);
+        sweep_with_button(COCO_JOY_RIGHT);
+        sweep_with_button(COCO_JOY_LEFT);
+        joystick_basic();
     }
     if (!ran) {
         printf("skipped: no Color BASIC ROM in %s (roms/README.md)\n", dir);

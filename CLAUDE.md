@@ -12,12 +12,21 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M11 is done** (`docs/design.md` §17): the perf pass (tier 2
+**Status: M12 is built and checked on the host, over the UART and by
+the owner's hand with both joysticks; it is done once the owner has
+looked at the split titles on the panel** (`docs/design.md` §17, `docs/milestones.md`). M12:
+the tape's signal with fast loading off, the player held edge for edge
+to the ROM's own save and a recorder whose image is the trap's
+(`cassette.h`, `test_cassette`, `test_recorder`), turbo while it runs;
+the keyboard joystick and game layouts, built in or `.map` files in
+`/coco/keymaps/` (`keymatrix.h`, `keymapio.h`); and a picture drawn by
+the changes of mode the last field made, by line and pixel (§9.4,
+`coco_frame_t.how`, `present.h`). M11: the perf pass (tier 2
 stays), the archive run over the Color Computer Archive
 (`tools/archive-run.sh`), and a clean 30-minute soak on the development
 and release builds (`tools/soak.sh`, `tools/swd-counters.py`). From it,
 **D12**: undocumented opcodes run as the NMOS chip runs them, held by the
-oracle; and split-field rendering is M12's (§9.4). M10: save states in
+oracle. M10: save states in
 four slots in `/coco/snaps/`, loaded into the machine they name
 (`snapshot.h`, `snapio.h`). Before it, M9: the CoCo on the host,
 with its picture, its keyboard and its sound, and on the board, with the
@@ -195,6 +204,12 @@ one: the core building clean without the SDK is what keeps SDK headers out of
   the caller carries the debt. Never add a "run exactly N" variant.
 - **Copy a machine with `coco_copy`, never `=`.** The page table points into
   the struct.
+- **A frame's lines have modes of their own** (`coco_frame_t.how`, §9.4):
+  draw one with `present_render_line`, and call `coco_frame_plain` on a
+  frame you fill by hand.
+- **Planting a bug: wait a second, touch the file when it is restored,
+  and stop on a compiler error.** Otherwise the test runs the last
+  bug's binary (EL §3.3).
 - **Load the ROMs, then power on** (`design.md` §13.3), in one order the
   host harness shares.
 

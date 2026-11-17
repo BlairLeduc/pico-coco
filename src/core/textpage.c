@@ -57,6 +57,7 @@ static void set_cell(coco_frame_t *f, int row, int col, uint8_t b) {
 void textpage_clear(coco_frame_t *f) {
     memset(f, 0, sizeof *f);
     f->mode = 0;   /* alphanumeric, CSS low */
+    coco_frame_plain(f);
     f->sam_v = 0;
     for (int r = 0; r < TEXT_ROWS; r++)
         for (int c = 0; c < TEXT_COLS; c++) set_cell(f, r, c, textpage_byte(' ', false));

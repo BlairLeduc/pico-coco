@@ -15,8 +15,10 @@ option(PICO_COCO_HOST "Build the portable core and its host tests, with no Pico 
 set(PICO_COCO_CORE_SOURCES
     src/core/bus.c
     src/core/cas.c
+    src/core/cassette.c
     src/core/coco.c
     src/core/fieldlog.c
+    src/core/keylayout.c
     src/core/keymap_picocalc.c
     src/core/keymatrix.c
     src/core/mc6809.c
@@ -81,6 +83,9 @@ if (PICO_COCO_HOST)
 
     pico_coco_core_library()
     pico_coco_bench_library()
+    # The archive's survey of what titles read (design.md §11.3): the
+    # host's, for tools/coco-corpus; the firmware leaves it out.
+    target_compile_definitions(pico_coco_core PRIVATE COCO_SURVEY=1)
 
     enable_testing()
     add_subdirectory(test/host)
@@ -258,7 +263,10 @@ else()
     # A scratch build that masks core 0's interrupts for 9 ms every 250
     # fields, to force the audio's late refill path (EL §6.4).
     option(PICO_COCO_FORCE_LATE "Hold core 0's interrupts off now and then" OFF)
-    foreach(opt PERF_LINE FIELD_LOG AUDIO FORCE_LATE)
+    # Unpaced while the tape's signal runs (design.md §12.3, EL §9.3). OFF
+    # paces it: the control for turbo's measurement.
+    option(PICO_COCO_TURBO "Run unpaced while the tape's signal runs" ON)
+    foreach(opt PERF_LINE FIELD_LOG AUDIO FORCE_LATE TURBO)
         if (PICO_COCO_${opt})
             set(PICO_COCO_${opt}_ON 1)
         else()
@@ -277,6 +285,7 @@ else()
         src/port/display.c
         src/port/handoff.c
         src/port/kbd.c
+        src/port/keymapio.c
         src/port/lcd.c
         src/port/log.c
         src/port/main.c
@@ -297,7 +306,8 @@ else()
         PICO_COCO_PERF_LINE=${PICO_COCO_PERF_LINE_ON}
         PICO_COCO_FIELD_LOG=${PICO_COCO_FIELD_LOG_ON}
         PICO_COCO_AUDIO=${PICO_COCO_AUDIO_ON}
-        PICO_COCO_FORCE_LATE=${PICO_COCO_FORCE_LATE_ON})
+        PICO_COCO_FORCE_LATE=${PICO_COCO_FORCE_LATE_ON}
+        PICO_COCO_TURBO=${PICO_COCO_TURBO_ON})
     target_link_libraries(pico-coco
         pico_coco_fatfs
         hardware_dma

@@ -31,12 +31,18 @@
  *
  * One line per image on stdout, tab-separated:
  *   name  kind  outcome  blocks  largest  undoc  opcodes  split  changed
- *   lines  mode  note
+ *   lines  mode  note  changes  dropped
+ *   joyr  joyl  cols
  * kind is cas, cas.gz or ccc; largest the largest file's data bytes on
  * the tape, or the cartridge's size; split the fields with a change on
  * an active line; changed the bits that changed there (css, mode, samv,
  * samf); lines the first and last active line a change fell on; mode
- * the VDG's at the end. With -s, the last frame as DIR/<name>.ppm and
+ * the VDG's at the end; changes the most a field's picture was drawn
+ * by, and dropped those past COCO_SPLIT_MAX in a field (§9.4); joyr and
+ * joyl the reads of each stick's comparator after the DAC moved, and
+ * cols the keyboard's columns, as two hex digits, that were driven low
+ * alone and the rows read sixteen times or more (§11.3's survey: what a
+ * title reads for itself, not through BASIC). With -s, the last frame as DIR/<name>.ppm and
  * the text screen, with the lead-in to the first undocumented opcode,
  * as DIR/<name>.txt.
  */
@@ -89,6 +95,7 @@ typedef struct {
     uint32_t split;
     unsigned changed;            /* CH_ bits                             */
     int      line_lo, line_hi;
+    unsigned regions;            /* the most in a field                  */
     /* Replays whose cycle count did not meet the field's. */
     unsigned replay_bad;
 } run_log_t;
@@ -212,6 +219,7 @@ static void field(void) {
     static int16_t pcm[4096];
     while (coco_audio_drain(&g.m, pcm, sizeof pcm / sizeof pcm[0]) == sizeof pcm / sizeof pcm[0]) {}
     if (g.m.cpu.undoc_count != undoc || g.m.split_fields != split) replay();
+    if (g.m.n_split_last > s_rl.regions) s_rl.regions = g.m.n_split_last;
     uint32_t blocks = g.m.tape.blocks_in + g.m.tape.blocks_out;
     if (blocks != s_tl.blocks_seen) {
         s_tl.blocks_seen = blocks;
@@ -368,6 +376,16 @@ static void shot(const char *dir, const char *name) {
     if (!f) return;
     guest_dump(&g.m, f);
     fprintf(f, "\nPC $%04X at field %ld\n", g.m.cpu.pc, s_field);
+    fprintf(f, "\nThe frame: VDG mode $%02X, SAM V%u, from $%04X, drawn by %u change(s) of the "
+               "last field's (§9.4)\n", fr.mode, fr.sam_v, fr.base, fr.splits);
+    for (unsigned y = 0; y < COCO_PIC_H; y++) {
+        const coco_line_t *h = &fr.how[y];
+        if (y && !h->x[0] && h->mode == fr.how[y - 1u].mode && !fr.how[y - 1u].x[0]) continue;
+        fprintf(f, "  line %3u: $%02X", y, h->mode);
+        for (unsigned k = 0; k < COCO_LINE_SPLITS && h->x[k]; k++)
+            fprintf(f, ", $%02X from pixel %u", h->m[k], h->x[k]);
+        fprintf(f, "\n");
+    }
     if (s_rl.first_field >= 0) {
         fprintf(f, "\nThe first undocumented opcode, at field %ld, and the steps before it "
                    "(PC, bytes, A B DP CC X Y U S before):\n", s_rl.first_field);
@@ -502,10 +520,15 @@ static int run_one(const char *path, long fields, const char *shots) {
     char mstr[16];
     snprintf(mstr, sizeof mstr, "%s%u%s", (mode & VDG_AG) ? "g" : "a",
              (unsigned)((mode & VDG_GM_MASK) >> VDG_GM_SHIFT), (mode & VDG_CSS) ? "c" : "");
+    unsigned cols = 0;
+    for (unsigned c = 0; c < COCO_KEY_COLS; c++)
+        if (g.m.key_col_reads[c] >= 16u) cols |= 1u << c;
     const char *name = base_name(path);
-    printf("%s\t%s\t%s\t%u\t%u\t%u\t%s\t%u\t%s\t%s\t%s\t%s\n", name,
+    printf("%s\t%s\t%s\t%u\t%u\t%u\t%s\t%u\t%s\t%s\t%s\t%s\t%u\t%u\t%u\t%u\t%02X\n", name,
            kind == IMG_CCC ? "ccc" : "cas", outcome, cart ? 0u : blocks, largest,
-           (unsigned)s_rl.total, ops, (unsigned)g.m.split_fields, changed, lines, mstr, note);
+           (unsigned)s_rl.total, ops, (unsigned)g.m.split_fields, changed, lines, mstr, note, s_rl.regions,
+           (unsigned)g.m.split_dropped, (unsigned)g.m.joy_samples[COCO_JOY_RIGHT],
+           (unsigned)g.m.joy_samples[COCO_JOY_LEFT], cols);
     fflush(stdout);
     if (shots) shot(shots, name);
     return 0;

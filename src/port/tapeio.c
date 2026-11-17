@@ -1,6 +1,7 @@
 /* tapeio.c — CAS files on the card, serving the tape trap (tapeio.h,
  * design.md §12.3). */
 
+#include "keymapio.h"
 #include "tapeio.h"
 
 #include <ctype.h>
@@ -203,6 +204,7 @@ static const char *load(coco_t *m, const char *path) {
     coco_tape_insert(m, (uint32_t)n);
     s_rewind_blocks = NO_REWIND;
     s_failed = false;
+    keymapio_file_loaded(path);   /* a layout may name it (design.md §11.3) */
     log_core1("  tape         : %s in the deck, %ld bytes\n", path, (long)n);
     return NULL;
 }
@@ -218,6 +220,7 @@ const char *tapeio_boot(const char *path) {
     s_in = true;
     s_len = (uint32_t)n;
     s_chosen = true;
+    keymapio_file_loaded(full);
     log_core1("  tape         : %s in the deck at boot, %ld bytes\n", full, (long)n);
     return NULL;
 }

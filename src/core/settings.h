@@ -13,6 +13,9 @@
  *   perf      = on | off           the perf line above the picture (§9.6)
  *   status    = on | off           the status line below it
  *   backlight = 1-15
+ *   layout    = standard | <name>  a game layout: JOY RIGHT, JOY LEFT, or
+ *                                  one of /coco/keymaps/ (§11.3)
+ *   fast_tape = on | off           the trap, or the tape's signal (§12.3)
  *   boot_tape = <file>             a tape in /coco/tapes/ put in the deck
  *
  * The parser is here, in the core, so it is tested on the host. What a
@@ -42,6 +45,10 @@ typedef struct {
     bool       status;      /* the status line below it                  */
     unsigned   backlight;   /* 1-15, as the menu shows it; 0 leaves the
                                panel's own, and a save keeps the file's  */
+
+    bool       fast_tape;   /* blocks served by the trap (§12.3)         */
+    /* A layout's name, upper case; "" is the standard map (§11.3). */
+    char       layout[COCO_KEYMAP_NAME_LEN + 1];
 
     /* As written in the file, "" for none. The port resolves a bare name
      * against SETTINGS_CART_DIR or SETTINGS_TAPE_DIR. */

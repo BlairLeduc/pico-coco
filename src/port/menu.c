@@ -8,8 +8,9 @@
  * (M13). The Snapshots page saves, loads and deletes four slots (§12.5,
  * snapio.h). The Machine page stages BASIC, the RAM and the cartridge
  * (§14).
- * Setup has no keys row and no fast tape yet: the layouts and the
- * signal are M12's.
+ * Setup has the Keys row, which goes round the standard map, the
+ * keyboard joystick as either stick and the card's layouts (keymapio.h),
+ * and Fast tape, off for the tape's signal (cassette.h).
  */
 
 #include "menu.h"
@@ -29,6 +30,7 @@
 #include "display.h"
 #include "handoff.h"
 #include "kbd.h"
+#include "keymapio.h"
 #include "keymatrix.h"
 #include "log.h"
 #include "pico_coco_version.h"
@@ -61,7 +63,7 @@
 enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_SAVE, I_SHELL, I_ABOUT,
        I_COUNT };
 
-enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_COUNT };
+enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_COUNT };
 
 /* The Tapes page: three things to do with the deck, then the card's
  * tapes. */
@@ -216,8 +218,29 @@ static void draw_setup(void) {
         case D_VOLUME:
             snprintf(line, sizeof line, " VOLUME          < %u >", g_ui.volume);
             break;
+        case D_KEYS:
+            /* A card layout's name is cut to keep the column. */
+            snprintf(line, sizeof line, " KEYS    < %.16s >",
+                     g_ui.layout ? g_ui.layout->name : "STANDARD");
+            break;
+        case D_FAST:
+            snprintf(line, sizeof line, " FAST TAPE       < %s >", on_off(g_ui.fast_tape));
+            break;
         }
         textpage_line(s_scr, ROW_TOP + i, line, i == s.setup_sel);
+    }
+    /* The layout in force, two bindings a row as a .map file writes them
+     * (keymatrix.h). */
+    const keylayout_t *l = g_ui.layout;
+    int row = ROW_TOP + D_COUNT + 1;
+    for (unsigned i = 0; l && i < l->n && row < ROW_STATUS; i += 2, row++) {
+        char a[16] = "", b[16] = "";
+        keymap_binding_str(&l->bind[i], a, sizeof a);
+        if (i + 1u < l->n) keymap_binding_str(&l->bind[i + 1u], b, sizeof b);
+        for (char *c = a; *c; c++) *c = (char)toupper((unsigned char)*c);
+        for (char *c = b; *c; c++) *c = (char)toupper((unsigned char)*c);
+        snprintf(line, sizeof line, " %-15s%s", a, b);
+        textpage_line(s_scr, row, line, false);
     }
 }
 
@@ -329,6 +352,7 @@ static void draw_help(void) {
         { "ALT+H",  "THESE KEYS" },
         { "ALT+P",  "PAUSE" },
         { "ALT+K",  "RESET BUTTON" },
+        { "F4 KEYS", "JOYSTICK: ARROWS, ]" },
         { "ESC",    "BREAK" },
         { "TAB",    "CLEAR" },
         { "BKSP",   "LEFT ARROW" },
@@ -336,7 +360,7 @@ static void draw_help(void) {
     char line[TEXT_COLS + 1];
     int row = ROW_TOP;
     for (unsigned i = 0; i < sizeof keys / sizeof keys[0]; i++) {
-        snprintf(line, sizeof line, " %-8s %s", keys[i][0], keys[i][1]);
+        snprintf(line, sizeof line, " %-8s%s", keys[i][0], keys[i][1]);
         textpage_line(s_scr, row++, line, false);
     }
 }
@@ -472,6 +496,11 @@ static void save_settings(void) {
     out.perf = g_ui.perf_line;
     out.status = g_ui.status;
     if (s_bkl_set) out.backlight = g_ui.backlight;
+    out.fast_tape = g_ui.fast_tape;
+    /* A layout a loaded file chose is not the user's choice, so the file
+     * keeps the one it had (§11.3). */
+    if (!keymapio_chosen_by()[0])
+        snprintf(out.layout, sizeof out.layout, "%s", g_ui.layout ? g_ui.layout->name : "");
     settings_card_name(SETTINGS_TAPE_DIR, tapeio_chosen() ? tapeio_inserted() : "", out.boot_tape);
     const char *err = settingsio_save(&out);
     if (!err) s_file = out;
@@ -499,6 +528,7 @@ static void apply_machine(void) {
             if (err) { say(" CARTRIDGE: %.20s", err); return; }
             g_boot.cart_len = len;
             snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s", s_carts[s.st_cart]);
+            keymapio_file_loaded(g_boot.cart_path);   /* a layout may name it (§11.3) */
         } else {
             g_boot.cart_len = 0;
             g_boot.cart_path[0] = 0;
@@ -758,6 +788,16 @@ static void set_backlight(int dir) {
     (void)sb_write(SB_REG_BKL, (uint8_t)(v * (int)BKL_STEP), NULL);
 }
 
+/* Standard, then keymapio's list, round and round, as the siblings' Keys
+ * row. */
+static void step_layout(int dir) {
+    int n = (int)keymapio_count() + 1, at = 0;
+    for (unsigned i = 0; i < keymapio_count(); i++)
+        if (keymapio_get(i) == g_ui.layout) at = (int)i + 1;
+    at = (at + n + dir) % n;
+    keymapio_choose(at ? keymapio_get((unsigned)(at - 1)) : NULL);
+}
+
 static void key_setup(uint8_t c) {
     int dir = 0;
     switch (c) {
@@ -781,6 +821,13 @@ static void key_setup(uint8_t c) {
             int v = (int)g_ui.volume + dir;
             g_ui.volume = (unsigned)(v < 0 ? 0 : v > 8 ? 8 : v);
         }
+        break;
+    case D_KEYS:
+        step_layout(dir ? dir : 1);
+        break;
+    case D_FAST:
+        g_ui.fast_tape = !g_ui.fast_tape;
+        say(g_ui.fast_tape ? "" : " THE TAPE PLAYS AT ITS OWN PACE", "");
         break;
     }
 }
@@ -864,9 +911,15 @@ void menu_run(coco_t *m, unsigned page, bool alt) {
 
     s.card = sd_present() && storage_mount() == 0;
     if (!s.card) say(" NO CARD", "");
+    /* The card's layouts afresh: a file may have been added or edited
+     * on a computer since (keymapio.h). A layout a file chose says so
+     * (§11.3), then the tape's last word. */
+    if (s.card) keymapio_scan();
+    if (g_ui.layout && keymapio_chosen_by()[0]) say(" KEYS CHOSEN BY %.15s", keymapio_chosen_by());
     const char *t = tapeio_said();
     if (!s.status[0] && t[0]) say(" %.30s", t);
     if (!s.status[0] && settingsio_error()[0]) say(" %.30s", settingsio_error());
+    if (!s.status[0] && keymapio_error()[0]) say(" %.30s", keymapio_error());
 
     s.direct = page != KM_PAGE_MAIN;
     char said[sizeof s.status];

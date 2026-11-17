@@ -2222,6 +2222,18 @@ project changes an option's default (here the SRAM tier), a directory
 configured earlier keeps its cached value until the option is passed once.
 A fresh directory per tier (above) avoids it.
 
+### 9.9 Flash code you add can slow SRAM code you did not touch
+
+A once-a-field function that grew from 360 to 708 bytes of flash code
+cost an emulator's interpreter 5 % more cycles an instruction, though
+the interpreter is in SRAM and unchanged: the caller's flash code,
+the presenter on the other core and the grown function share the 16 KiB
+XIP cache, and what the interpreter calls in flash missed more. Moving
+the grown function and what it calls to SRAM took core 0 from 25.1 %
+back to 22.8 % busy, its control's 22.7 % (2026-11-16, RP2350 at
+150 MHz). Measure a change against the image before it, in the same
+sitting, even when the change is not in the hot path.
+
 ---
 
 ## 10. Bring-up order and trap checklist

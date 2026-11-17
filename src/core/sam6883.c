@@ -10,6 +10,8 @@
 
 #include "sam6883.h"
 
+#include "hot.h"
+
 /* By V: the X and Y divisions, and how much of the counter HS clears
  * (4: B1-B4; 3: B1-B3; 0: none, the DMA mode). The datasheet's table. */
 static const uint8_t xdiv[8] = { 1, 3, 1, 2, 1, 1, 1, 1 };
@@ -22,7 +24,7 @@ static void clock_hi(sam6883_vc_t *c) {
 
 /* B4's output fell: the Y divider's counters, and B5 through whichever V
  * selects. */
-static void b4_fell(sam6883_vc_t *c) {
+static void COCO_HOT1(b4_fell)(sam6883_vc_t *c) {
     bool y2_fell = c->y2 == 1u;
     c->y2 = (uint8_t)((c->y2 + 1u) % 2u);
     bool y3_fell = c->y3 == 2u;
@@ -65,7 +67,7 @@ void sam6883_vc_load(sam6883_vc_t *c, const sam6883_t *s) {
     c->hi = (uint16_t)(sam6883_display_base(s) >> 5);
 }
 
-void sam6883_vc_hsync(sam6883_vc_t *c) {
+void COCO_HOT1(sam6883_vc_hsync)(sam6883_vc_t *c) {
     switch (hclr[c->v]) {
     case 4:
         /* B1-B4 are held clear: B3's fall reaches neither divider nor B4,
@@ -86,7 +88,7 @@ void sam6883_vc_hsync(sam6883_vc_t *c) {
     }
 }
 
-unsigned sam6883_vc_fetch(sam6883_vc_t *c, unsigned n, uint16_t *addr) {
+unsigned COCO_HOT1(sam6883_vc_fetch)(sam6883_vc_t *c, unsigned n, uint16_t *addr) {
     *addr = (uint16_t)((c->hi << 5) | ((unsigned)c->b4 << 4) | c->lo);
     unsigned room = 16u - c->lo;
     if (n < room) {
