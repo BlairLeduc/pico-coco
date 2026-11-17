@@ -4,6 +4,162 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M12: the tape's signal, the keyboard joystick and layouts, split fields
+
+On branch `m12`, 2026-11-16 (`design.md` §17). On the owner's board.
+**Built, and checked on the host and over the UART. Not done**: the
+owner has not yet played a joystick game or looked at a split title on
+the panel.
+
+**Built.** In the core: `cassette.c`, the tape's signal, a player and
+a recorder (`design.md` §12.3, `cassette.h`), with `fast_tape = off`
+leaving the trap as the port's cue; the joysticks on PIA0's comparator
+and row lines (§11.4); game layouts, pico-oric's, with a joystick's
+lines among their targets, and the keyboard joystick as the two
+built-in ones (`keymatrix.h`, `keylayout.c`); and the changes of the
+video bits kept by line and pixel, a frame's lines each with a mode
+and up to two changes along them (`coco_frame_t.how`, `present.c`,
+§9.4). In the port: `keymapio.c` for `/coco/keymaps/*.map`, the Setup
+page's Keys and Fast tape rows, `layout` and `fast_tape` in the
+settings file, turbo while the signal runs (`PICO_COCO_TURBO=OFF` is
+its control), a second renderer for a title that alternates modes, and
+`PLAY` and `REC` on the status line.
+
+**Split fields** (host, Apple clang). The first cut kept changes by
+whole lines and drew M11's three every-field titles exactly as M11
+had: traced, Dark Star and Rommel's Revenge set CSS at pixel 1 of each
+of lines 9 to 17 and clear it at pixel 241, and Dragon Fire does the
+reverse on its top lines and at other pixels lower down, 284 changes a
+field. Kept by line and pixel they are drawn as meant, and **looked at
+beside M11's frames** (`out/m12/archive/shots`, not committed): Dark
+Star's and Rommel's Revenge's headings on a buff bar from pixel 1 to
+240; Dragon Fire's title in the green colour set between brick walls
+in the buff one, eight colours on a line. The other fourteen titles'
+last frames are as M11's, their changes being a field or two at a
+change of screen; Maths Invaders and Model Rocketry change only the
+display offset, which begins no region. The archive run again, 1,059
+titles for a minute each: no title had a change dropped.
+`test_video` holds the regions through the machine, a program that
+goes from text to RG6 part-way down every field and one that sets CSS
+for 240 pixels of a line, by the addresses fetched and the pixels
+drawn; `test_present` holds the plan with random line tables. Nine
+bugs planted one at a time each failed one of them: the line's V not
+given to the counter, a change along a line taken as the whole line, a
+pixel taken as a tick, a change past the pixels kept on its line, a
+change carrying no mode to the next line, the plan blind to how a line
+is drawn, a mixed band spanned as its first line, the second change on
+a line not drawn, and a change drawn from the line's start. The last
+two passed `test_present`, which draws both sides through the function
+they were in.
+
+**The survey and the joystick** (host). The archive run counted what
+each title reads for itself (`design.md` §11.3): of 1,025 that ran, 210
+read a joystick's comparator (207 the right stick, 129 the left) and
+258 the keyboard a column at a time, by column set 103 column 0 alone,
+45 every column, 24 column 7 alone, 6 the arrows' four. The built-ins
+are therefore `JOY RIGHT` and `JOY LEFT` alone. `test_keyboard`, on
+Color BASIC 1.1, 1.3 and Extended: `JOYSTK` reads 0, 31 and 63 through
+each layout and each direction, the other stick 31; `]` pulls PA0 or
+PA1 low; **and with either button held BASIC takes no key from any
+cell**, which is the ROMs' own KEYIN ($A211) and was not expected.
+`test_keymap` holds the overlay, the parser and its errors. Eight bugs
+planted one at a time each failed: the comparator above and not at the
+DAC's level, the select lines swapped, the buttons on each other's
+lines, a button on one column only, up and down swapped, a layout
+taken under Alt, a layout by code and not physical key, and files
+split at spaces.
+
+**The signal** (host). The writer's counts were measured by running
+each ROM's own save with every DAC write timed (`design.md` §12.3):
+the same in Color BASIC 1.1, 1.3 and under Extended, since the
+routines are the same bytes; only the cycles before a block are its
+caller's. `test_cassette`, in the three ROMs, for a short CSAVE, one of
+several blocks, an ASCII save, a data file and, under Extended, CSAVEMs
+of 712 and 255 bytes: the recorder's image equals the trap's byte for
+byte; the player's walk equals the ROM's own edges, **every edge of
+every span, 4,864 to 16,208 of them, the 524,365-cycle silences among
+them**; and each loads back off the signal with the ROM's own reader,
+2.7 to 6.9 s of guest time. Also there: CLOAD with the deck empty asks
+for the tape by name and then reads the signal; a name not on the tape
+runs it out and asks for the rewind; the relay open holds the player's
+place to the edge; a save onto a tape in the deck leaves the player
+where it was; a save cut short by the reset button keeps whole blocks.
+`test_recorder` drives the DAC with no ROM: a wrong checksum, a block
+cut short by the relay and by a gap, the relay open, fast loading on,
+and PA0 to the cycle either side of each edge. **A recording loads in
+XRoar**: XRoar 1.13, fast tape off, loaded the recorder's 591-byte
+image of a three-line program off its own signal and saved it again,
+the 296 data bytes equal (`out/m12/rec.cas`, `xroar.cas`). Twenty bugs
+planted one at a time each failed: each of the writer's counts a cycle
+out (a 1's high half, a 0's low half, the next bit's cycle, a leader
+byte's, the last data byte's, the sum's 11, CSAVEM's last block, the
+silence), every bit recorded a 0, a wrong checksum kept, the last $55
+not kept, a span the ROM wrote in moving the player, the player
+running with the relay open, no request at the tape's end, the trap
+serving blocks with fast loading off, CASON's delay skipped, a block
+cut short not counted, the level not brought up to the read, a gap in
+a block not noticed, and recording with the relay open. **Three passed
+first** and found gaps in the tests, since closed: the wrong checksum
+and the gap, which no ROM's writer makes, and the level brought up
+late, with which the ROM's reader still loads. One real fault was
+found by a test written for a planted bug: Color BASIC's motor-off
+reads PIA1 first, which ran the player through the tape during a save.
+Two planted builds did not build at first and were run again: the
+restored file was no newer to make (EL §3.3).
+
+All 30 host tests pass (Apple clang, 2026-11-16).
+
+**Checked on the board**, 2026-11-16: the owner's Pico Plus 2 W, the
+`-DPICO_COCO_UART_PORT=0` image, Pico SDK 2.3.1, Arm GNU 15.2.Rel1,
+150 MHz, driven over the UART (`out/m12/dev1.sh`, `dev1.log`, not
+committed). With fast tape off, from Setup: `CLOAD"M12F"` of a tape
+the trap had written loaded off the signal and listed; a line was added
+and `CSAVE"M12S"` written by the recorder, 3 blocks and no error, to
+`TAPE01.CAS` on the card; `NEW` and `CLOAD"M12S"` loaded it back off
+the signal with the added line. **Turbo**: each load ran 1.61 to 1.83
+times real time, core 0 98 % busy, every field presented. With `JOY
+RIGHT` chosen on the Setup page, `]` typed over the UART made a BASIC
+loop print `BUTTON 2`, PA0 low. A machine-code loop that sets CSS 100
+lines a field and clears it 18 cycles later along the line was counted
+in every field (1,287 split fields), core 0 37 % busy against 23.5 %,
+every snapshot presented, zero underruns; then the menu's Reset. Zero
+late fields, slips, dropped snapshots, lost keys, I2C errors,
+undocumented opcodes, underruns and late refills throughout.
+
+**Measured** against M11's merged image (`main`), back to back in one
+sitting, the idle prompt then a scrolling `PRINT` loop, eight to ten
+five-second windows each (`out/m12/dev3.sh`, `perf-*.log`):
+
+| Image | idle busy | idle host cyc/insn | snapshot | scroll busy | scroll host cyc/insn |
+|---|---:|---:|---:|---:|---:|
+| main | 22.7 % | 129.9 | 3.58 % | 22.5 % | 142.0 |
+| M12, snapshot in flash | 25.1 % | 136.5 | 4.83 % | 24.2 % | 147.5 |
+| M12, as committed | 22.8 % | 130.0 | 3.60 % | 22.6 % | 141.9 |
+
+The first M12 image cost 2.4 points: the snapshot, which now draws a
+table of each line's mode, had grown from 360 to 708 bytes of flash
+code, and **the interpreter, in SRAM and unchanged, took 5 % more host
+cycles an instruction**, which is the shared XIP cache. The archive's
+survey counters, taken out of the firmware first, changed nothing
+measured. With the snapshot, the SAM's counter and its stages moved to
+SRAM at tier 1 and above (`COCO_HOT1`), M12 measures as `main` did,
+within a tenth of a point. The split loop above ran on the first image;
+not measured again. The image: 188,148 bytes of text and 325,928 of bss.
+
+**Not checked:**
+
+- The owner on the panel: a joystick game played, and the split titles
+  looked at there (§17's row); the pictures were looked at only as the
+  host draws them.
+- The keyboard joystick from the PicoCalc's own keys, and its chords
+  with `]` (EL §7.3); over the UART only `]` alone.
+- A `.map` file on the card; the parser is tested on the host only.
+- The split loop's cost on the committed image; a soak on this image.
+- A real CoCo against any of: the writer's counts (taken from the ROM
+  run on the host), the joystick wiring, the pixel a change falls on.
+- The tape's level on the sound bus while it plays, which stays at its
+  middle as before.
+
 ## The CoCo only: the Dragon and the PAL field removed
 
 On branch `coco-only`, 2026-11-16, between M11 and M12 (`design.md` D6,

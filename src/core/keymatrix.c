@@ -9,6 +9,10 @@ void keymatrix_init(keymatrix_t *k) {
     memset(k, 0, sizeof(*k));
 }
 
+void keymatrix_set_layout(keymatrix_t *k, const keylayout_t *l) {
+    k->layout = l;
+}
+
 static void enqueue(keymatrix_t *k, uint8_t state, uint8_t code, uint8_t canon) {
     unsigned tail = (k->q_head + k->q_len) % COCO_KEY_EVENT_QUEUE;
     k->queue[tail] = (keymatrix_event_t){ state, code, canon };
@@ -68,9 +72,11 @@ static const keymap_t *find(uint8_t code, uint8_t layer) {
     return NULL;
 }
 
-/* With Alt down the Alt layer only. With Ctrl down nothing: the CoCo 1
- * and 2 have no CTRL, and a chord the guest cannot have types nothing
- * rather than the key alone. M12: a game layout first, by physical key. */
+/* With Alt down the Alt layer only, so no layout can take the menu,
+ * pause or reset away. With Ctrl down nothing: the CoCo 1 and 2 have no
+ * CTRL, and a chord the guest cannot have types nothing rather than the
+ * key alone. Otherwise the game layout first, by physical key, then the
+ * standard map (§11.3). */
 static const keymap_t *lookup(const keymatrix_t *k, uint8_t code) {
     /* A function key pressed with Alt still held arrives as itself
      * (hardware-notes.md §6.2), so it is matched whatever the modifiers. */
@@ -80,6 +86,11 @@ static const keymap_t *lookup(const keymatrix_t *k, uint8_t code) {
         return e || !fkey ? e : find(code, 0);
     }
     if (k->ctrl && !fkey) return NULL;
+    if (k->layout) {
+        uint8_t canon = keymap_picocalc_canonical(code);
+        for (unsigned i = 0; i < k->layout->n; i++)
+            if (k->layout->bind[i].code == canon) return &k->layout->bind[i];
+    }
     return find(code, 0);
 }
 
@@ -165,14 +176,22 @@ void keymatrix_field(keymatrix_t *k, coco_t *m) {
     }
 
     memset(m->keys, 0, sizeof(m->keys));
+    /* Each stick's lines that are held, a bit a KJ_ line (§11.4). */
+    uint8_t joy[COCO_JOYSTICKS] = { 0 };
     for (uint8_t i = 0; i < k->n; i++) {
         keymatrix_held_t *h = &k->held[i];
         const keymap_t *e = &h->map;
         bool shown = h->fields >= h->lead;
         if (h->fields < UINT8_MAX) h->fields++;
+        if ((e->flags & KM_JOY) && e->row < COCO_JOYSTICKS) joy[e->row] |= (uint8_t)(1u << e->col);
         if ((e->flags & KM_NOCELL) || !shown) continue;
         m->keys[e->col] |= (uint8_t)(1u << e->row);
     }
+    /* Opposite directions held together leave the axis at its centre. */
+    for (unsigned s = 0; s < COCO_JOYSTICKS; s++)
+        coco_joystick_set(m, s, ((joy[s] >> KJ_RIGHT) & 1) - ((joy[s] >> KJ_LEFT) & 1),
+                          ((joy[s] >> KJ_DOWN) & 1) - ((joy[s] >> KJ_UP) & 1),
+                          (joy[s] >> KJ_FIRE) & 1u);
     if (k->shift && k->shift_fields < UINT8_MAX) k->shift_fields++;
     k->shift_shown = shift_wanted(k);
     if (k->shift_shown) m->keys[CK_COL_SHIFT] |= 1u << CK_ROW_SHIFT;

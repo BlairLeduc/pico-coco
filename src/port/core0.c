@@ -23,10 +23,12 @@
 #include "fieldlog.h"
 #include "handoff.h"
 #include "kbd.h"
+#include "keymapio.h"
 #include "log.h"
 #include "park.h"
 #include "roms.h"
 #include "southbridge.h"
+#include "status.h"
 #include "tapeio.h"
 #include "textpage.h"
 
@@ -133,9 +135,17 @@ void core0_power_on(coco_t *m, const machine_t *mc) {
     g_machine.cart = cart;
 }
 
+/* While the tape's signal runs the guest runs unpaced: the tape is
+ * clocked in guest ticks, so it cannot tell (§12.3; EL §9.3).
+ * PICO_COCO_TURBO=OFF paces it, the control for its measurement. */
+static bool turbo_now(const coco_t *m) {
+    return PICO_COCO_TURBO && coco_cassette_running(m);
+}
+
 /* What the menu changed, applied by the core that owns it (EL §2.5).
  * True if the machine was powered on again. */
 static bool apply_ui(coco_t *m) {
+    coco_cassette_set_fast(m, g_ui.fast_tape);
 #if PICO_COCO_AUDIO
     audio_set_volume(g_ui.volume * 32u);
 #endif
@@ -148,6 +158,7 @@ static bool apply_ui(coco_t *m) {
         machine_t mc = g_ui.restart_cfg;
         g_ui.restart = false;
         core0_power_on(m, &mc);
+        coco_cassette_set_fast(m, g_ui.fast_tape);
         log_printf("  menu         : powered on, %u KB, %s (%s)%s%s\n", mc.ram_k,
                    mc.extended ? "Extended Color BASIC" : "Color BASIC",
                    romset_images[mc.basic].file,
@@ -319,15 +330,25 @@ void core0_run(coco_t *m, keymatrix_t *k) {
     uint32_t why = PARK_NONE;
     unsigned page = 0;
     bool alt = false;
+    uint32_t turbo_fields = 0;   /* run unpaced, since boot */
+    /* Each stretch the signal runs, measured whole: turbo's speed, or
+     * with PICO_COCO_TURBO=OFF core 0's share while it plays. */
+    bool deck_was = false;
+    uint64_t deck_us = 0, deck_ticks = 0, deck_busy = 0;
     park_init(m);
     (void)apply_ui(m);
+    keymatrix_set_layout(k, g_ui.layout);
 
     for (;;) {
         uint64_t now;
 #if !PICO_COCO_AUDIO
         uint64_t due = sched_us + ticks_us(sched_ticks);
         now = time_us_64();
-        if (now < due) {
+        if (turbo_now(m)) {
+            /* Unpaced: the schedule starts again when the deck stops. */
+            sched_us = now;
+            sched_ticks = 0;
+        } else if (now < due) {
             /* Core 0's own alarm: sleeping here interrupts nothing. */
             sleep_until(from_us_since_boot(due));
         } else if (now > due) {
@@ -354,6 +375,9 @@ void core0_run(coco_t *m, keymatrix_t *k) {
                 why = PARK_NONE;
             }
             if (apply_ui(m)) ok_seen = false;
+            /* The menu, or a tape or cartridge a layout names, may have
+             * chosen another layout (keymapio.h). */
+            keymatrix_set_layout(k, g_ui.layout);
             g_c0.tape_unsaved = tapeio_unsaved(m);
             window_start(&hb, m, late);
             window_start(&sec, m, late);
@@ -440,12 +464,52 @@ void core0_run(coco_t *m, keymatrix_t *k) {
         size_t n = coco_audio_drain(m, pcm, COCO_AUDIO_BUF_LEN);
 #endif
         uint32_t busy = time_us_32() - t_busy;
+        bool turbo = turbo_now(m);
+        if (turbo) turbo_fields++;
+        bool deck = coco_cassette_running(m);
+        g_c0.deck = !deck ? STATUS_DECK_IDLE
+                  : m->cas.rec_wrote ? STATUS_DECK_RECORDING
+                  : m->cas.playing ? STATUS_DECK_PLAYING : STATUS_DECK_IDLE;
+        if (deck && !deck_was) {
+            deck_us = time_us_64();
+            deck_ticks = coco_ticks(m);
+            deck_busy = 0;
+        } else if (deck) {
+            deck_busy += busy;
+        } else if (deck_was) {
+            uint64_t wall = time_us_64() - deck_us;
+            uint64_t gus = ticks_us(coco_ticks(m) - deck_ticks);
+            uint32_t x100 = (uint32_t)(gus * 100u / (wall + 1u));
+            uint32_t b1000 = (uint32_t)(deck_busy * 1000u / (wall + 1u));
+            log_printf("  deck         : ran %llu us of guest in %llu us, %lu.%02lux real time%s, "
+                       "core 0 busy %lu.%lu%%\n", (unsigned long long)gus,
+                       (unsigned long long)wall, (unsigned long)(x100 / 100u),
+                       (unsigned long)(x100 % 100u), PICO_COCO_TURBO ? ", turbo" : ", paced",
+                       (unsigned long)(b1000 / 10u), (unsigned long)(b1000 % 10u));
+        }
+        deck_was = deck;
 #if PICO_COCO_AUDIO
-        /* Blocks while the queue is full: this is the throttle, on the
-         * PWM wrap, which shares clk_sys with nothing that drifts (EL
-         * §6.3). The conversion to compare words inside is not counted
-         * as busy; it is ~611 short loops a field. */
-        audio_push(pcm, n);
+        if (turbo) {
+            /* Never block: the guest's samples are dropped, and the queue
+             * kept at its start depth with silence, so it never runs dry
+             * (EL §9.3). */
+            static const int16_t silence[256];
+            size_t room = audio_room();
+            const size_t keep = COCO_PCM_QUEUE_LEN - COCO_PCM_QUEUE_START;
+            while (room > keep) {
+                size_t kk = room - keep < 256u ? room - keep : 256u;
+                audio_push(silence, kk);
+                room -= kk;
+            }
+        } else {
+            /* Blocks while the queue is full: this is the throttle, on
+             * the PWM wrap, which shares clk_sys with nothing that drifts
+             * (EL §6.3). The conversion to compare words inside is not
+             * counted as busy; it is ~611 short loops a field. */
+            audio_push(pcm, n);
+        }
+#else
+        (void)turbo;
 #endif
 #if PICO_COCO_FORCE_LATE
         /* A scratch build: core 0's interrupts held off for 9 ms, two
@@ -531,6 +595,18 @@ void core0_run(coco_t *m, keymatrix_t *k) {
                        (unsigned)PICO_COCO_RAM_TIER, (unsigned long)clk_mhz, busy_s, guest_s,
                        (unsigned long)(head100 / 100u), (unsigned long)(head100 % 100u),
                        hpi_s, cpi_s, (unsigned long long)insns, (unsigned long)fields, take_s);
+            /* The deck's signal (§12.3): rt above is turbo's speed while
+             * it runs. */
+            const cassette_t *cas = &m->cas;
+            log_printf("  tape         : fast %s, relay %s, %s, head %lu of %lu, turbo %lu fields, "
+                       "%lu edges played, %lu blocks recorded (%lu errors), %lu requests, "
+                       "split changes dropped %lu\n",
+                       cas->fast ? "on" : "off", cas->motor ? "closed" : "open",
+                       cas->playing ? "playing" : cas->ended ? "at its end" : "stopped",
+                       (unsigned long)m->tape.pos, (unsigned long)m->tape.len,
+                       (unsigned long)turbo_fields, (unsigned long)cas->edges,
+                       (unsigned long)cas->rec_blocks, (unsigned long)cas->rec_errors,
+                       (unsigned long)m->tape.requests, (unsigned long)m->split_dropped);
 #if PICO_COCO_AUDIO
             log_audio(m, &au_last, wall, m->sound_edges - hb_edges);
             audio_stats(&au_last, false);

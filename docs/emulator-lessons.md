@@ -397,7 +397,12 @@ chip does not make, which a device would see. It cannot catch a read
 you leave out, such as the read that `CLR` makes before it writes, so
 that one needs a behaviour test. Interrupts and waits need their own
 trials: lines raised at a chosen cycle of the wait, every instruction
-boundary compared. Plant bugs again; on the 6809 the oracle caught a wrong
+boundary compared. Plant bugs again, **and see that each planted build
+was built**: a source restored and patched again within the second
+looks no newer to make, the test runs the last bug's binary, and the
+bug "passes" or "fails" for another's reasons. Wait a second between
+plants, touch the file when it is restored, and stop on a compiler
+error, which leaves the old binary too. On the 6809 the oracle caught a wrong
 half-carry, a long branch a cycle short, an indexed mode a cycle short
 and `MUL`'s carry from the wrong bit, and only the behaviour tests caught
 `CLR` without its read and two broken wait skips.
@@ -820,6 +825,46 @@ port or its upstream changes about the screen, look at the result on the
 panel before trusting a hash, and check each drawer that positions
 content against the old height (skies, status bars, centred pictures).
 
+### 5.10 A mode changed part-way down the field, or along a line
+
+Where a snapshot has one mode a field (§5.6), a title that changes the
+video chip's mode while the picture is being drawn is drawn in one of
+them. Count such fields first (§4.2), in the archive (§11.6), and
+build split rendering only if the count asks. When it does:
+
+- **Find where in the line the changes fall before choosing the
+  granularity.** The CoCo's first cut kept changes by whole line. Of
+  seventeen archive titles that change mode as a matter of course, the
+  three that do so every field (Dark Star, Rommel's Revenge, Dragon
+  Fire) set the colour set a pixel into a line and clear it 240 pixels
+  later, on each of a run of lines, so the last change on each line
+  left it as it began and the pictures came out exactly as before.
+  Kept by line and pixel, from the tick of the write, they are drawn
+  as the titles meant: a heading bar in the other colours, and eight
+  colours across a line.
+- **Draw the coming field by the last field's changes.** The snapshot
+  is taken where the picture begins, before the changes it will show;
+  a title that splits the screen does it every field at the same
+  places, and one that changes mode once is a field late, as any
+  change of mode is.
+- **A fixed table a line, not a list to search**: the mode the line
+  begins in and room for two changes along it. The presenter indexes
+  it by line, compares it by band with a `memcmp`, and a third change
+  on a line folds into the second. The machine keeps the list, since
+  it must note changes as they come; the snapshot turns it into the
+  table as it walks the lines anyway.
+- **The shadow keeps how each line was drawn** (§5.3): a band whose
+  lines changed mode is repainted whole, and a band not drawn all one
+  way is sent whole when any byte changes, since the columns a byte
+  covers differ along it.
+- **Keep a renderer's table a mode in play.** A title alternating two
+  modes on every line rebuilds one table twice a line. Two renderers,
+  the one not used last rebuilt on a miss, cost 8 KiB and no rebuilds.
+- A test that draws both sides through the same line function cannot
+  see a bug in it; a test of the machine that checks pixels can. Of
+  nine bugs planted in the CoCo's, the presenter's own test missed
+  the one in the function it shares with its checker.
+
 ---
 
 ## 6. Audio
@@ -1122,6 +1167,19 @@ everything else unchanged so the game's own prompts still type.
   few BASIC games' and no machine-code title's. A title that reads its
   keys through the ROM's own scan tests nothing at the matrix, so read the
   archive's BASIC for the keys it compares as well.
+- **Counting is enough to choose.** The CoCo's survey kept two counts
+  a title in the machine itself: reads of a joystick's comparator
+  after the DAC had moved, and reads of the keyboard's rows with one
+  column alone selected, made by code outside the ROM. Of 1,025
+  titles, 210 read a joystick and none of the keyboard readers shared
+  a shape of letter keys, so the built-ins are the keyboard joystick
+  as either stick and nothing else.
+- **Run the ROM's keyboard sweep with the fire button held.** The
+  CoCo's button shares a row line with the keys, and its BASIC, having
+  found a key, reads the rows with no column selected and drops the
+  key if any is low: with a button held it types nothing at all. Fire
+  therefore cannot be a key a prompt needs, and a test that types
+  while holding fire must press ENTER some other way.
 
 ---
 
@@ -1298,8 +1356,40 @@ protected or headerless, and turbo is free.
   but cannot read one (it times input with its own loops). The deck therefore
   plays only at the stock clock, and says so.
 
+- **A writer's counts include its callers'.** The CoCo's ROM times a
+  bit by a loop over a sine table, and the cycles between bytes are
+  whoever called the byte writer: the leader's loop, each step of the
+  block routine, the sum the block routine makes over its data before
+  its first byte (11 cycles a byte, so a gap that grows with the
+  block), and the BASIC command's own code between blocks, which
+  differs between `CSAVE` and `CSAVEM`. Measure rather than read: run
+  the ROM's own save with every write to the output timed, decode it
+  to bytes, and print the cycles left over at each byte's end by the
+  byte's place. The table falls out, and the player reads which
+  command wrote a file from the file's own header.
+- **Hold the recorder to the trap.** With both in the tree, the image
+  the recorder makes of the ROM's own save must be, byte for byte, the
+  image the trap writes for the same save on another machine. It
+  settles what the recorder keeps of a leader and the byte after a
+  block without a rule of its own.
+- **What no ROM writes needs a test with no ROM**: a wrong checksum, a
+  block cut short, a gap in a tone. Drive the output port by hand with
+  the writer's counts. A planted bug that kept a block with a wrong
+  checksum passed every test that ran the ROM.
+- **The routine that stops the motor reads the port first.** A player
+  brought up to date on a read of its chip was run forward through a
+  whole save by the ROM's own motor-off, which reads the control
+  register to clear a bit. A span of the motor in which the machine
+  wrote must not move the player; test a save onto a tape that is
+  already in the deck.
+- **Check the level to the cycle, with no ROM.** The ROM's reader loads
+  with the input brought up to date hundreds of cycles late, as the
+  control above found, so only a test that reads the port at a chosen
+  cycle, a cycle either side of an edge, holds the edge's place.
+
 Turbo (§9.3) loaded an Ace tape off the signal at 3.18–3.19× real time,
-an Oric tape at 2.03×.
+an Oric tape at 2.03×, a CoCo tape at 1.6–1.8×: its reader polls the
+port every 28 cycles, each a trip down the slow path.
 Core 1 does not present every field while it runs, and its dropped
 snapshots are expected there.
 

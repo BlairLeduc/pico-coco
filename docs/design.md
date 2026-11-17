@@ -755,6 +755,48 @@ field, near lines 9-17), Defend, Desert Rider, Glaxxons, Model
 Rocketry, Superkid, Kids on Keys (cartridge and tape), Cave Fighter and
 Eliminator (§15.4; `docs/milestones.md`, M11).
 
+**As built in M12** (2026-11-16). The first cut drew regions of whole
+lines, and drew the three titles that change every field exactly as
+before: Dark Star, Rommel's Revenge and Dragon Fire set CSS a pixel
+into a line and clear it 240 pixels on, on each of some lines, so that
+the last change on a line left it as it began. The changes are
+therefore kept by **line and pixel**. `coco.c` notes each change of the
+VDG's mode or the SAM's V on an active line with the tick of the write:
+before the line's 256 pixels (254 ticks after HS falls, XRoar's MC6847
+figures, §18) it is the line's from its first pixel; among them, from
+its pixel, two ticks a pixel; after them, the next line's. A change of
+the display offset alone is counted as before but not kept: the SAM
+loads F only as the field begins. Up to two changes a line are kept for
+a field (`COCO_SPLIT_MAX`), more dropped and counted; Dragon Fire makes
+284.
+
+The snapshot is taken where the next active line begins, before the
+changes of the field it shows, so it is drawn by **the last whole
+field's**: a title that splits the screen does so every field at the
+same places. `coco_frame_t.how` says, for each line, the mode it begins
+in and up to two changes along it; a third on a line folds into the
+second. A line is fetched by the mode it begins in, with the SAM's
+dividers chosen by V as it then was and the counter carried on from
+the line before; a change along a line is drawn from its pixel in the
+new mode from the bytes the line fetched, and its V is the next
+line's. `present.c` keeps how each line was drawn in its shadow: a band
+is repainted whole when that changes, and a band whose lines are not
+all drawn one way is sent whole on any change of a byte. The border is
+the mode's that most lines begin in. On the device core 1 keeps two
+renderers, each with a mode's table, since Dragon Fire alternates two
+modes on every line.
+
+The snapshot, the SAM's counter and its stages run from SRAM from tier
+1: from flash, grown to draw the line table, they cost core 0 2.4
+points at the idle prompt, most of it the interpreter missing in the
+shared XIP cache (HW §9.9; `docs/milestones.md`, M12).
+
+Not modelled: a change of the VDG's bytes a line (16 or 32) or of V
+part-way along a line, which is the next line's; the glitches XRoar
+models when V changes; a field's own changes in that field, which show
+a field late; and the regions after a state is loaded, which a field
+brings back (§12.5).
+
 ### 9.5 Colour, artefacts and the border
 
 - The palette is the Atom's `mc6847_palette`, with the mono palette from
@@ -964,6 +1006,27 @@ M5 (`keymap_picocalc.c` holds the table and its reasons):
   are chosen by surveying the archive, not guessed (EL §7.3). They come
   with the keyboard joystick in M12; M5 copied no layout code.
 
+**As built in M12** (2026-11-16): pico-oric's layouts (`keymatrix.h`,
+`keylayout.c`, `keymapio.c`). A layout binds PicoCalc keys, by physical
+key, to CoCo cells or to a joystick's lines; Alt and the function keys
+stay the emulator's. **The survey**: M12's archive run counted, for
+each title, reads of a joystick's comparator after the DAC had moved,
+and reads of the keyboard's rows with one column alone driven low made
+by code outside BASIC's ROMs. Of 1,025 titles that ran, 210 read a
+joystick in their first minute (207 the right stick, 129 the left), and
+258 read the keyboard a column at a time for themselves, most often
+column 0 alone (103 titles; ENTER is there), every column (45), column
+7 alone (24; SPACE and SHIFT) and the arrows' four (6). No shape of
+letter keys stands out, so **the built-ins are the keyboard joystick
+alone**, `JOY RIGHT` and `JOY LEFT`, and the rest is the card's:
+`/coco/keymaps/*.map`, one `<PicoCalc key> = <CoCo key>` a line, the
+targets the keys' names and `JR-LEFT` to `JL-FIRE`, with `name =`,
+`tapes =` and `carts =`, whose files are separated by commas since the
+archive's names have spaces. Putting a tape in the deck or a cartridge
+in the slot that a layout names chooses it, and the menu says so. The
+Setup page's Keys row goes round them, and `layout =` in the settings
+file names the one a save keeps.
+
 ### 11.4 Joysticks
 
 Two analogue sticks, each two axes read by comparing against the DAC
@@ -977,6 +1040,19 @@ brought up to date when PIA0 is read, from the DAC's value then.
 Since the button shares a matrix row, the joystick layout and the
 keyboard interact as on the real machine; the sweep test of §11.2 is run
 with a button held.
+
+**As built in M12** (2026-11-16), XRoar's wiring (§18): PIA0's CB2
+chooses the stick, low the right and high the left, and its CA2 the
+axis, low X and high Y, the multiplexer's two select lines; PA7 reads
+high when the axis is at the DAC's level or above; the right stick's
+button pulls PA0 low and the left's PA1, whatever the columns. An axis
+is 0, its centre or 65,535 (`coco_joystick_set`). Color BASIC's
+`JOYSTK` reads 0, 31 and 63 from them in each ROM, and a centred stick
+31 (`test_keyboard`). **With a button held, BASIC takes no key at
+all**: KEYIN, having found a new key, reads the rows with no column
+driven and gives the key up if any is low ($A211 in 1.1), read off the
+ROM and seen in all three. So fire is `]` and not a key BASIC needs,
+and a program that reads the button is not at the prompt.
 
 ---
 
@@ -1100,6 +1176,63 @@ Color BASIC 1.1, `CSAVEM` and `CLOADM` 256 bytes, and the six CAS files
 the owner staged each load without an I/O error. The XRoar trace diff
 still agrees through boot and typing.
 
+**Phase 2 as built in M12** (2026-11-16), `cassette.c`, with the whole
+design in `cassette.h`. **How the ROM times a bit**, read off Color
+BASIC 1.1 and 1.3, whose routines are the same bytes: the byte writer
+($A82A) sends a byte from bit 0, each bit one cycle of a 36-step sine
+on the DAC, every step for a 0 and every other for a 1; the reader
+($A755) counts passes of a 28-cycle loop across a whole cycle of PA0
+and calls it a 1 under 18 ($8F). The writer run on the host with every
+DAC write timed gives, in CPU cycles between the DAC's crossings of
+its middle: high 207 for a 1 and 396 for a 0; low 227 after a 1 and
+417 after a 0, one more when the next bit is a 1; after a byte's last
+bit the caller's cycles, 33 in the leader and BLKOUT's 25, 27, 27, 34
+(32 with no data), 38, 36 and 18 by the byte's place; before a block
+BLKOUT's sum at 11 cycles a data byte, and its caller's own cycles,
+which differ between a block that follows its own leader (81), CSAVE's
+blocks and CSAVEM's; and 524,365 cycles from the relay closing to a
+leader's first rise. About 1,100 and 2,060 Hz, not the 1,200 and 2,400
+of §18's row, which is settled so.
+
+**The player** gives those counts for the deck's image as it is, from
+where the head stands, and adds what a CAS leaves out, the silence
+before each leader; which writer's figures a block takes it reads from
+the file's name block. PA0 is brought up to date when PIA1 is read and
+at no other time: nothing but the ROMs' polling loops looks at it, so
+no slice ends for the tape and a machine with fast loading on pays
+nothing. **The recorder** times the DAC's crossings while the relay is
+closed, shifts bits in until a byte is the sync as BLKIN does, and
+appends each block whose checksum is right with the leader bytes
+before it, so that the image of a save is, byte for byte, the one the
+trap writes. A block cut short is not kept. **The relay** is PIA1 CA2
+driven high; the player holds its place while it is open, and a span
+of it in which the ROM wrote leaves the player where it was.
+
+**One trap, two speeds** (EL §8.3). `fast_tape = off` (the Setup
+page's Fast tape) leaves the trap as the port's cue alone: CSRDON with
+the deck empty still stalls for the tape CLOAD named, then stands
+aside, and CASON's delay passes as it does on the machine. A reader
+that has read PA0 32,768 times past the tape's end, about a second of
+BLKIN's loop, stalls as the trap does at a tape's end, for the port's
+rewind or its giving up, where the real machine would wait for ever.
+**Turbo**: core 0 runs unpaced while the relay is closed with fast
+loading off, the audio queue fed silence (EL §9.3). A state is not
+saved while the signal runs: the player's place within a byte is not
+state (§12.5).
+
+`test_cassette` holds the player's walk of the recorder's image to the
+ROM's own save, edge for edge, the silences among them, for a short and
+a long CSAVE, an ASCII save, a data file and two CSAVEMs, in Color
+BASIC 1.1, 1.3 and Extended; holds the image to the trap's; and loads
+each back off the signal with the ROM's own reader. `test_recorder`
+drives the DAC with no ROM, for what no ROM's writer shows: a wrong
+checksum, a block cut short.
+
+Not modelled: a loader that expects other tones or a faster rate than
+the ROM's; the tape's own level on the sound bus, which stays at its
+middle (§10); a writer other than the ROMs', whose gaps between blocks
+are played as CSAVE's.
+
 ### 12.4 Discs
 
 The RS-DOS controller cartridge, a Western Digital WD1793 behind a
@@ -1202,9 +1335,10 @@ flash writes.
 `cart`, `volume`, `perf`, `status`, `backlight` and `boot_tape`, which
 `settings.h` lists; `settingsio.c` reads and writes `/coco/coco.ini`
 through `/coco/coco.new`. The boot's card job mounts once for the
-settings, the ROMs, the cartridge and the boot tape. The layouts and
-fast tape wait for M12, and a file naming them is told so on its line;
-`machine` is unknown (D6). Files are written with FatFs's fixed date
+settings, the ROMs, the cartridge and the boot tape. `machine` is
+unknown (D6). **M12** (2026-11-16) adds `layout`, `standard` or a
+layout's name, and `fast_tape`, on by default; a layout the card does
+not have is said on the status row and the standard keys kept. Files are written with FatFs's fixed date
 (`FF_FS_NORTC`); the DS3231's time is not yet used.
 
 ---
@@ -1318,6 +1452,16 @@ again rather than resume it half loaded. A tape the state names that
 the card no longer has leaves the deck empty and says so on the status
 line.
 
+**As built in M12** (2026-11-16): Setup gains the siblings' two rows.
+Keys goes round the standard map, `JOY RIGHT`, `JOY LEFT` and the
+card's layouts, read again each time the menu opens, and the page
+shows the bindings of the one in force; a layout chosen by a tape or
+cartridge that names it is said on the status row, and Save settings
+does not keep it. Fast tape, off, plays the tape's signal (§12.3). The
+status line says `PLAY` or `REC` after the tape's name while the
+signal runs. The Keys page of the list above is this row, as on the
+siblings.
+
 ---
 
 ## 15. Testing
@@ -1407,14 +1551,19 @@ development build and, with counters read over SWD, on the release build
 |---|---:|
 | Guest RAM | 64 KB |
 | ROMs: BASIC 16 KB, cartridge or DOS up to 16 KB | 32 KB |
-| Snapshot pool, 3 × ~6.3 KB, and the presenter's shadow | 26 KB |
-| Renderer's table (8 KB worst case) and line buffers | 10 KB |
+| Snapshot pool, 3 × ~6.3 KB, and the presenter's shadow; **M12**: each frame 7.1 KB with how its lines are drawn (§9.4) | 26 KB |
+| Renderer's table (8 KB worst case) and line buffers; **M12**: two renderers, 17 KB (§9.4) | 10 KB |
 | Tape buffer | 64 KB |
 | One raw disc track and its build buffer | 16 KB |
 | Interpreter and hot callees in SRAM, if the tiers earn it; **34 KB at tier 2, measured in M2** (§7.5) | 30–45 KB |
 | Audio ring and queue, log ring, key queues | 16 KB |
 | SDK, FatFs, drivers, stacks | 30 KB |
 | **Total** | **about 290–305 KB of 520 KB** |
+
+**Measured in M12** (2026-11-16, the tier-2 image with the UART on
+port 0): 188,084 bytes of text and 325,928 of bss, 21,796 more bss than
+M11's: the second renderer, the frames' line tables, the machine's two
+lists of a field's changes, and the card's layouts.
 
 No PSRAM is used on boards that have it (D3). Both stacks are painted
 and their high-water marks reported from bring-up (HW §2.3).
@@ -1492,7 +1641,9 @@ configuration; once settled, it is a constant.
 | The sound bus: each source's gain and offset by the single bit's state, the bus holding its level with nothing driving it, PB1's feedback at 0.3 of 4.70 V, the idle tape at half scale (§10) | **M8**: XRoar's `sound.c` and `dragon.c`, measured there on a real Dragon; the CoCo assumed the same. The trace diff holds PB1's feedback to XRoar through boot, typing, `SOUND` and `PLAY` (2026-11-15), and BASIC's `SOUND` relies on the hold; no CoCo measured | Low | A CoCo's audio output measured; schematics |
 | PIA Cx2 as an input: high on the A side, low on the B side; the pulse modes (§10) | **M8**: as XRoar's PIA has them; the pulse modes not modelled, as no ROM sounds through them | Medium | MC6821 datasheet; schematics |
 | The ROMs' tape block routines, their entry bytes and what they leave (§12.3) | **Settled 2026-11-15** for Color BASIC 1.1 and 1.3, read off both ROMs and held by `test_tape` to the ROMs' own routines executed on the host (`tape.h` lists them) | High | — |
-| Tape bit timing as each ROM reads and writes it | Two tones, about 1200 and 2400 Hz | Low | The ROMs read; a save recorded |
+| Tape bit timing as each ROM reads and writes it | Two tones, about 1200 and 2400 Hz. **Settled 2026-11-16** (M12) for Color BASIC 1.1 and 1.3, whose writer and reader are the same bytes: the writer's half-cycles counted off its own save run on the host, 207 and 396 cycles high and 227 and 417 low for a 1 and a 0, about 2,060 and 1,100 Hz at 0.895 MHz, with each caller's cycles between bytes and blocks (`cassette.h`); the reader's threshold 18 passes of a 28-cycle loop a cycle. `test_cassette` holds the player to the ROM's save edge for edge | High | — |
+| The joysticks: the comparator's sense, which select line is the stick and which the axis, the buttons' row lines (§11.4) | **M12**: XRoar's wiring; BASIC's `JOYSTK` reads 0, 31 and 63 through it in each ROM, and the buttons PA0 and PA1 low (`test_keyboard`). Which stick is the right one, and the comparator's level at the DAC's own value, are XRoar's | Medium | Schematics; a real stick |
+| Where a line's pixels begin after HS falls, for a change of mode along a line (§9.4) | **M12**: 254 ticks, XRoar's MC6847 figures (tWHS 64, tBP 70, tLB 120), and 2 ticks a pixel; a write falls at the end of its cycle. Dark Star's heading bar runs from pixel 1 to 240 by it; no real machine compared | Low | MC6847 datasheet; a photograph of Dark Star or Dragon Fire on a real set |
 | ROM file names, sizes and SHA-1s (§12.1) | **Settled** 2026-11-14 (M3) for `bas13.rom`, `extbas11.rom`, `disk11.rom` and `bas11.rom`, the owner's images, each matching XRoar 1.13's CRC-32 (`roms/README.md`); `d32.rom` was in the table until the Dragon was removed (D6, 2026-11-16); other CoCo versions to come | High | The owner's images; XRoar's ROM list |
 | Disc controller registers, latch bits, interrupt and HALT wiring (§12.4) | As the table, from XRoar's decodes | Medium | Each DOS ROM read; controller schematics |
 | WD2797 against WD1793: which differences each DOS sees | Side select, some status bits | Low | Datasheets |

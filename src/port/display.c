@@ -33,10 +33,29 @@ _Static_assert(COCO_LINEBUF_PIXELS >= COCO_PANEL_W, "a line buffer holds a text 
 #define BORDER_PIXELS \
     ((PIC_W + 2u * COCO_BORDER_X) * (PIC_H + 2u * COCO_BORDER_Y) - PIC_W * PIC_H)
 
-/* The renderer lives here, on core 1, so its table is rebuilt by the only
- * core that reads it (§9.3). */
-static mc6847_t  s_vdg;
+/* The renderers live here, on core 1, so their tables are rebuilt by the
+ * only core that reads them (§9.3). Two, each with a mode's table: a
+ * title that changes colour set on every line (§9.4) alternates between
+ * them, where one would rebuild its table twice a line. s_vdg is the
+ * one the text lines and the border take their colours from. */
+#define VDGS 2u
+static mc6847_t  s_vdgs[VDGS];
+static unsigned  s_vdg_last;     /* the one used last: the other is rebuilt */
+#define s_vdg    (s_vdgs[0])
 static present_t s_present;
+
+static const mc6847_t *vdg_for(void *ctx, uint8_t mode) {
+    (void)ctx;
+    mode &= VDG_MODE_MASK;
+    for (unsigned i = 0; i < VDGS; i++)
+        if (s_vdgs[i].mode == mode) {
+            s_vdg_last = i;
+            return &s_vdgs[i];
+        }
+    s_vdg_last ^= 1u;
+    mc6847_set_mode(&s_vdgs[s_vdg_last], mode);
+    return &s_vdgs[s_vdg_last];
+}
 
 /* The colour the border was last filled with: black to begin with, since
  * lcd_init clears the panel. Nothing else draws there, so an invalidate
@@ -57,9 +76,11 @@ static text_line_t s_perf   = { .y = COCO_PERF_Y };
 static text_line_t s_status = { .y = COCO_STATUS_Y };
 
 void display_init(void) {
-    mc6847_init(&s_vdg);
-    mc6847_set_font(&s_vdg, font_6847);
-    mc6847_set_artefact(&s_vdg, VDG_ARTEFACT_KBRW);   /* §9.5: on, on a CoCo */
+    for (unsigned i = 0; i < VDGS; i++) {
+        mc6847_init(&s_vdgs[i]);
+        mc6847_set_font(&s_vdgs[i], font_6847);
+        mc6847_set_artefact(&s_vdgs[i], VDG_ARTEFACT_KBRW);   /* §9.5: on, on a CoCo */
+    }
     memset(s_perf.text, ' ', sizeof s_perf.text);
     memset(s_status.text, ' ', sizeof s_status.text);
     present_invalidate(&s_present);
@@ -88,26 +109,24 @@ static bool fill_border(uint8_t mode) {
 
 void display_present(const coco_frame_t *f, display_stats_t *st) {
     uint32_t t0 = time_us_32();
-    display_stats_t s = { .full = !s_present.valid || f->mode != s_present.mode };
-
-    /* The mode first: a new one rebuilds the table, and present_plan
-     * repaints every band, since every byte can stay while every pixel
-     * changes (EL §5.3). */
-    mc6847_set_mode(&s_vdg, f->mode);
+    /* The plan first: a new mode repaints every band, since every byte
+     * can stay while every pixel changes (EL §5.3). The border is the
+     * mode's that most lines are in (§9.4). */
+    present_band_t bands[COCO_BANDS];
+    present_plan(&s_present, f, bands);
+    uint8_t border = s_present.mode;
+    display_stats_t s = { .full = s_present.full };
     /* The border is 43,008 pixels to the picture's 49,152: with a full
      * repaint it made a 22 ms present, over a field, and the pool
      * superseded a snapshot (§17 M11's soak). A full repaint leaves the
      * border to the next present, once, so it lags by a field at most. */
     static bool s_border_deferred;
-    if (s.full && !s_border_deferred && s_vdg.col[mc6847_border(f->mode)] != s_border_rgb) {
+    if (s.full && !s_border_deferred && s_vdg.col[mc6847_border(border)] != s_border_rgb) {
         s_border_deferred = true;
     } else {
-        s.border = fill_border(f->mode);
+        s.border = fill_border(border);
         s_border_deferred = false;
     }
-
-    present_band_t bands[COCO_BANDS];
-    present_plan(&s_present, f, bands);
 
     unsigned cur = 0;
     for (unsigned b = 0; b < COCO_BANDS; b++) {
@@ -119,7 +138,9 @@ void display_present(const coco_frame_t *f, display_stats_t *st) {
             /* The buffer not on the wire: lcd_blit_row waits out the
              * previous row's DMA before starting this one. */
             cur ^= 1u;
-            mc6847_render_line(&s_vdg, &f->lines[y * COCO_VDG_LINE_BYTES], y, s_line[cur]);
+            /* Each line as the frame says it is drawn (§9.4). */
+            static uint16_t s_tmp[COCO_PIC_W];
+            present_render_line(f, y, vdg_for, NULL, s_line[cur], s_tmp);
             lcd_blit_row(&s_line[cur][x0], w);
         }
         lcd_blit_end();

@@ -13,11 +13,16 @@
 
 #include "coco.h"
 #include "mc6847.h"
+#include "present.h"
 
 #define FRAME_RGB_BYTES (COCO_PIC_W * COCO_PIC_H * 3u)
 #define FRAME_PPM_HEADER "P6\n256 192\n255\n"
 
-/* Draw `f` through `v`, whose mode is set from the frame. */
+/* present_render_line's renderer for a host that keeps one table: `ctx`
+ * is an mc6847_t, set to the mode. */
+const mc6847_t *frame_vdg(void *ctx, uint8_t mode);
+
+/* Draw `f` through `v`, whose mode is set from the frame's lines. */
 void frame_rgb(mc6847_t *v, const coco_frame_t *f, uint8_t *rgb);
 
 /* Write it as a binary PPM; false on an I/O error. */

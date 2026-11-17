@@ -34,14 +34,19 @@ static uint32_t rng(void) {
     return rng_state;
 }
 
+static const mc6847_t *vdg_of(void *ctx, uint8_t mode) {
+    (void)ctx;
+    mc6847_set_mode(&v, mode);
+    return &v;
+}
+
 /* Send the dirty bands to the panel, as core 1 will. */
 static void send(void) {
-    uint16_t line[COCO_PIC_W];
-    mc6847_set_mode(&v, f.mode);
+    uint16_t line[COCO_PIC_W], tmp[COCO_PIC_W];
     for (unsigned b = 0; b < COCO_BANDS; b++) {
         if (!bands[b].dirty) continue;
         for (unsigned y = b * COCO_BAND_ROWS; y < (b + 1u) * COCO_BAND_ROWS; y++) {
-            mc6847_render_line(&v, &f.lines[y * COCO_VDG_LINE_BYTES], y, line);
+            present_render_line(&f, y, vdg_of, NULL, line, tmp);
             for (unsigned x = bands[b].x0; x <= bands[b].x1; x++) panel[y][x] = line[x];
         }
     }
@@ -50,9 +55,9 @@ static void send(void) {
 /* Stale pixels on the panel against a full render. */
 static unsigned stale(void) {
     unsigned n = 0;
-    mc6847_set_mode(&v, f.mode);
+    uint16_t tmp[COCO_PIC_W];
     for (unsigned y = 0; y < COCO_PIC_H; y++) {
-        mc6847_render_line(&v, &f.lines[y * COCO_VDG_LINE_BYTES], y, full);
+        present_render_line(&f, y, vdg_of, NULL, full, tmp);
         for (unsigned x = 0; x < COCO_PIC_W; x++) n += panel[y][x] != full[x];
     }
     return n;
@@ -71,13 +76,33 @@ static unsigned trial(bool bytes_only) {
     mc6847_set_artefact(&v, VDG_ARTEFACT_OFF);
     for (unsigned i = 0; i < COCO_SNAP_VRAM_MAX; i++) f.lines[i] = (uint8_t)rng();
     f.mode = 0;
+    coco_frame_plain(&f);
     present_plan(&pr, &f, bands);
     send();
     unsigned bad = 0;
     for (unsigned step = 0; step < 1000u; step++) {
         unsigned kind = rng() % 9u;
-        if (kind < 3u) {
+        if (kind < 2u) {
             f.mode = random_mode();
+            coco_frame_plain(&f);
+        } else if (kind == 2u) {
+            /* §9.4: plain again, or from a random line a few runs of
+             * lines in modes of their own, some with a change or two
+             * along them. */
+            coco_frame_plain(&f);
+            unsigned y = rng() % 3u ? rng() % 60u : COCO_PIC_H;
+            while (y < COCO_PIC_H) {
+                coco_line_t how = { .mode = random_mode() };
+                if (rng() % 2u) {
+                    how.x[0] = (uint8_t)(1u + rng() % 200u);
+                    how.m[0] = random_mode();
+                    if (rng() % 2u) {
+                        how.x[1] = (uint8_t)(how.x[0] + 1u + rng() % 50u);
+                        how.m[1] = random_mode();
+                    }
+                }
+                for (unsigned n = 1u + rng() % 40u; n && y < COCO_PIC_H; n--) f.how[y++] = how;
+            }
         } else if (kind == 3u) {
             /* Artefacts on or off: no byte and no mode changes. */
             mc6847_set_artefact(&v, v.artefact == VDG_ARTEFACT_OFF ? VDG_ARTEFACT_KBRW
@@ -87,7 +112,10 @@ static unsigned trial(bool bytes_only) {
             unsigned k = 1u + rng() % 40u;
             for (unsigned j = 0; j < k; j++) f.lines[rng() % COCO_SNAP_VRAM_MAX] = (uint8_t)rng();
         }
-        if (bytes_only) pr.mode = f.mode;   /* the control: blind to the mode */
+        if (bytes_only) {   /* the control: blind to the modes */
+            pr.mode = coco_frame_border_mode(&f);
+            memcpy(pr.how, f.how, sizeof pr.how);
+        }
         present_plan(&pr, &f, bands);
         send();
         if (stale()) bad++;
@@ -110,6 +138,7 @@ int main(void) {
         /* A frame with nothing changed sends nothing; one byte, one band. */
         memset(&pr, 0, sizeof pr);
         f.mode = VDG_AG | 0x70u;
+        coco_frame_plain(&f);
         CHECK(present_plan(&pr, &f, bands) == COCO_BANDS, "the first present sends every band");
         CHECK(present_plan(&pr, &f, bands) == 0, "an unchanged frame sends nothing");
         f.lines[100u * COCO_VDG_LINE_BYTES + 3u] ^= 1u;

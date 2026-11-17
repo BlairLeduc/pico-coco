@@ -8,6 +8,11 @@
  *    semigraphics 8, 12 and 24 pairs, and wrapping past $FFFF;
  *  - §9.4's count of fields whose video bits changed during active
  *    lines, with a program that writes the same bits as the control;
+ *    and the changes themselves: a program that goes from text to RG6
+ *    part-way down every field has a snapshot whose lines are fetched
+ *    as text above the change and as RG6 below it, the counter carried
+ *    across, and one that sets CSS for part of a line has that line
+ *    drawn in the other colour set between the two pixels;
  *  - EL §5.6's field shape: a guest loop that waits for FS to fall
  *    escapes once a field, and a redraw it starts then is complete in
  *    every snapshot taken where the next active line begins, while
@@ -20,11 +25,18 @@
 #include <string.h>
 
 #include "coco.h"
+#include "present.h"
 #include "test_util.h"
 
 static coco_t m, m2;
 static coco_frame_t f;
 static uint8_t rom[0x2000];
+
+/* present_render_line's renderer: one table, set to the mode. */
+static const mc6847_t *vdg_of(void *ctx, uint8_t mode) {
+    mc6847_set_mode(ctx, mode);
+    return ctx;
+}
 
 static void machine(void) {
     coco_config_t cfg;
@@ -152,6 +164,177 @@ int main(void) {
             else
                 CHECK(m.split_fields >= 9u, "CSS toggled throughout: %u of 10 fields split",
                       (unsigned)m.split_fields);
+        }
+    }
+
+    /* ---- §9.4: the regions ------------------------------------------ */
+    {
+        /* Wait for FS's fall; in the flyback, the SAM's V to 0 and the
+         * VDG to text; a delay of 1,211 loops of 8 cycles, which ends
+         * about 100 lines down the next field's picture; then RG6 with
+         * CSS and V to 6. The control writes the text's bits again. */
+        static const uint8_t code[] = {
+            0x86, 0xF8, 0xB7, 0xFF, 0x22,   /* $A000 LDA #$F8, STA $FF22   */
+            0x86, 0x04, 0xB7, 0xFF, 0x23,   /* $A005 LDA #$04, STA $FF23   */
+            0xB7, 0xFF, 0x03,               /* $A00A STA $FF03             */
+            0xB6, 0xFF, 0x03, 0x2A, 0xFB,   /* $A00D LDA $FF03, BPL $A00D  */
+            0xB6, 0xFF, 0x02,               /* $A012 LDA $FF02             */
+            0xB7, 0xFF, 0xC2,               /* $A015 STA $FFC2  V1 clear   */
+            0xB7, 0xFF, 0xC4,               /* $A018 STA $FFC4  V2 clear   */
+            0x7F, 0xFF, 0x22,               /* $A01B CLR $FF22  text       */
+            0x8E, 0x04, 0xBB,               /* $A01E LDX #1211             */
+            0x30, 0x1F, 0x26, 0xFC,         /* $A021 LEAX -1,X, BNE $A021  */
+            0x86, 0xF8, 0xB7, 0xFF, 0x22,   /* $A025 LDA #$F8, STA $FF22   */
+            0xB7, 0xFF, 0xC3,               /* $A02A STA $FFC3  V1 set     */
+            0xB7, 0xFF, 0xC5,               /* $A02D STA $FFC5  V2 set     */
+            0x20, 0xDB,                     /* $A030 BRA $A00D             */
+        };
+        for (unsigned control = 0; control < 2u; control++) {
+            memset(rom, 0x12, sizeof rom);
+            memcpy(rom, code, sizeof code);
+            if (control) {
+                rom[0x26] = 0x00;
+                rom[0x2C] = 0xC2;
+                rom[0x2F] = 0xC4;
+            }
+            rom[0x1FFE] = 0xA0; rom[0x1FFF] = 0x00;
+            machine();
+            for (int i = 0; i < 6; i++) coco_run_field(&m);
+            m.sam.reg |= 2u << 13;   /* 64K chips, as at_rest has them */
+            addresses();
+            if (control) {
+                unsigned plain = 0;
+                for (unsigned y = 0; y < COCO_PIC_H; y++)
+                    plain += f.how[y].mode == 0 && !f.how[y].x[0];
+                CHECK(f.splits == 0 && f.mode == 0 && plain == COCO_PIC_H,
+                      "the control: %u changes, mode %02X, %u plain lines", f.splits, f.mode,
+                      plain);
+                check_layout("the control, text", 0, 12, 32, 32);
+                continue;
+            }
+            /* The first line that begins in RG6, and the one before it,
+             * where the three writes fell: 13 cycles end to end, so the
+             * line shows up to three changes along it, or none if they
+             * fell in its border. */
+            unsigned at = 0;
+            while (at < COCO_PIC_H && f.how[at].mode == 0) at++;
+            CHECK(f.mode == 0 && f.sam_v == 0 && f.splits >= 1 && f.splits <= 3 &&
+                      at >= 99u && at <= 102u,
+                  "text above: mode %02X, V %u, %u changes, RG6 from line %u", f.mode, f.sam_v,
+                  f.splits, at);
+            unsigned bad = 0, wrong = 0;
+            for (unsigned y = 0; y < COCO_PIC_H; y++) {
+                /* Text: a row of 32 every 12 lines. RG6: one every line,
+                 * from the row the text had reached. */
+                unsigned row = y < at ? y / 12u : at / 12u + (y - at);
+                for (unsigned c = 0; c < 32u; c++) bad += addr[y][c] != row * 32u + c;
+                wrong += f.how[y].mode != (y < at ? 0u : 0xF8u);
+                if (y != at - 1u) wrong += f.how[y].x[0] != 0;
+            }
+            CHECK(bad == 0, "%u byte(s) of the two regions from the wrong address", bad);
+            CHECK(wrong == 0 && coco_frame_border_mode(&f) == 0,
+                  "%u line(s) in the wrong mode; the border the text's, which has more lines",
+                  wrong);
+            /* The same next field: the split is steady. */
+            coco_run_field(&m);
+            coco_video_snapshot(&m, &f);
+            CHECK(f.how[at].mode == 0xF8u && f.how[at - 1u].mode == 0,
+                  "the next field's RG6 not from line %u", at);
+            printf("regions: text to line %u, RG6 from %u, %u change(s) along line %u\n",
+                   at - 1u, at, (unsigned)(f.how[at - 1u].x[0] != 0) + (f.how[at - 1u].x[1] != 0),
+                   at - 1u);
+        }
+    }
+
+    /* ---- §9.4: a change along a line -------------------------------- */
+    {
+        /* Dark Star's (docs/milestones.md, M12): in RG6, wait for FS's
+         * fall, delay to a line of the next picture, set CSS, wait 30
+         * cycles and clear it: 480 ticks, 240 pixels. */
+        static const uint8_t code[] = {
+            0x86, 0xF8, 0xB7, 0xFF, 0x22,   /* $A000 LDA #$F8, STA $FF22   */
+            0x86, 0x04, 0xB7, 0xFF, 0x23,   /* $A005 LDA #$04, STA $FF23   */
+            0xB7, 0xFF, 0x03,               /* $A00A STA $FF03             */
+            0xB7, 0xFF, 0xC3,               /* $A00D STA $FFC3  V1 set     */
+            0xB7, 0xFF, 0xC5,               /* $A010 STA $FFC5  V2 set     */
+            0xC6, 0xF0, 0xF7, 0xFF, 0x22,   /* $A013 LDB #$F0, STB $FF22   */
+            0xB6, 0xFF, 0x03, 0x2A, 0xFB,   /* $A018 LDA $FF03, BPL $A018  */
+            0xB6, 0xFF, 0x02,               /* $A01D LDA $FF02             */
+            0x8E, 0x04, 0xC1,               /* $A020 LDX #1217             */
+            0x30, 0x1F, 0x26, 0xFC,         /* $A023 LEAX -1,X, BNE $A023  */
+            0x21, 0x00, 0x12, 0x12,         /* $A027 BRN, NOP, NOP: 7 cycles,
+                                             * which put the write early
+                                             * on a line                   */
+            0x86, 0xF8, 0xB7, 0xFF, 0x22,   /* $A02B LDA #$F8, STA $FF22   */
+            0x8E, 0x00, 0x00,               /* $A030 LDX #0        3       */
+            0x30, 0x1F, 0x30, 0x1F,         /* $A033 LEAX -1,X x 4 20      */
+            0x30, 0x1F, 0x30, 0x1F,
+            0x12,                           /* $A03B NOP           2       */
+            0xF7, 0xFF, 0x22,               /* $A03C STB $FF22     5       */
+            0x20, 0xD7,                     /* $A03F BRA $A018             */
+        };
+        /* A loop more, 64 pixels on: the second change falls after the
+         * line's pixels, and is the next line's from its first. */
+        memset(rom, 0x12, sizeof rom);
+        memcpy(rom, code, sizeof code);
+        rom[0x22] = 0xC2;
+        rom[0x1FFE] = 0xA0; rom[0x1FFF] = 0x00;
+        machine();
+        for (int i = 0; i < 6; i++) coco_run_field(&m);
+        coco_video_snapshot(&m, &f);
+        {
+            unsigned at = 0;
+            while (at < COCO_PIC_H - 2u && !f.how[at].x[0]) at++;
+            const coco_line_t *h = &f.how[at];
+            CHECK(f.splits == 2 && h->mode == 0xF0u && h->x[0] == 73 && h->m[0] == 0xF8u &&
+                      !h->x[1] && h[1].mode == 0xF0u && !h[1].x[0] && h[-1].mode == 0xF0u,
+                  "a change past the pixels: line %u %02X, %02X from %u, then %u; the next "
+                  "line %02X, then %u", at, h->mode, h->m[0], h->x[0], h->x[1], h[1].mode,
+                  h[1].x[0]);
+        }
+
+        memset(rom, 0x12, sizeof rom);
+        memcpy(rom, code, sizeof code);
+        rom[0x1FFE] = 0xA0; rom[0x1FFF] = 0x00;
+        machine();
+        for (int i = 0; i < 6; i++) coco_run_field(&m);
+        coco_video_snapshot(&m, &f);
+        /* One line with two changes, 240 pixels apart: the first to CSS,
+         * the second back. */
+        unsigned n = 0, at = 0;
+        for (unsigned y = 0; y < COCO_PIC_H; y++)
+            if (f.how[y].x[0]) { n++; at = y; }
+        const coco_line_t *how = &f.how[at];
+        CHECK(f.mode == 0xF0u && f.splits == 2 && n >= 1,
+              "mode %02X, %u changes, on %u line(s)", f.mode, f.splits, n);
+        if (n == 1 && how->x[1]) {
+            CHECK(how->mode == 0xF0u && how->m[0] == 0xF8u && how->m[1] == 0xF0u &&
+                      how->x[1] - how->x[0] == 240,
+                  "line %u: %02X, %02X from pixel %u, %02X from %u", at, how->mode, how->m[0],
+                  how->x[0], how->m[1], how->x[1]);
+            /* Drawn: buff where CSS was set and the byte's bits are, the
+             * other set's green elsewhere. */
+            static mc6847_t vdg;
+            mc6847_init(&vdg);
+            mc6847_set_artefact(&vdg, VDG_ARTEFACT_OFF);
+            memset(f.lines, 0xFF, sizeof f.lines);
+            uint16_t px[COCO_PIC_W], tmp[COCO_PIC_W];
+            present_render_line(&f, at, vdg_of, &vdg, px, tmp);
+            unsigned bad = 0;
+            for (unsigned x = 0; x < COCO_PIC_W; x++) {
+                bool css = x >= how->x[0] && x < how->x[1];
+                bad += px[x] != mc6847_palette[css ? VDG_BUFF : VDG_GREEN];
+            }
+            CHECK(bad == 0, "%u pixel(s) of line %u in the wrong colour set", bad, at);
+            present_render_line(&f, at + 1u, vdg_of, &vdg, px, tmp);
+            CHECK(px[0] == mc6847_palette[VDG_GREEN] && px[128] == px[0],
+                  "the line after it is in the first colour set throughout");
+            printf("along a line: line %u, CSS from pixel %u to %u\n", at, how->x[0], how->x[1]);
+        } else {
+            CHECK(false, "the two changes fell on %u line(s), the last line %u: %02X, %02X "
+                  "from %u, %02X from %u, and line %u begins %02X: move the test's delay", n,
+                  at, how->mode, how->m[0], how->x[0], how->m[1], how->x[1], at + 1u,
+                  f.how[at + 1u].mode);
         }
     }
 

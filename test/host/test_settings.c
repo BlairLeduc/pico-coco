@@ -27,6 +27,7 @@ int main(void) {
         CHECK(d.volume == 8u && !d.perf && d.status && d.backlight == 0u,
               "full volume, no perf line, the status line, the panel's backlight");
         CHECK(!d.cart[0] && !d.boot_tape[0], "no cartridge, no tape");
+        CHECK(d.fast_tape && !d.layout[0], "fast tape, the standard keys (§11.3, §12.3)");
     }
 
     /* ---- an empty file, and one of comments, change nothing ----------- */
@@ -46,6 +47,8 @@ int main(void) {
             "Perf      = On\r\n"
             "status    = off\r\n"
             "backlight = 15\r\n"
+            "layout    = joy right\r\n"
+            "fast_tape = off\r\n"
             "boot_tape = /coco/tapes/My Tape.cas\r\n";
         CHECK(parse(&s, all, &line) == SET_OK && line == 0, "every setting: line %u", line);
         CHECK(!s.extended && s.ram_k == 16u, "basic, ram");
@@ -53,7 +56,10 @@ int main(void) {
               "volume, perf, status, backlight");
         CHECK(strcmp(s.cart, "Dungeons of Daggorath.ccc") == 0, "cart: %s", s.cart);
         CHECK(strcmp(s.boot_tape, "/coco/tapes/My Tape.cas") == 0, "boot_tape: %s", s.boot_tape);
+        CHECK(!s.fast_tape && strcmp(s.layout, "JOY RIGHT") == 0,
+              "fast_tape, and the layout in capitals with its space: %s", s.layout);
     }
+    CHECK(parse(&s, "layout = Standard\n", &line) == SET_OK && !s.layout[0], "layout = standard");
     for (unsigned k = 0; k < 4; k++) {
         static const char *const t[] = { "ram = 4\n", "ram = 16\n", "ram = 32\n", "ram = 64\n" };
         static const unsigned v[] = { 4u, 16u, 32u, 64u };
@@ -94,7 +100,10 @@ int main(void) {
             { "volume = 99999999999\n", SET_BAD_VALUE },
             { "perf = yes\n",          SET_BAD_VALUE },
             { "machine = dragon32\n",  SET_UNKNOWN },     /* the CoCo only (D6) */
-            { "layout = games\n",      SET_UNKNOWN },     /* M12 */
+            { "layout =\n",            SET_SYNTAX },
+            { "layout = A NAME LONGER THAN 16\n", SET_TOO_LONG },
+            { "fast_tape = slow\n",    SET_BAD_VALUE },
+            { "turbo = on\n",          SET_UNKNOWN },
         };
         for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
             settings_status_t st = parse(&s, bad[i].text, &line);
@@ -336,6 +345,30 @@ int main(void) {
         CHECK(strcmp(n, "edtasm.ccc") == 0, "a cartridge, bare: %s", n);
         settings_card_name(SETTINGS_TAPE_DIR, "", n);
         CHECK(n[0] == 0, "none is none");
+    }
+
+    /* ---- the layout and fast tape, saved (§11.3, §12.3) ---------------- */
+    {
+        settings_t k;
+        settings_default(&k);
+        strcpy(k.layout, "JOY LEFT");
+        k.fast_tape = false;
+        CHECK(REWRITE("ram = 64\n", &k) == SET_OK && strstr(out, "layout = JOY LEFT\n") &&
+                  strstr(out, "fast_tape = off\n") && strncmp(out, "ram = 64\n", 9) == 0,
+              "a layout and fast tape the file lacked are added after its lines:\n%.*s",
+              (int)out_len, out);
+        /* Back to the standard keys, in place beside the comment. */
+        const char *file = "layout = joy left   # the arrows as the left stick\nfast_tape = off\n";
+        k.layout[0] = 0;
+        k.fast_tape = true;
+        CHECK(REWRITE(file, &k) == SET_OK &&
+                  strstr(out, "layout = standard   # the arrows as the left stick\n") &&
+                  strstr(out, "fast_tape = on\n"),
+              "the standard keys and fast tape, in place:\n%.*s", (int)out_len, out);
+        /* A layout the menu did not change keeps its line as typed. */
+        strcpy(k.layout, "JOY LEFT");
+        CHECK(REWRITE(file, &k) == SET_OK && strstr(out, "layout = joy left   # the arrows"),
+              "a layout that says the same is left as typed:\n%.*s", (int)out_len, out);
     }
 
     TEST_DONE();

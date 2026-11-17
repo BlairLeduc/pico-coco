@@ -249,7 +249,9 @@ static void media_decode(const uint8_t in[SNAP_MEDIA_LEN], snap_media_t *md) {
 
 snap_status_t snapshot_save(const coco_t *m, const snap_media_t *media, snap_write_fn write,
                             void *ctx) {
-    if (m->tape.op != TAPE_NONE) return SNAP_BUSY;
+    /* Nor while the signal runs: its place within a byte is not state
+     * (cassette.h). */
+    if (m->tape.op != TAPE_NONE || coco_cassette_running(m)) return SNAP_BUSY;
 
     uint8_t *st = s_st;
     state_encode(m, st);

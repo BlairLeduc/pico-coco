@@ -436,6 +436,17 @@ int main(void) {
     CHECK(mem_load(&snap, &h) == SNAP_BUSY, "a load into a machine waiting on the tape");
     h.tape.op = TAPE_NONE;
 
+    /* ---- the tape's signal running: no save (cassette.h) ------------------- */
+    machine(&h, 64);
+    fields(&h, 3);
+    coco_cassette_set_fast(&h, false);
+    CHECK(mem_save(&snap, &h, NULL) == SNAP_OK, "a save with fast loading off and the relay open");
+    coco_slow_write(&h, 0xFF21u, 0x3Cu);   /* PIA1 CA2 driven high: the relay */
+    CHECK(coco_cassette_running(&h) && mem_save(&snap, &h, NULL) == SNAP_BUSY && snap.len == 0,
+          "a save while the signal runs");
+    coco_slow_write(&h, 0xFF21u, 0x34u);
+    CHECK(mem_save(&snap, &h, NULL) == SNAP_OK, "a save once the relay opens");
+
     /* ---- torn between the passes ------------------------------------------- */
     machine(&h, 64);
     fields(&h, 4);

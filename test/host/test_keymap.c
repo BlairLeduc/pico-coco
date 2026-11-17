@@ -753,5 +753,255 @@ int main(void) {
               "SHIFT left down after a mixed burst");
     }
 
+    /* ---- game layouts: the built-ins (§11.3, §11.4) -------------------- */
+    CHECK(keylayout_builtin_len == 2 && strcmp(keylayout_builtin[0].name, "JOY RIGHT") == 0 &&
+              strcmp(keylayout_builtin[1].name, "JOY LEFT") == 0,
+          "the keyboard joystick as either stick is the built-in layouts");
+    for (size_t li = 0; li < keylayout_builtin_len; li++) {
+        const keylayout_t *l = &keylayout_builtin[li];
+        CHECK(l->n <= COCO_KEYMAP_BINDINGS && l->n_files == 0,
+              "%s: over config.h's capacities, or names a game", l->name);
+        CHECK(strlen(l->name) <= COCO_KEYMAP_NAME_LEN, "%s: a long name", l->name);
+        for (unsigned i = 0; i < l->n; i++) {
+            const keymap_t *e = &l->bind[i];
+            CHECK(keymap_picocalc_canonical(e->code) == e->code,
+                  "%s: 0x%02X is not a canonical code, so it would never match", l->name,
+                  e->code);
+            CHECK(e->flags == KM_JOY && e->row == li && e->col <= KJ_FIRE,
+                  "%s: 0x%02X is not a line of its stick", l->name, e->code);
+            for (unsigned j = i + 1; j < l->n; j++)
+                CHECK(l->bind[j].code != e->code, "%s: 0x%02X bound twice", l->name, e->code);
+        }
+    }
+
+    /* ---- the keyboard joystick in the held set (§11.4) ----------------- */
+    {
+        const keylayout_t *jr = &keylayout_builtin[0], *jl = &keylayout_builtin[1];
+        #define AXES(s, x, y) (m.joy_axis[s][0] == (x) && m.joy_axis[s][1] == (y))
+        const uint16_t C = COCO_JOY_CENTRE;
+
+        /* Left under the layout is the stick, and no cell; under the
+         * standard map, the control, it is the CoCo's arrow. */
+        fresh();
+        CHECK(AXES(0, C, C) && AXES(1, C, C) && !m.joy_buttons, "the sticks start centred");
+        keymatrix_set_layout(&k, jr);
+        press(PICOCALC_KEY_LEFT);
+        fields(1);
+        CHECK(AXES(0, 0, C) && AXES(1, C, C) && matrix_empty(),
+              "Left under JOY RIGHT: the right stick's X at its low end, and no key");
+        fresh();
+        press(PICOCALC_KEY_LEFT);
+        fields(1);
+        CHECK(cell_down(3, 5) && AXES(0, C, C), "Left under the standard map is the arrow");
+
+        /* A diagonal with fire: both axes and the button, each let go on
+         * its own release. */
+        fresh();
+        keymatrix_set_layout(&k, jr);
+        press(PICOCALC_KEY_RIGHT);
+        press(PICOCALC_KEY_UP);
+        press(']');
+        fields(1);
+        CHECK(AXES(0, 65535u, 0) && m.joy_buttons == 1u && matrix_empty(),
+              "Right, Up and ]: X high, Y low, the right button");
+        fields(10);
+        release(PICOCALC_KEY_RIGHT);
+        fields(1);
+        CHECK(AXES(0, C, 0) && m.joy_buttons == 1u, "Right let go: X centred");
+        release(']');
+        release(PICOCALC_KEY_UP);
+        fields(8);
+        CHECK(AXES(0, C, C) && !m.joy_buttons && k.n == 0, "all let go: centred, no button");
+
+        /* Opposite directions together leave the axis centred. */
+        press(PICOCALC_KEY_LEFT);
+        press(PICOCALC_KEY_RIGHT);
+        fields(1);
+        CHECK(AXES(0, C, C), "Left and Right together: X centred");
+
+        /* The left stick's layout moves the left stick and its button. */
+        fresh();
+        keymatrix_set_layout(&k, jl);
+        press(PICOCALC_KEY_DOWN);
+        press(']');
+        fields(1);
+        CHECK(AXES(1, C, 65535u) && AXES(0, C, C) && m.joy_buttons == 2u,
+              "Down and ] under JOY LEFT: the left stick's Y high and its button");
+
+        /* The other keys still type, and ] shifted is still the button:
+         * the binding is by physical key. */
+        fresh();
+        keymatrix_set_layout(&k, jr);
+        press('a');
+        fields(1);
+        CHECK(cell_down(0, 1), "A types under a joystick layout");
+        fresh();
+        keymatrix_set_layout(&k, jr);
+        press(PICOCALC_KEY_SHIFT_L);
+        press('}');
+        fields(2);
+        CHECK(m.joy_buttons == 1u, "Shift+] is the button too");
+
+        /* Alt and the function keys are the emulator's under any layout. */
+        fresh();
+        keymatrix_set_layout(&k, jr);
+        press(PICOCALC_KEY_ALT);
+        press(PICOCALC_KEY_LEFT);
+        fields(2);
+        CHECK(cell_down(3, 5) && shift() && AXES(0, C, C),
+              "Alt+Left is SHIFT+LEFT under a layout");
+        fresh();
+        keymatrix_set_layout(&k, jr);
+        press(PICOCALC_KEY_F1 + 2u);
+        fields(1);
+        CHECK(k.menu_request && k.menu_page == KM_PAGE_SNAPSHOT, "F3 is the menu under a layout");
+
+        /* The binding is fixed at the press: a key held when the layout
+         * goes keeps its line until it is let go. */
+        fresh();
+        keymatrix_set_layout(&k, jr);
+        press(PICOCALC_KEY_UP);
+        fields(1);
+        keymatrix_set_layout(&k, NULL);
+        fields(1);
+        CHECK(AXES(0, C, 0) && !cell_down(3, 3), "Up stays the stick's while it is held");
+        fields(8);
+        release(PICOCALC_KEY_UP);
+        fields(1);
+        press(PICOCALC_KEY_UP);
+        fields(4);
+        CHECK(AXES(0, C, C) && cell_down(3, 3), "pressed again, it is the arrow");
+        #undef AXES
+    }
+
+    /* ---- game layouts: the .map parser (§11.3) ------------------------- */
+    {
+        static keylayout_t l;
+        unsigned line = 99;
+        static const char ex[] =
+            "# the keyboard joystick, as the built-in has it\n"
+            "name = Joy Right\n"
+            "left = JR-LEFT\nright = JR-RIGHT\nup = jr-up\ndown = JR-DOWN\n"
+            "] = JR-FIRE\n";
+        CHECK(keylayout_parse(&l, "mine", ex, strlen(ex), &line) == KL_OK && line == 0,
+              "the example parses");
+        const keylayout_t *b = &keylayout_builtin[0];
+        CHECK(strcmp(l.name, b->name) == 0 && l.n == b->n &&
+                  memcmp(l.bind, b->bind, b->n * sizeof b->bind[0]) == 0,
+              "the example is the built-in layout");
+        CHECK(!keylayout_for_file(&l, "/coco/tapes/JOY RIGHT.cas") && !keylayout_for_file(&l, ""),
+              "a layout that names no file goes with none");
+
+        /* Files are named as the archive names them, spaces and all,
+         * separated by commas, and matched without their extension or
+         * case. */
+        static const char tp[] =
+            "tapes = Dragonfire (Tandy), Cave Fighter (Cable Software) (Coco port)\n"
+            "carts = Dragon Fire (1984) (26-3098) (Tandy)\n"
+            "z = LEFT\nx = RIGHT\nspace = SHIFT\ntab = jl-fire\n";
+        CHECK(keylayout_parse(&l, "mine", tp, strlen(tp), &line) == KL_OK && l.n_files == 3 &&
+                  strcmp(l.name, "MINE") == 0 && l.n == 4,
+              "tapes and carts: %u files, %u bindings, \"%s\" (line %u)", l.n_files, l.n, l.name,
+              line);
+        CHECK(keylayout_for_file(&l, "/coco/tapes/Dragonfire (Tandy).cas") &&
+                  keylayout_for_file(&l, "/coco/tapes/DRAGONFIRE (TANDY).CAS") &&
+                  keylayout_for_file(&l, "/coco/carts/Dragon Fire (1984) (26-3098) (Tandy).ccc") &&
+                  keylayout_for_file(&l, "cave fighter (cable software) (coco port)"),
+              "a named file selects the layout, whatever its case and directory");
+        CHECK(!keylayout_for_file(&l, "/coco/tapes/Dragonfire.cas") &&
+                  !keylayout_for_file(&l, "/coco/tapes/Dragonfire (Tandy) 2.cas") &&
+                  !keylayout_for_file(&l, "/coco/tapes/.cas") && !keylayout_for_file(&l, ""),
+              "another file does not");
+
+        /* The targets: cells with no flags, SHIFT a cell, a joystick's
+         * line; in the held set, Z is LEFT's cell with the host's Shift
+         * passed on, Space is SHIFT alone, Tab the left button. */
+        CHECK(l.bind[0].code == 'z' && l.bind[0].row == 3 && l.bind[0].col == 5 &&
+                  l.bind[0].flags == 0 && l.bind[2].code == ' ' &&
+                  l.bind[2].row == CK_ROW_SHIFT && l.bind[2].col == CK_COL_SHIFT &&
+                  l.bind[3].code == PICOCALC_KEY_TAB && l.bind[3].flags == KM_JOY &&
+                  l.bind[3].row == COCO_JOY_LEFT && l.bind[3].col == KJ_FIRE,
+              "the bindings' targets");
+        fresh();
+        keymatrix_set_layout(&k, &l);
+        press('z');
+        press(' ');
+        press(PICOCALC_KEY_TAB);
+        fields(2);
+        CHECK(cell_down(3, 5) && !cell_down(3, 2) && shift() && !cell_down(3, 7) &&
+                  !cell_down(6, 1) && m.joy_buttons == 2u,
+              "Z, Space and Tab under the layout: LEFT, SHIFT and the left button");
+
+        /* '#' binds its key when it is one, CR LF ends a line, and a
+         * last line needs no newline. */
+        static const char hash[] = "# = A\n";
+        CHECK(keylayout_parse(&l, "hash", hash, strlen(hash), &line) == KL_OK && l.n == 1 &&
+                  l.bind[0].code == '3',
+              "'# = A' binds the 3 key");
+        static const char crlf[] = "name = fire\r\n] = SPACE\r\n= = ENTER";
+        CHECK(keylayout_parse(&l, "x", crlf, strlen(crlf), &line) == KL_OK && l.n == 2 &&
+                  strcmp(l.name, "FIRE") == 0 && l.bind[1].code == '=',
+              "CR LF, and '= = ENTER' binds the = key");
+
+        static const struct { const char *text; keylayout_status_t st; unsigned line; } bad[] = {
+            { "left JR-LEFT\n", KL_SYNTAX, 1 },
+            { "left =\n", KL_SYNTAX, 1 },
+            { "a = A\n\nwing = B\n", KL_BAD_KEY, 3 },
+            { "a = FUNCT\n", KL_BAD_TARGET, 1 },
+            { "a = A B\n", KL_BAD_TARGET, 1 },
+            { "a = JR-JUMP\n", KL_BAD_TARGET, 1 },
+            { "a = A\nA = B\n", KL_DUPLICATE, 2 },
+            { "1 = A\n! = B\n", KL_DUPLICATE, 2 },
+            { "name = a name that is far too long\n", KL_TOO_LONG, 1 },
+            { "tapes = a, b, c, d, e\n", KL_TOO_MANY, 1 },
+            { "tapes = a file whose name is longer than forty-eight characters\n", KL_TOO_LONG, 1 },
+        };
+        for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+            keylayout_status_t st = keylayout_parse(&l, "x", bad[i].text, strlen(bad[i].text),
+                                                    &line);
+            CHECK(st == bad[i].st && line == bad[i].line,
+                  "\"%s\": %s at line %u, not %s at %u", bad[i].text,
+                  keylayout_status_str(st), line, keylayout_status_str(bad[i].st), bad[i].line);
+        }
+
+        /* Every built-in, written out as the menu shows it, parses back
+         * to itself; so does every target the parser knows, from every
+         * key it knows. */
+        char text[512], one[32];
+        for (size_t li = 0; li < keylayout_builtin_len; li++) {
+            const keylayout_t *bl = &keylayout_builtin[li];
+            size_t at = 0;
+            for (unsigned i = 0; i < bl->n; i++) {
+                keymap_binding_str(&bl->bind[i], one, sizeof one);
+                at += (size_t)snprintf(text + at, sizeof text - at, "%s\n", one);
+            }
+            CHECK(keylayout_parse(&l, bl->name, text, at, &line) == KL_OK && l.n == bl->n &&
+                      memcmp(l.bind, bl->bind, bl->n * sizeof bl->bind[0]) == 0,
+                  "%s does not survive being written out", bl->name);
+        }
+        static const char *const targets[] = {
+            "ENTER", "CLEAR", "BREAK", "SHIFT", "SPACE", "LEFT", "RIGHT", "UP", "DOWN", "0", "9",
+            "A", "Z", "@", ":", ";", ",", "-", ".", "/", "JR-LEFT", "JR-FIRE", "JL-UP", "JL-FIRE",
+        };
+        for (size_t i = 0; i < sizeof targets / sizeof targets[0]; i++) {
+            keymap_t e;
+            CHECK(keymap_coco_target_named(targets[i], &e), "no target %s", targets[i]);
+            e.code = PICOCALC_KEY_ESC;
+            keymap_binding_str(&e, one, sizeof one);
+            keylayout_status_t st = keylayout_parse(&l, "x", one, strlen(one), &line);
+            CHECK(st == KL_OK && l.n == 1 && memcmp(&l.bind[0], &e, sizeof e) == 0,
+                  "\"%s\" does not parse back to %s", one, targets[i]);
+        }
+
+        /* One binding too many is refused whole. */
+        size_t at = 0;
+        static const char keys[] = "abcdefghijklmnopq";
+        for (unsigned i = 0; i < COCO_KEYMAP_BINDINGS + 1u; i++)
+            at += (size_t)snprintf(text + at, sizeof text - at, "%c = A\n", keys[i]);
+        CHECK(keylayout_parse(&l, "x", text, at, &line) == KL_TOO_MANY &&
+                  line == COCO_KEYMAP_BINDINGS + 1u,
+              "the seventeenth binding is one too many");
+    }
+
     TEST_DONE();
 }
