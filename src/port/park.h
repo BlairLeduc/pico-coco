@@ -8,14 +8,15 @@
  * audio neither underruns nor loses its pacing, and guest time does not
  * pass.
  *
- * Four reasons: the UART's hold; a tape request or a recording to write
- * out (tapeio.h); the menu; and pause (menu.h). The menu and pause own
+ * Five reasons: the UART's hold; a tape request or a recording to write
+ * out (tapeio.h); a track for the disk controller (dskio.h); the menu;
+ * and pause (menu.h). The menu and pause own
  * the keyboard while they last, so core 0 leaves the key ring to core 1
  * for them; a hold's keys are not the guest's either, and core 0 drops
  * them. Snapshots are the menu's (snapio.h), saved and loaded inside its
- * park; M13 adds the disk's.
+ * park.
  *
- * Copied from pico-oric and renamed, less its disc and screenshot.
+ * Copied from pico-oric and renamed, less its screenshot.
  */
 #ifndef PICO_COCO_PARK_H
 #define PICO_COCO_PARK_H
@@ -30,6 +31,7 @@
 #define PARK_TAPE  2u  /* a tape request, or a recording to write (tapeio.h) */
 #define PARK_MENU  3u  /* Alt+M, Alt+H or a function key (§14)          */
 #define PARK_PAUSE 4u  /* Alt+P                                           */
+#define PARK_DISK  5u  /* a track for the WD1793, or one to put back (dskio.h) */
 
 /* GS, which no key sends: park the guest, check the card, and stay
  * parked until the next GS. */

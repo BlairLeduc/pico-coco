@@ -26,4 +26,8 @@
 void xv_field(const uint8_t *ram, uint16_t sam_reg, uint8_t pb,
               uint8_t out[XV_LINES][XV_HALF_PIXELS]);
 
+/* XRoar's MC6847T1 in place of its MC6847, as its "-vdg-type 6847t1"
+ * fits it: called before the first xv_field, as the part is made once. */
+void xv_use_t1(void);
+
 #endif /* PICO_COCO_TEST_XROAR_VDG_H */

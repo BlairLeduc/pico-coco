@@ -16,6 +16,11 @@
  * becomes black, blue, red or white, by phase), against this renderer
  * with artefacts on, in both phases.
  *
+ * With "t1", the MC6847T1 (mc6847.h) against XRoar's MC6847T1, its
+ * ROM ours as XRoar's: in every alphanumeric mode, GM2:GM0 all eight,
+ * which the T1 reads and the MC6847 does not, and the graphics modes,
+ * which it draws as the MC6847 does.
+ *
  * Skips without the XRoar checkout; a skip is not a pass.
  */
 
@@ -116,20 +121,24 @@ static int compare(uint16_t sam_reg, uint8_t pb, vdg_artefact_t artefact, const 
     return 0;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    bool t1 = argc > 1 && strcmp(argv[1], "t1") == 0;
     for (unsigned i = 0; i < VDG_COLOUR_COUNT; i++) index_pal[i] = (uint16_t)i;
     mc6847_init(&vdg);
     mc6847_set_font(&vdg, font_6847);
+    if (t1) {
+        mc6847_set_t1(&vdg, font_6847t1);
+        xv_use_t1();
+    }
     mc6847_set_palette(&vdg, index_pal);
     mc6847_set_dark_bg(&vdg, true);   /* the dark colours as their own indices */
 
     /* The VDG's modes: alpha with INT/EXT (GM0) low and high, the other GM
      * bits set at random, which alpha ignores; and the eight graphics
      * modes. */
-    uint8_t vdg_modes[10];
+    uint8_t vdg_modes[16];
     unsigned n = 0;
-    vdg_modes[n++] = 0x00u;
-    vdg_modes[n++] = 0x10u;
+    for (unsigned gm = 0; gm < (t1 ? 8u : 2u); gm++) vdg_modes[n++] = (uint8_t)(gm << 4);
     for (unsigned gm = 0; gm < 8u; gm++) vdg_modes[n++] = (uint8_t)(0x80u | gm << 4);
 
     for (unsigned v = 0; v < 8u; v++) {
@@ -140,7 +149,7 @@ int main(void) {
                  * counter wraps past $FFFF. */
                 unsigned f = (v + i + css) & 1u ? 0x78u + (rng() % 8u) : rng() % 128u;
                 uint8_t pb = (uint8_t)(vdg_modes[i] | (css ? 0x08u : 0u));
-                if (!(pb & 0x80u)) pb = (uint8_t)(pb | (rng() & 0x60u));
+                if (!(pb & 0x80u) && !t1) pb = (uint8_t)(pb | (rng() & 0x60u));
                 pb = (uint8_t)(pb | (rng() & 0x07u));   /* the low bits are not the VDG's */
                 /* P at random: the VDG's address takes no page bit. */
                 uint16_t reg = (uint16_t)(v | f << 3 | (rng() & 1u) << 10);
@@ -167,6 +176,6 @@ int main(void) {
         }
     }
 
-    printf("%u fields compared with XRoar's\n", compared_fields);
+    printf("%u fields compared with XRoar's %s\n", compared_fields, t1 ? "MC6847T1" : "MC6847");
     TEST_DONE();
 }

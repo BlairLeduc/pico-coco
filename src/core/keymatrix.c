@@ -73,10 +73,9 @@ static const keymap_t *find(uint8_t code, uint8_t layer) {
 }
 
 /* With Alt down the Alt layer only, so no layout can take the menu,
- * pause or reset away. With Ctrl down nothing: the CoCo 1 and 2 have no
- * CTRL, and a chord the guest cannot have types nothing rather than the
- * key alone. Otherwise the game layout first, by physical key, then the
- * standard map (§11.3). */
+ * pause or reset away. Otherwise the game layout first, by physical key,
+ * then the standard map (§11.3); Ctrl, which is CLEAR, changes nothing
+ * here. */
 static const keymap_t *lookup(const keymatrix_t *k, uint8_t code) {
     /* A function key pressed with Alt still held arrives as itself
      * (hardware-notes.md §6.2), so it is matched whatever the modifiers. */
@@ -85,7 +84,6 @@ static const keymap_t *lookup(const keymatrix_t *k, uint8_t code) {
         const keymap_t *e = find(code, KM_ALT);
         return e || !fkey ? e : find(code, 0);
     }
-    if (k->ctrl && !fkey) return NULL;
     if (k->layout) {
         uint8_t canon = keymap_picocalc_canonical(code);
         for (unsigned i = 0; i < k->layout->n; i++)
@@ -119,7 +117,8 @@ static bool apply_head(keymatrix_t *k) {
         /* Modifiers report held events while down (hardware-notes.md
          * §6.2). Either Shift is the CoCo's SHIFT, which games read on
          * its own; it is held as long as a key, and a key pressed with it
-         * waits a field behind it (EL §7.1). Alt and Ctrl reach no cell. */
+         * waits a field behind it (EL §7.1). Ctrl is the CoCo's CLEAR,
+         * OS-9's control key, held so too (§11.3). Alt reaches no cell. */
         if (ev.code == PICOCALC_KEY_SHIFT_L || ev.code == PICOCALC_KEY_SHIFT_R) {
             uint8_t bit = ev.code == PICOCALC_KEY_SHIFT_L ? 1u : 2u;
             bool was = k->shift != 0;
@@ -132,7 +131,14 @@ static bool apply_head(keymatrix_t *k) {
             k->shift = now;
         }
         if (ev.code == PICOCALC_KEY_ALT)  k->alt  = down;
-        if (ev.code == PICOCALC_KEY_CTRL) k->ctrl = down;
+        if (ev.code == PICOCALC_KEY_CTRL) {
+            if (down && !k->ctrl) {
+                k->ctrl_fields = 0;
+                if (k->gap < 1) k->gap = 1;
+            }
+            if (!down && k->ctrl && k->ctrl_fields < COCO_KEY_MIN_FIELDS) return false;
+            k->ctrl = down;
+        }
         return true;
     }
 
@@ -195,5 +201,9 @@ void keymatrix_field(keymatrix_t *k, coco_t *m) {
     if (k->shift && k->shift_fields < UINT8_MAX) k->shift_fields++;
     k->shift_shown = shift_wanted(k);
     if (k->shift_shown) m->keys[CK_COL_SHIFT] |= 1u << CK_ROW_SHIFT;
+    if (k->ctrl) {
+        if (k->ctrl_fields < UINT8_MAX) k->ctrl_fields++;
+        m->keys[CK_COL_CLEAR] |= 1u << CK_ROW_CLEAR;
+    }
     if (k->gap > 0) k->gap--;
 }

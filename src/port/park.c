@@ -1,6 +1,6 @@
 /* park.c — the guest parked at a field boundary (park.h, design.md §6).
  *
- * pico-oric's, renamed, less its disc and screenshot. g_park is the
+ * pico-oric's, renamed, less its screenshot. g_park is the
  * hand-off word, written non-zero by core 0 and back to PARK_NONE by core
  * 1, with a barrier on each side of every write so the machine changes
  * hands with everything either core wrote to it.
@@ -16,6 +16,7 @@
 #endif
 #include "card.h"
 #include "core1.h"
+#include "dskio.h"
 #include "kbd.h"
 #include "keymatrix.h"
 #include "log.h"
@@ -143,6 +144,11 @@ bool park_serve(void) {
         tapeio_serve(s_m);
         const char *said = tapeio_said();
         if (said[0]) core1_note(said);
+        break;
+    }
+    case PARK_DISK: {
+        uint32_t us;
+        if (!dskio_serve(s_m, &us)) core1_note("DISK: THE CARD FAILED");
         break;
     }
     case PARK_MENU:

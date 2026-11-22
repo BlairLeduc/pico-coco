@@ -34,3 +34,19 @@ ad927fb4f30746d820cb8b860ebb585e7f095dea  extbas11.rom
 10bdc5aa2d7d7f205f67b47b19003a4bd89defd1  disk11.rom
 cecb7c24ff1e0ab5836e4a7a8eb1b8e01f1fded3  bas11.rom
 ```
+
+## OS-9 disks, for `test_os9`
+
+Not ROMs, but kept here for the same reason: they are found by SHA-1, and
+Tandy's is not this project's to distribute. `tools/fetch-os9.sh` fetches
+all of them (2026-11-17), and makes the last from 2.01's two disks with
+`tools/os9-clock.py`. `test_os9` skips each part whose disk is absent.
+
+```
+521740e7a00eefb4b92a6c803391df31c004fdf9  OS9L1V2M.DSK   OS-9 Level One 02.00.00, Tandy (Color Computer Archive)
+7019d3b476a3f944a6dab77c7c4c8e1d67b18863  OS9-L1V201M.DSK   OS-9 Level One 02.01.00, the system disk
+0ade5dec3cdc0f34654e5ebfc779fb41c2a92737  OS9-L1V201B.DSK   OS-9 Level One 02.01.00, the second disk (/MODULES)
+76fd68df3fc0527d1ceb49bc6772a7a7311d7636  OS9-L1V201M-RTC.DSK   the system disk with clock_tc3 (os9-clock.py --drop T1,RS232)
+c417fad58ea8eca331e173922748e9903bc20fcd  nos96809l1v030300coco1_40d_1.dsk   NitrOS-9 3.3.0, 360K
+8695113e8a9e7d616e7db055af2b1f4a00989808  nos96809l1v030300coco1_80d.dsk     NitrOS-9 3.3.0, 720K
+```

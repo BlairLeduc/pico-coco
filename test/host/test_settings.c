@@ -28,6 +28,8 @@ int main(void) {
               "full volume, no perf line, the status line, the panel's backlight");
         CHECK(!d.cart[0] && !d.boot_tape[0], "no cartridge, no tape");
         CHECK(d.fast_tape && !d.layout[0], "fast tape, the standard keys (§11.3, §12.3)");
+        CHECK(!d.vdg_t1, "the MC6847, not the T1 (§9.2)");
+        CHECK(!d.smartwatch, "no SmartWatch (§12.7)");
     }
 
     /* ---- an empty file, and one of comments, change nothing ----------- */
@@ -49,16 +51,23 @@ int main(void) {
             "backlight = 15\r\n"
             "layout    = joy right\r\n"
             "fast_tape = off\r\n"
-            "boot_tape = /coco/tapes/My Tape.cas\r\n";
+            "vdg       = 6847T1\r\n"
+            "smartwatch = on\r\n"
+            "boot_tape = /coco/tapes/My Tape.cas\r\n"
+            "boot_disk = games.dsk\r\n";
         CHECK(parse(&s, all, &line) == SET_OK && line == 0, "every setting: line %u", line);
         CHECK(!s.extended && s.ram_k == 16u, "basic, ram");
         CHECK(s.volume == 0u && s.perf && !s.status && s.backlight == 15u,
               "volume, perf, status, backlight");
         CHECK(strcmp(s.cart, "Dungeons of Daggorath.ccc") == 0, "cart: %s", s.cart);
         CHECK(strcmp(s.boot_tape, "/coco/tapes/My Tape.cas") == 0, "boot_tape: %s", s.boot_tape);
+        CHECK(strcmp(s.boot_disk, "games.dsk") == 0, "boot_disk: %s", s.boot_disk);
         CHECK(!s.fast_tape && strcmp(s.layout, "JOY RIGHT") == 0,
               "fast_tape, and the layout in capitals with its space: %s", s.layout);
+        CHECK(s.vdg_t1, "vdg = 6847T1");
+        CHECK(s.smartwatch, "smartwatch = on");
     }
+    CHECK(parse(&s, "vdg = 6847\n", &line) == SET_OK && !s.vdg_t1, "vdg = 6847");
     CHECK(parse(&s, "layout = Standard\n", &line) == SET_OK && !s.layout[0], "layout = standard");
     for (unsigned k = 0; k < 4; k++) {
         static const char *const t[] = { "ram = 4\n", "ram = 16\n", "ram = 32\n", "ram = 64\n" };
@@ -70,6 +79,9 @@ int main(void) {
           "16 KB, with a stranger after it");
     CHECK(parse(&s, "cart =\n", &line) == SET_OK && !s.cart[0], "no cartridge");
     CHECK(parse(&s, "boot_tape =   \n", &line) == SET_OK && !s.boot_tape[0], "empty means none");
+    CHECK(parse(&s, "boot_disk =\n", &line) == SET_OK && !s.boot_disk[0], "no boot disk");
+    CHECK(parse(&s, "cart = rsdos\n", &line) == SET_OK && strcmp(s.cart, "rsdos") == 0,
+          "the RS-DOS cartridge, as a word the port knows");
 
     /* ---- comments after a value --------------------------------------- */
     CHECK(parse(&s, "ram = 16   # as sold\r\n"
@@ -103,6 +115,9 @@ int main(void) {
             { "layout =\n",            SET_SYNTAX },
             { "layout = A NAME LONGER THAN 16\n", SET_TOO_LONG },
             { "fast_tape = slow\n",    SET_BAD_VALUE },
+            { "vdg = t1\n",            SET_BAD_VALUE },
+            { "smartwatch = ds1216\n", SET_BAD_VALUE },
+            { "vdg = 6847T2\n",        SET_BAD_VALUE },
             { "turbo = on\n",          SET_UNKNOWN },
         };
         for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
@@ -369,6 +384,21 @@ int main(void) {
         strcpy(k.layout, "JOY LEFT");
         CHECK(REWRITE(file, &k) == SET_OK && strstr(out, "layout = joy left   # the arrows"),
               "a layout that says the same is left as typed:\n%.*s", (int)out_len, out);
+    }
+
+    /* ---- the VDG, saved (§9.2) ----------------------------------------- */
+    {
+        settings_t k;
+        settings_default(&k);
+        CHECK(REWRITE("ram = 64\n", &k) == SET_OK && !strstr(out, "vdg"),
+              "the MC6847, the default, is not written:\n%.*s", (int)out_len, out);
+        k.vdg_t1 = true;
+        CHECK(REWRITE("ram = 64\n", &k) == SET_OK && strstr(out, "vdg = 6847t1\n"),
+              "the T1 is added:\n%.*s", (int)out_len, out);
+        k.vdg_t1 = false;
+        CHECK(REWRITE("vdg = 6847T1  # the CoCo 2B\n", &k) == SET_OK &&
+                  strstr(out, "vdg = 6847    # the CoCo 2B\n"),
+              "back to the MC6847, in place:\n%.*s", (int)out_len, out);
     }
 
     TEST_DONE();

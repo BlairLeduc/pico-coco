@@ -41,6 +41,10 @@ typedef struct {
     bool         extended;
     bool         bas11;       /* Color BASIC 1.1 kept apart, for 4 KB     */
     uint32_t     load_us;     /* reading the loaded images again          */
+    /* Where Disk BASIC's ROM is, by its SHA-1, for the RS-DOS cartridge
+     * (rsdos.h); "" if the card has none. Read when the cartridge is
+     * chosen (card_disk_rom_load), not at boot. */
+    char         disk_path[COCO_PATH_MAX];
 } card_job_t;
 
 /* The ROMs on the card (design.md §12.1): list COCO_ROM_DIR, read each
@@ -66,6 +70,16 @@ unsigned card_cart_list(char paths[][COCO_PATH_MAX], unsigned max);
  * COCO_CART_DIR as the settings file writes it. NULL, or why not. The
  * card must be mounted. */
 const char *card_cart_load(const char *path, uint8_t dst[COCO_CART_SIZE], uint32_t *len);
+
+/* The RS-DOS cartridge's ROM, Disk Extended Color BASIC 1.1, into dst
+ * from where the job found it, and checked by its SHA-1 again. NULL, or
+ * why not. The card must be mounted. */
+const char *card_disk_rom_load(const card_job_t *job, uint8_t dst[COCO_CART_SIZE], uint32_t *len);
+
+/* The settings' and the media's word for the RS-DOS cartridge in the
+ * cartridge slot (settings.h): `cart = rsdos`. */
+#define CARD_RSDOS "rsdos"
+bool card_is_rsdos(const char *name);
 
 /* The slot, debounced: true when card detect has settled at a new level
  * since the last call. Polled from core 1's loop. */

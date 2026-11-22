@@ -37,12 +37,20 @@ bool roms_start_now(const card_job_t *job, bool want_extended);
 
 /* The Color BASIC a CoCo with `ram_k` runs, from what the job loaded
  * (the owner, 2026-11-15): a 4 KB CoCo runs Color BASIC 1.1 alone,
- * never 1.3, never Extended and never Disk BASIC (M13 takes its rule
- * from here); Extended Color BASIC needs 16 KB or more and 1.3 under it; otherwise 1.3, or 1.1 without it. *extended is what
+ * never 1.3, never Extended and never Disk BASIC (roms_rsdos_why);
+ * Extended Color BASIC needs 16 KB or more and 1.3 under it; otherwise
+ * 1.3, or 1.1 without it. *extended is what
  * was asked, and comes back as what can run. Returns the BASIC, or
  * ROM_UNKNOWN when none can; *why says what was changed or missing,
  * NULL if nothing was. */
 rom_id_t roms_basic_for(const card_job_t *job, unsigned ram_k, bool *extended, const char **why);
+
+/* Why the RS-DOS cartridge cannot go in a CoCo with `ram_k` running
+ * Extended Color BASIC or not, or NULL if it can: Disk BASIC never runs
+ * on a 4 KB CoCo (the owner, 2026-11-15), and is started only by
+ * Extended Color BASIC, which looks for it at $C000; Color BASIC alone
+ * boots without it (test_disk, 2026-11-16). */
+const char *roms_rsdos_why(unsigned ram_k, bool extended);
 
 /* "EXTENDED COLOR BASIC 1.1", "COLOR BASIC 1.3", ... */
 const char *roms_basic_name(boot_basic_t b);

@@ -18,6 +18,7 @@ set(PICO_COCO_CORE_SOURCES
     src/core/cassette.c
     src/core/coco.c
     src/core/fieldlog.c
+    src/core/jvc.c
     src/core/keylayout.c
     src/core/keymap_picocalc.c
     src/core/keymatrix.c
@@ -25,17 +26,22 @@ set(PICO_COCO_CORE_SOURCES
     src/core/mc6821.c
     src/core/mc6847.c
     src/core/mc6847_font.c
+    src/core/mc6847_font_t1.c
+    src/core/mfmdisk.c
     src/core/pcm.c
     src/core/present.c
     src/core/romset.c
+    src/core/rsdos.c
     src/core/settings.c
     src/core/sam6883.c
+    src/core/smartwatch.c
     src/core/sha1.c
     src/core/snappool.c
     src/core/snapshot.c
     src/core/tape.c
     src/core/status.c
     src/core/textpage.c
+    src/core/wd1793.c
 )
 
 set(PICO_COCO_WARNINGS -Wall -Wextra -Werror)
@@ -174,6 +180,15 @@ else()
         message(FATAL_ERROR "PICO_COCO_UART_PORT is 0 or 1, not ${PICO_COCO_UART_PORT}")
     endif()
 
+    # The DS3231 on i2c0 at GP4/GP5, the SmartWatch's time (design.md
+    # §12.7): read in a build that leaves those pins free, the release
+    # build and the UART0 one.
+    if (NOT PICO_COCO_UART OR PICO_COCO_UART_PORT STREQUAL "0")
+        set(PICO_COCO_DS3231_ON 1)
+    else()
+        set(PICO_COCO_DS3231_ON 0)
+    endif()
+
     # How much of the core's hot path runs from SRAM (src/core/hot.h). 2
     # since M2's gate: the mix took 101 % of core 0 at tier 0 and 13 % at
     # tier 2 (design.md §7.5, docs/milestones.md); M11 measures it again
@@ -283,6 +298,7 @@ else()
         src/port/core1.c
         src/port/diskio.c
         src/port/display.c
+        src/port/dskio.c
         src/port/handoff.c
         src/port/kbd.c
         src/port/keymapio.c
@@ -292,6 +308,7 @@ else()
         src/port/menu.c
         src/port/park.c
         src/port/roms.c
+        src/port/rtc.c
         src/port/sd.c
         src/port/settingsio.c
         src/port/southbridge.c
@@ -307,11 +324,13 @@ else()
         PICO_COCO_FIELD_LOG=${PICO_COCO_FIELD_LOG_ON}
         PICO_COCO_AUDIO=${PICO_COCO_AUDIO_ON}
         PICO_COCO_FORCE_LATE=${PICO_COCO_FORCE_LATE_ON}
-        PICO_COCO_TURBO=${PICO_COCO_TURBO_ON})
+        PICO_COCO_TURBO=${PICO_COCO_TURBO_ON}
+        PICO_COCO_DS3231=${PICO_COCO_DS3231_ON})
     target_link_libraries(pico-coco
         pico_coco_fatfs
         hardware_dma
         hardware_i2c
+        hardware_powman
         hardware_pwm
         hardware_spi
         hardware_sync

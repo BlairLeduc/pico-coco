@@ -160,13 +160,14 @@
 #define COCO_SNAP_BUFFERS       3u
 #define COCO_SNAP_VRAM_MAX   (COCO_PIC_H * COCO_VDG_LINE_BYTES)   /* 6144 */
 /* §9.4: the changes of the video bits a field's picture is drawn by, and
- * how many of them one line shows part-way along. Dark Star, Rommel's
- * Revenge and Dragon Fire of M11's archive run change CSS twice on a
- * line, on and off (docs/milestones.md, M12); more on a line fold into
- * its last, and more in a field than two a line are dropped and
- * counted. COCO_SPLIT_MAX is given its value below, with the
- * picture's. */
-#define COCO_LINE_SPLITS        2u
+ * how many of them one line shows part-way along. Dark Star and Rommel's
+ * Revenge change CSS twice on a line, on and off (docs/milestones.md,
+ * M12), and Dragonfire up to six times, on its moat's lower edge (M13).
+ * A line's pixels last 32 E cycles and the quickest store takes 4, so a
+ * program makes about 8 at most; more on a line fold into its last, and
+ * more in a field than eight a line are dropped and counted.
+ * COCO_SPLIT_MAX is given its value below, with the picture's. */
+#define COCO_LINE_SPLITS        8u
 /* Where a line's 256 pixels begin, in ticks from HS's fall: the pulse,
  * the back porch and the left border, XRoar's MC6847 figures (§18), and
  * the ticks a pixel takes. A change of the video bits before them shows
@@ -174,6 +175,12 @@
  * them from the next line (§9.4). */
 #define COCO_LINE_ACTIVE_TICKS (64u + 70u + 120u)
 #define COCO_PIXEL_TICKS        2u
+/* A PIA1 write that changes the VDG's mode reaches the picture 1 us
+ * after the write's cycle ends, 14 ticks, 7 pixels: the MC6821's output
+ * delay, as TRS3_TICKS is its interrupt's. Settled from two pictures of
+ * Dragonfire, in which every change of colour set falls on a byte's
+ * edge, and two titles' headings, not from a datasheet (§9.4, §18). */
+#define COCO_PIA_VIDEO_TICKS   14u
 /* The graphics table's widest entry: a byte of a 16-byte mode is 16
  * pixels (§9.2). */
 #define COCO_LUT_PX_MAX        16u
@@ -215,5 +222,27 @@
 #define COCO_MEDIA_NAME_MAX     16u  /* a new tape's name, typed in        */
 #define COCO_TAPE_LIST_MAX      64u
 #define COCO_CART_LIST_MAX      64u
+
+/* ---- Disks: the RS-DOS controller (design.md §12.4) ------------------ */
+
+/* Four drives, as the latch selects (rsdos.h). */
+#define COCO_DISK_DRIVES         4u
+/* A raw track as the WD1793 sees it after decoding (mfmdisk.h): a
+ * 5.25-inch drive at 300 rpm, double density, 250,000 bits a second, so
+ * 6,250 bytes a revolution, a byte every 32 us (§18). */
+#define COCO_DISK_TRACK_LEN   6250u
+/* The heads' reach, the most tracks a drive may be given, and the IDs one
+ * track's index holds. */
+#define COCO_DISK_TRACKS_MAX    80u
+#define COCO_DISK_SECTORS_MAX   32u
+/* A drive's type until set (wd1793.h): two sides of 80 tracks, which the
+ * head never stops short of on any image (§12.4). */
+#define COCO_DISK_DRIVE_SIDES    2u
+#define COCO_DISK_DRIVE_TRACKS  80u
+/* One side of a track of a JVC image, every sector of it: 18 of 256
+ * bytes, RS-DOS's and OS-9's, is the most taken (jvc.h). */
+#define COCO_DISK_TRACK_DATA_MAX 4608u
+#define COCO_DISK_DIR    "/coco/disks"
+#define COCO_DISK_LIST_MAX      64u
 
 #endif /* PICO_COCO_CONFIG_H */

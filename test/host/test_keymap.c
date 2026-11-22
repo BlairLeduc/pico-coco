@@ -117,8 +117,9 @@ int main(void) {
         CHECK((entry_for((uint8_t)c, false) != NULL) != none, "'%c': %s", c,
               none ? "the CoCo has no key for it" : "no entry");
     }
-    /* A PicoCalc letter types the CoCo's letter whatever its case
-     * (§11.3): both on one cell, the capital without SHIFT. Which cell,
+    /* A PicoCalc letter's two cases are one cell, neither adding nor
+     * taking SHIFT: the PicoCalc's Shift is the CoCo's, so a capital is
+     * a capital in lower case (§11.3, 2026-11-17). Which cell,
      * and what each entry types, test_keyboard settles through the ROMs. */
     for (unsigned c = 'a'; c <= 'z'; c++) {
         const keymap_t *lo = entry_for((uint8_t)c, false);
@@ -126,7 +127,7 @@ int main(void) {
         if (!lo || !up) continue;
         CHECK(lo->row == up->row && lo->col == up->col, "'%c' and '%c' on different cells", c,
               c - 'a' + 'A');
-        CHECK(lo->flags == 0 && up->flags == KM_NOSHIFT, "'%c' / '%c': flags %02X %02X", c,
+        CHECK(lo->flags == 0 && up->flags == 0, "'%c' / '%c': flags %02X %02X", c,
               c - 'a' + 'A', lo->flags, up->flags);
     }
     /* No two characters share a cell and SHIFT, but a letter's two cases
@@ -342,13 +343,17 @@ int main(void) {
               (unsigned)COCO_KEY_MIN_FIELDS);
         CHECK(matrix_empty() && keymatrix_idle(&k), "Shift+@ left something down");
 
-        /* A capital takes SHIFT away: the CoCo's letter, whatever the
-         * PicoCalc's case. */
+        /* A capital keeps the PicoCalc's Shift as the CoCo's SHIFT, and
+         * a capital sent without it (the PicoCalc's Caps Lock) has none. */
         fresh();
         press(PICOCALC_KEY_SHIFT_R);
         press('Q');
         fields(3);
-        CHECK(cell_down(2, 1) && !shift(), "Shift+Q is Q without SHIFT");
+        CHECK(cell_down(2, 1) && shift(), "Shift+Q is SHIFT+Q");
+        fresh();
+        press('Q');
+        fields(3);
+        CHECK(cell_down(2, 1) && !shift(), "Q without Shift is Q without SHIFT");
 
         /* A KM_SHIFT entry with no Shift held, as a release of Shift
          * before the poll leaves it, or a key the PicoCalc sends unshifted
@@ -439,26 +444,41 @@ int main(void) {
         fields(1);
         CHECK(cell_down(3, 2) && shift(), "z held as Shift goes down: SHIFT joins it");
 
-        /* Ctrl reaches no cell, and a key pressed with it types nothing:
-         * the CoCo 1 and 2 have no CTRL. */
+        /* Ctrl is the CoCo's CLEAR (6,1), OS-9's control key, held as
+         * long as a key, as Shift is SHIFT; a key pressed with it waits a
+         * field behind it, and joins it (2026-11-17). */
+        fresh();
+        press(PICOCALC_KEY_CTRL);
+        press('0');
+        fields(1);
+        CHECK(cell_down(6, 1) && !cell_down(4, 0), "Ctrl+0: 0 waits a field behind CLEAR");
+        fields(1);
+        CHECK(cell_down(6, 1) && cell_down(4, 0) && !shift(), "Ctrl+0 is CLEAR+0");
+        release('0');
+        release(PICOCALC_KEY_CTRL);
+        fields(COCO_KEY_MIN_FIELDS + 2);
+        CHECK(matrix_empty() && keymatrix_idle(&k), "Ctrl+0 let go: nothing down");
+        /* A tap of Ctrl is held its minimum, as a key is. */
         fresh();
         press(PICOCALC_KEY_CTRL);
         fields(1);
-        CHECK(matrix_empty(), "Ctrl alone reached the matrix");
-        press('c');
-        fields(2);
-        CHECK(matrix_empty() && k.n == 0, "Ctrl+c reached the matrix");
-        release('c');
+        CHECK(cell_down(6, 1) && !shift() && k.n == 0, "Ctrl alone is CLEAR");
         release(PICOCALC_KEY_CTRL);
-        fields(2);
+        unsigned clear = 1;   /* the field above */
+        for (int f = 0; f < 10; f++) {
+            fields(1);
+            if (cell_down(6, 1)) clear++;
+        }
+        CHECK(clear == COCO_KEY_MIN_FIELDS, "a tap of Ctrl held CLEAR %u fields, want %u", clear,
+              (unsigned)COCO_KEY_MIN_FIELDS);
         press('c');
         fields(1);
-        CHECK(cell_down(0, 3), "c after Ctrl is C");
+        CHECK(cell_down(0, 3) && !cell_down(6, 1), "c after Ctrl is C alone");
         /* A function key with Ctrl is still the menu's. */
         fresh();
         press(PICOCALC_KEY_CTRL);
         press(PICOCALC_KEY_F1);
-        fields(1);
+        fields(2);
         CHECK(k.menu_request && k.menu_page == KM_PAGE_TAPE, "Ctrl+F1 opens the Tapes page");
     }
 

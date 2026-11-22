@@ -18,6 +18,7 @@ set(PICO_COCO_HOST_TESTS
     test_settings
     test_snapshot
     test_recorder
+    test_smartwatch
 )
 
 foreach(t ${PICO_COCO_HOST_TESTS})
@@ -32,7 +33,7 @@ endforeach()
 # The tests that run the real ROMs share the harness (§15.3), and find
 # the images in roms/ unless PICO_COCO_ROMS says otherwise.
 foreach(t test_boot test_romset test_screen test_keyboard test_audio_rom test_tape test_cart
-          test_snapshot_rom test_soak test_cassette)
+          test_snapshot_rom test_soak test_cassette test_disk test_os9)
     add_executable(${t} ${t}.c guest.c frame_ppm.c)
     target_link_libraries(${t} PRIVATE pico_coco_core m)
     target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -113,7 +114,8 @@ if (EXISTS ${PICO_COCO_XROAR_DIR}/src/mc6847/mc6847.c)
         mc6847_set_inverted_text=xr_mc6847_set_inverted_text
         mc6847_pause=xr_mc6847_pause
         mc6847_unpause=xr_mc6847_unpause
-        font_6847=xr_font_6847)
+        font_6847=xr_font_6847
+        font_6847t1=xr_font_6847t1)
 
     add_executable(test_vdg_oracle test_vdg_oracle.c)
     target_link_libraries(test_vdg_oracle PRIVATE pico_coco_core xroar_vdg)
@@ -127,6 +129,8 @@ else()
 endif()
 add_test(NAME test_vdg_oracle COMMAND test_vdg_oracle)
 set_tests_properties(test_vdg_oracle PROPERTIES SKIP_RETURN_CODE 77 LABELS oracle)
+add_test(NAME test_vdg_oracle_t1 COMMAND test_vdg_oracle t1)
+set_tests_properties(test_vdg_oracle_t1 PROPERTIES SKIP_RETURN_CODE 77 LABELS oracle)
 
 # The golden images (§9.6, EL §5.7). The scenes are shared with vdg-ppm,
 # which writes test/golden/, so the writer and the checker cannot drift.

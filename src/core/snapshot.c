@@ -80,12 +80,27 @@ enum {
     /* SHA-1 of the ROM halves at $8000 and $A000 and of the cartridge's
      * window, zero where there is none. */
     S_ROM_LO = 172, S_ROM_HI = 192, S_CART = 212,
-    S_END = 232,                  /* the rest is reserved, written zero  */
+    /* The RS-DOS cartridge (rsdos.h), when fitted, between commands: its
+     * latch and lines, the WD1793's registers, which drive and side the
+     * latch selects, each drive's head and when the head unloads. The
+     * disks are the port's, and the track in hand is fetched again. */
+    S_DK_LATCH = 232, S_DK_FLAGS = 233,
+    S_DK_STATUS = 234, S_DK_TRACK, S_DK_SECTOR, S_DK_DATA, S_DK_CMD,
+    S_DK_DRIVE = 239, S_DK_SIDE = 240,
+    S_DK_CYL = 241,               /* COCO_DISK_DRIVES bytes              */
+    S_DK_HEAD_UNTIL = 245,        /* 8 bytes                             */
+    /* Which track the chip had in hand, asked for again on a load and
+     * served before the guest runs, so that the next command finds it
+     * as the saved machine's did (wd_restored). */
+    S_DK_BUF = 253, S_DK_BUF_CYL = 254,
+    S_END = 255,                  /* the rest is reserved, written zero  */
 };
 
 _Static_assert(S_PIA + COCO_PIA_PORTS * S_PIA_PORT_LEN == S_SAM, "the PIAs overrun");
 _Static_assert(S_IRQ_DUE + 8 * COCO_PIA_PORTS == S_FIELDS, "the rises due overrun");
-_Static_assert(S_CART + SHA1_DIGEST_LEN == S_END, "the hashes overrun");
+_Static_assert(S_CART + SHA1_DIGEST_LEN == S_DK_LATCH, "the hashes overrun");
+_Static_assert(S_DK_CYL + COCO_DISK_DRIVES == S_DK_HEAD_UNTIL, "the heads overrun");
+_Static_assert(S_DK_HEAD_UNTIL + 8 == S_DK_BUF, "the cartridge overruns");
 _Static_assert(S_END <= SNAP_STATE_LEN, "the state section has outgrown its length");
 
 #define C_NMI_LINE     0x01u
@@ -107,7 +122,18 @@ _Static_assert(S_END <= SNAP_STATE_LEN, "the state section has outgrown its leng
 #define M_CART         0x04u
 #define M_AUTOSTART    0x08u
 #define M_TAPE_TRAP    0x10u
-#define M_ALL          0x1Fu
+#define M_RSDOS        0x20u
+#define M_ALL          0x3Fu
+
+/* The cartridge's lines and the chip's flags. */
+#define D_HALT_ENABLE  0x01u
+#define D_INTRQ        0x02u
+#define D_NMI          0x04u
+#define D_FDC_INTRQ    0x08u
+#define D_FDC_DRQ      0x10u
+#define D_TYPE1        0x20u
+#define D_HOLD_INTRQ   0x40u
+#define D_INDEX_INTRQ  0x80u
 
 /* The media section (snapshot.h): the paths, then the deck's place. */
 #define MD_TAPE        0u
@@ -130,7 +156,7 @@ static uint8_t fitted_of(const coco_t *m) {
     return (uint8_t)((m->rom_present[0] ? M_ROM_LO : 0) | (m->rom_present[1] ? M_ROM_HI : 0) |
                      (m->cart_present ? M_CART : 0) |
                      (m->cart_present && m->cart_autostart ? M_AUTOSTART : 0) |
-                     (m->cfg.tape_trap ? M_TAPE_TRAP : 0));
+                     (m->cfg.tape_trap ? M_TAPE_TRAP : 0) | (m->cfg.rsdos ? M_RSDOS : 0));
 }
 
 /* The three hashes as a state has them: zero for a half or a slot with
@@ -206,6 +232,30 @@ static void state_encode(const coco_t *m, uint8_t st[SNAP_STATE_LEN]) {
     put16(st + S_HS_LOW, COCO_HS_LOW_TICKS);
     put16(st + S_FIELD_LEAD, 0u);
     rom_hashes(m, st);
+
+    if (m->cfg.rsdos) {
+        const rsdos_t *d = &m->dk;
+        const wd1793_t *f = &d->fdc;
+        st[S_DK_LATCH] = d->latch;
+        st[S_DK_FLAGS] = (uint8_t)((d->halt_enable ? D_HALT_ENABLE : 0) | (d->intrq ? D_INTRQ : 0) |
+                                   (d->nmi ? D_NMI : 0) | (f->intrq ? D_FDC_INTRQ : 0) |
+                                   (f->drq ? D_FDC_DRQ : 0) | (f->type1 ? D_TYPE1 : 0) |
+                                   (f->hold_intrq ? D_HOLD_INTRQ : 0) |
+                                   (f->index_intrq ? D_INDEX_INTRQ : 0));
+        st[S_DK_STATUS] = f->status;
+        st[S_DK_TRACK] = f->track;
+        st[S_DK_SECTOR] = f->sector;
+        st[S_DK_DATA] = f->data;
+        st[S_DK_CMD] = f->cmd;
+        st[S_DK_DRIVE] = f->drive;
+        st[S_DK_SIDE] = (uint8_t)(f->side | (f->step_in ? 0x80u : 0u));
+        for (unsigned i = 0; i < COCO_DISK_DRIVES; i++) st[S_DK_CYL + i] = f->drv[i].cyl;
+        put64(st + S_DK_HEAD_UNTIL, f->head_until);
+        if (f->buf_ok && !f->buf_void) {
+            st[S_DK_BUF] = (uint8_t)(0x80u | f->buf_drive | (f->buf_side << 2));
+            st[S_DK_BUF_CYL] = f->buf_cyl;
+        }
+    }
 }
 
 /* A path into its field, NUL-padded; one too long for the field is
@@ -252,6 +302,9 @@ snap_status_t snapshot_save(const coco_t *m, const snap_media_t *media, snap_wri
     /* Nor while the signal runs: its place within a byte is not state
      * (cassette.h). */
     if (m->tape.op != TAPE_NONE || coco_cassette_running(m)) return SNAP_BUSY;
+    /* Nor while the disk controller has a command or a track in hand:
+     * neither is state (rsdos.h). */
+    if (coco_disk_busy(m)) return SNAP_BUSY;
 
     uint8_t *st = s_st;
     state_encode(m, st);
@@ -301,6 +354,7 @@ static void info_of(const uint8_t st[SNAP_STATE_LEN], snap_info_t *info) {
     info->cart = (f & M_CART) != 0;
     info->cart_autostart = (f & M_AUTOSTART) != 0;
     info->tape_trap = (f & M_TAPE_TRAP) != 0;
+    info->rsdos = (f & M_RSDOS) != 0;
 }
 
 /* A signed distance between two tick counts. */
@@ -358,6 +412,23 @@ static bool plausible(const uint8_t st[SNAP_STATE_LEN]) {
         if (!due) continue;
         int64_t d = dist(due, now);
         if (d < -(int64_t)field || d > (int64_t)SLACK_TICKS) return false;
+    }
+
+    /* The cartridge, between commands: not busy, a drive and side the
+     * latch can select, heads within the drives' reach, and the head's
+     * unloading no later than a command's end could have put it. */
+    if (st[S_FITTED] & M_RSDOS) {
+        if ((st[S_DK_STATUS] & WD_ST_BUSY) || st[S_DK_DRIVE] >= COCO_DISK_DRIVES ||
+            (st[S_DK_SIDE] & 0x7Fu) > 1u)
+            return false;
+        for (unsigned i = 0; i < COCO_DISK_DRIVES; i++)
+            if (st[S_DK_CYL + i] >= COCO_DISK_TRACKS_MAX) return false;
+        int64_t unload = dist(get64(st + S_DK_HEAD_UNTIL), now);
+        if (unload > (int64_t)(16u * WD_REV_TICKS)) return false;
+        if ((st[S_DK_BUF] & 0x78u) || st[S_DK_BUF_CYL] >= COCO_DISK_TRACKS_MAX) return false;
+    } else {
+        for (unsigned i = S_DK_LATCH; i < S_END; i++)
+            if (st[i]) return false;
     }
     return true;
 }
@@ -476,6 +547,36 @@ snap_status_t snapshot_load(coco_t *m, snap_read_fn read, void *ctx) {
     m->video_split = (st[S_M_FLAGS] & F_VIDEO_SPLIT) != 0;
     m->tape.hot = get16(st + S_TAPE_HOT);
 
+    if (m->cfg.rsdos) {
+        rsdos_t *d = &m->dk;
+        wd1793_t *f = &d->fdc;
+        uint8_t df = st[S_DK_FLAGS];
+        d->latch = st[S_DK_LATCH];
+        d->halt_enable = (df & D_HALT_ENABLE) != 0;
+        d->intrq = (df & D_INTRQ) != 0;
+        d->nmi = (df & D_NMI) != 0;
+        f->intrq = (df & D_FDC_INTRQ) != 0;
+        f->drq = (df & D_FDC_DRQ) != 0;
+        f->type1 = (df & D_TYPE1) != 0;
+        f->hold_intrq = (df & D_HOLD_INTRQ) != 0;
+        f->index_intrq = (df & D_INDEX_INTRQ) != 0;
+        f->status = st[S_DK_STATUS];
+        f->track = st[S_DK_TRACK];
+        f->sector = st[S_DK_SECTOR];
+        f->data = st[S_DK_DATA];
+        f->cmd = st[S_DK_CMD];
+        f->drive = st[S_DK_DRIVE];
+        f->side = st[S_DK_SIDE] & 1u;
+        f->step_in = (st[S_DK_SIDE] & 0x80u) != 0;
+        for (unsigned i = 0; i < COCO_DISK_DRIVES; i++) {
+            uint8_t cyl = st[S_DK_CYL + i];
+            f->drv[i].cyl = cyl < f->drv[i].type.tracks ? cyl : (uint8_t)(f->drv[i].type.tracks - 1u);
+        }
+        f->head_until = get64(st + S_DK_HEAD_UNTIL);
+        uint8_t b = st[S_DK_BUF];
+        wd_restored(f, coco_ticks(m), (b & 0x80u) != 0, b & 3u, (b >> 2) & 1u, st[S_DK_BUF_CYL]);
+    }
+
     coco_restored(m);
     return SNAP_OK;
 }
@@ -491,7 +592,7 @@ const char *snapshot_status_str(snap_status_t st) {
     case SNAP_OTHER_ROM:     return "FOR ANOTHER ROM";
     case SNAP_OTHER_RAM:     return "FOR ANOTHER RAM SIZE";
     case SNAP_OTHER_MACHINE: return "FOR ANOTHER MACHINE";
-    case SNAP_BUSY:          return "THE TAPE IS BUSY";
+    case SNAP_BUSY:          return "THE TAPE OR DISK IS BUSY";
     case SNAP_NO_ROM:        return "A ROM IT NEEDS IS MISSING";
     case SNAP_NO_CART:       return "ITS CARTRIDGE IS MISSING";
     case SNAP_UNSAVED:       return "A RECORDING IS NOT SAVED";

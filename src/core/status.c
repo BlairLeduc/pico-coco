@@ -45,17 +45,23 @@ static const char *base_name(const char *path) {
     return b ? b + 1 : path;
 }
 
-void status_format(const char *tape, bool unsaved, unsigned deck, const char *cart,
-                   char out[COCO_TEXT_COLS + 1]) {
+void status_format(const char *tape, bool unsaved, unsigned deck, const char *cart, int drive,
+                   const char *disk, char out[COCO_TEXT_COLS + 1]) {
     enum { W = COCO_TEXT_COLS, CART_MAX = 14 };
     memset(out, ' ', W);
     out[W] = 0;
 
-    /* The cartridge first, its name capped, so the tape has what is left. */
+    /* The cartridge first, its name capped, so the tape has what is left;
+     * or the drive at work. */
     char right[W + 1] = "";
     int rn = 0;
-    if (cart && cart[0]) {
+    if (drive >= 0) {
+        rn = snprintf(right, sizeof right, "DISK %d: %.*s", drive, CART_MAX,
+                      disk && disk[0] ? base_name(disk) : "EMPTY");
+    } else if (cart && cart[0]) {
         rn = snprintf(right, sizeof right, "CART: %.*s", CART_MAX, base_name(cart));
+    }
+    if (rn) {
         if (rn < 0) rn = 0;
         if (rn > W) rn = W;
         memcpy(out + W - rn, right, (size_t)rn);

@@ -30,8 +30,9 @@
  * that type the character the PicoCalc sent, so an entry adds the guest's
  * SHIFT (KM_SHIFT) where the CoCo shifts and the PicoCalc does not ('='
  * is SHIFT+-), and takes it away (KM_NOSHIFT) where the PicoCalc shifts
- * and the CoCo does not (':' and '@', and the capitals: a PicoCalc letter
- * types the CoCo's letter whatever its case). The VDG has '^' and '_' as
+ * and the CoCo does not (':' and '@'). A capital is its letter with the
+ * PicoCalc's Shift as the guest's, as on the CoCo: the same letter in
+ * upper case, and the capital in lower case (2026-11-17). The VDG has '^' and '_' as
  * up and left arrows, which are the codes BASIC sees for UP and SHIFT+UP,
  * and '[', ']' and '\' are SHIFT with DOWN, RIGHT and CLEAR. '{', '}',
  * '|', '`' and '~' have no key on the CoCo, and no entry here.
@@ -100,9 +101,11 @@
 
 #define NOCELL 0, 0
 
-/* A letter: the CoCo's, whatever the PicoCalc's case. */
+/* A letter: the CoCo's, with the PicoCalc's Shift as the CoCo's SHIFT,
+ * so a capital is a capital once the guest is in lower case (OS-9 after
+ * CLEAR+0, BASIC after SHIFT+0). */
 #define LETTER(lower, cell) \
-    { lower, cell, 0 }, { (uint8_t)((lower) - 'a' + 'A'), cell, KM_NOSHIFT }
+    { lower, cell, 0 }, { (uint8_t)((lower) - 'a' + 'A'), cell, 0 }
 
 const keymap_t keymap_picocalc[] = {
     LETTER('a', CK_A), LETTER('b', CK_B), LETTER('c', CK_C), LETTER('d', CK_D),

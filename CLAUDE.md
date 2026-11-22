@@ -12,9 +12,20 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M12 is built and checked on the host, over the UART and by
-the owner's hand with both joysticks; it is done once the owner has
-looked at the split titles on the panel** (`docs/design.md` §17, `docs/milestones.md`). M12:
+**Status: M13 is built and checked on the host, over the UART and by
+the owner on the panel, and M12 is done; next, each line fetched as the
+field runs, for titles that draw in step with the beam (Dragonfire's
+room)** (`docs/design.md` §17, `docs/milestones.md`).
+M13: disks, the WD1793 behind the RS-DOS cartridge with its HALT
+pacing, JVC/DSK images from `/coco/disks/` (`wd1793.h`, `jvc.h`,
+`rsdos.h`, `dskio.h`, `test_disk`); Tandy OS-9 Level One and NitrOS-9
+Level 1 booting from them (`test_os9`, `tools/fetch-os9.sh`); the
+DS1216 SmartWatch for OS-9's clock (`smartwatch.h`, `rtc.h`); the
+MC6847T1's lower case as a setting (`vdg`); Ctrl as CLEAR; and the
+disk archive held to XRoar by screen (`tools/archive-disks.sh`), which
+found Tandy OS-9's homing Seek running 255 steps; and from pictures of
+Dragonfire, a PIA write reaching the picture 1 µs late
+(`COCO_PIA_VIDEO_TICKS`) and up to eight changes of mode a line. M12:
 the tape's signal with fast loading off, the player held edge for edge
 to the ROM's own save and a recorder whose image is the trap's
 (`cassette.h`, `test_cassette`, `test_recorder`), turbo while it runs;
@@ -157,6 +168,11 @@ tools/trace/trace-coco.sh -bas bas11 -ram 4 -fields 600   # a 4 KB CoCo
 # the archive run (design.md §15.4): the Color Computer Archive, fetched
 # politely into out/corpus, then run on the host and reported
 tools/fetch-archive.sh && tools/archive-run.sh   # out/m11/archive/report.txt
+
+# the disk archive run (M13): each title started from Disk BASIC on the
+# host and under XRoar, the pictures compared (a sample; -all for every one)
+tools/fetch-disks.sh && tools/archive-disks.sh   # out/m13/archive/report.txt
+tools/fetch-disks.sh -all out/disks-all && tools/archive-disks.sh out/disks-all out/m13/archive-all
 
 # the soak (design.md §15.5): 30 minutes over the UART, and the release
 # build's over SWD once SOAK.CAS (test_soak --write DIR) is on the card

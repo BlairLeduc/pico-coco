@@ -4,7 +4,8 @@
  * Each mode's decode, asserted by rendering a line and looking at the
  * pixels: the CoCo's wiring (§3.4), SG4 and SG6 by GM0, INV on bit 6, the
  * external-ROM case, the colour sets, artefacts, the mono palette, the
- * character ROM's layout against its data, and the dirty-band span.
+ * character ROM's layout against its data, the dirty-band span, and the
+ * MC6847T1's lower case, inverse and border (mc6847.h).
  * test_vdg_oracle holds the same decode to XRoar's for random bytes;
  * this test says what each part of it is, so a failure there can be
  * read here.
@@ -27,6 +28,16 @@ static uint8_t gfx(unsigned gm, bool css) {
 }
 
 #define P(c) mc6847_palette[c]
+
+/* Does cell 0 of row `row` show glyph g of the T1's ROM, inverted or not,
+ * in ink on its background? */
+static bool t1_shows(unsigned g, unsigned row, bool inv, vdg_colour_t ink, vdg_colour_t bg) {
+    uint8_t bits = font_6847t1[g * MC6847_FONT_ROWS + row];
+    if (inv) bits = (uint8_t)~bits;
+    for (unsigned x = 0; x < 8u; x++)
+        if (px[x] != P(((bits >> (7u - x)) & 1u) ? ink : bg)) return false;
+    return true;
+}
 
 int main(void) {
     /* ---- the mode table --------------------------------------------- */
@@ -263,6 +274,81 @@ int main(void) {
         lines[9 * COCO_VDG_LINE_BYTES + 20] = 1;   /* past a 16-byte mode's bytes */
         CHECK(mc6847_band_span(cg1, lines, shadow, 1, &x0, &x1) && x1 == 95,
               "a 16-byte mode ignores bytes 16-31: to %u", x1);
+    }
+
+    /* ---- the MC6847T1 (mc6847.h, §9.2) ------------------------------- */
+    {
+        mc6847_init(&v);
+        mc6847_set_font(&v, font_6847);
+        memset(line, 0, sizeof line);
+        /* The control first: the MC6847 with GM0 high draws a text byte
+         * as itself, INT/EXT with no external ROM to answer. */
+        line[0] = 0x01u;
+        mc6847_set_mode(&v, VDG_GM0);
+        mc6847_render_line(&v, line, 4, px);
+        CHECK(!t1_shows(0x01u, 4, true, VDG_GREEN, VDG_BLACK),
+              "the MC6847 has no lower case: $01 with GM0 is not 'a'");
+
+        mc6847_set_t1(&v, font_6847t1);
+        CHECK(mc6847_is_t1(&v), "a T1 once its ROM is given");
+        /* Its ROM: 'a' at $01 and 'A' at $41, upright; '!' at $21 stored
+         * inverted and at $61 upright. */
+        CHECK(font_6847t1[0x01u * 12u + 3u] == 0x1Cu && font_6847t1[0x41u * 12u + 5u] == 0x3Eu,
+              "the T1's ROM: 'a' at $01, 'A' at $41");
+        CHECK(font_6847t1[0x21u * 12u] == 0xFFu && font_6847t1[0x61u * 12u] == 0x00u,
+              "the T1's ROM: $20-$3F stored inverted, $60-$7F upright");
+
+        /* GM0 low: $40-$7F by six bits, D6 as INV, as the MC6847. */
+        mc6847_set_mode(&v, 0);
+        for (unsigned row = 0; row < 12u; row++) {
+            line[0] = 0x41u;
+            mc6847_render_line(&v, line, row, px);
+            CHECK(t1_shows(0x41u, row, true, VDG_GREEN, VDG_BLACK), "GM0 low: $41, 'A', row %u",
+                  row);
+            line[0] = 0x01u;
+            mc6847_render_line(&v, line, row, px);
+            CHECK(t1_shows(0x41u, row, false, VDG_GREEN, VDG_BLACK),
+                  "GM0 low: $01 is 'A' inverse, row %u", row);
+        }
+        /* GM0 high: seven bits pick the glyph, every cell inverted, so
+         * lower and upper case are both dark on green. */
+        mc6847_set_mode(&v, VDG_GM0);
+        for (unsigned row = 0; row < 12u; row++) {
+            line[0] = 0x01u;
+            mc6847_render_line(&v, line, row, px);
+            CHECK(t1_shows(0x01u, row, true, VDG_GREEN, VDG_BLACK), "GM0 high: $01, 'a', row %u",
+                  row);
+            line[0] = 0x41u;
+            mc6847_render_line(&v, line, row, px);
+            CHECK(t1_shows(0x41u, row, true, VDG_GREEN, VDG_BLACK), "GM0 high: $41, 'A', row %u",
+                  row);
+        }
+        /* GM1 inverts every cell; CSS's ink is orange. */
+        line[0] = 0x01u;
+        mc6847_set_mode(&v, VDG_GM0 | 0x20u);
+        mc6847_render_line(&v, line, 4, px);
+        CHECK(t1_shows(0x01u, 4, false, VDG_GREEN, VDG_BLACK), "GM1: 'a' green on black");
+        mc6847_set_mode(&v, VDG_GM0 | VDG_CSS);
+        mc6847_render_line(&v, line, 4, px);
+        CHECK(t1_shows(0x01u, 4, true, VDG_ORANGE, VDG_BLACK), "CSS: 'a' in orange");
+        /* No SG6: GM0 high leaves a semigraphics cell SG4, colour by
+         * bits 6-4. */
+        line[0] = (uint8_t)(VDG_BYTE_AS | 5u << 4 | 0x08u);
+        mc6847_set_mode(&v, VDG_GM0);
+        mc6847_render_line(&v, line, 5, px);
+        CHECK(px[0] == P(VDG_CYAN) && px[4] == P(VDG_BLACK), "GM0 high: SG4 still, cyan");
+
+        /* The border: the ink's with GM2 high and GM1 low, in alpha. */
+        CHECK(mc6847_border(0x40u, true) == VDG_GREEN, "T1, GM2: a green border");
+        CHECK(mc6847_border(0x48u, true) == VDG_ORANGE, "T1, GM2, CSS: an orange border");
+        CHECK(mc6847_border(0x60u, true) == VDG_BLACK, "T1, GM2 and GM1: black");
+        CHECK(mc6847_border(0x10u, true) == VDG_BLACK, "T1, GM0 alone: black");
+        CHECK(mc6847_border(0x40u, false) == VDG_BLACK, "MC6847, GM2: black");
+        for (unsigned m = 0x80u; m < 0x100u; m += 8u)
+            CHECK(mc6847_border((uint8_t)m, true) == mc6847_border((uint8_t)m, false),
+                  "graphics mode %02X: the T1's border is the MC6847's", m);
+        mc6847_set_t1(&v, NULL);
+        CHECK(!mc6847_is_t1(&v), "the MC6847 again");
     }
 
     TEST_DONE();

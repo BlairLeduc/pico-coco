@@ -4,10 +4,11 @@
  * reads as one: the same items in the same order, the same function
  * keys, and Esc going back a page, or to the guest from the main page or
  * a page a key opened. On the CoCo's 32 cells and in capitals. The Disks
- * item (the CoCo's word, §12.6) is in its place and says when it comes
- * (M13). The Snapshots page saves, loads and deletes four slots (§12.5,
- * snapio.h). The Machine page stages BASIC, the RAM and the cartridge
- * (§14).
+ * page (the CoCo's word, §12.6), on F2, puts the card's images in the
+ * four drives, empties one, or makes a new disk for DSKINI (dskio.h).
+ * The Snapshots page saves, loads and deletes four slots (§12.5,
+ * snapio.h). The Machine page stages BASIC, the RAM and the cartridge,
+ * the RS-DOS controller among them (§14).
  * Setup has the Keys row, which goes round the standard map, the
  * keyboard joystick as either stick and the card's layouts (keymapio.h),
  * and Fast tape, off for the tape's signal (cassette.h).
@@ -28,6 +29,8 @@
 #include "core0.h"
 #include "core1.h"
 #include "display.h"
+#include "rtc.h"
+#include "dskio.h"
 #include "handoff.h"
 #include "kbd.h"
 #include "keymapio.h"
@@ -63,12 +66,18 @@
 enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_SAVE, I_SHELL, I_ABOUT,
        I_COUNT };
 
-enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_COUNT };
+enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_VDG, D_CLOCK, D_COUNT };
 
 /* The Tapes page: three things to do with the deck, then the card's
  * tapes. */
 enum { T_EJECT, T_REWIND, T_NEW, T_FIRST };
 #define TAPE_ROWS (ROW_STATUS - 1 - (ROW_TOP + 1))
+
+/* The Disks page, as pico-oric's: row 0 empties the drive, row 1 makes
+ * a new disk for it, the card's images follow; < > choose the drive on
+ * any row. */
+enum { K_EMPTY, K_NEW, K_FIRST };
+#define DISK_ROWS TAPE_ROWS
 
 /* The Snapshots page, as pico-oric's: the slot, chosen with < > on any
  * of its rows, the three things to do with it, then every slot's state. */
@@ -84,9 +93,16 @@ static bool          s_bkl_set;
 static card_job_t    s_job;        /* About's look at the card         */
 
 static tapeio_entry_t s_list[COCO_TAPE_LIST_MAX];
+static dskio_entry_t  s_disks[COCO_DISK_LIST_MAX];
+static unsigned       s_drive;     /* the Disks page's, kept between openings */
 static char           s_carts[COCO_CART_LIST_MAX][COCO_PATH_MAX];
 
 static const unsigned k_rams[4] = { 4u, 16u, 32u, 64u };
+
+/* The Machine page's cartridge row: none, the RS-DOS controller, then
+ * the card's images by index. */
+#define CART_NONE  (-1)
+#define CART_RSDOS (-2)
 static unsigned       s_slot;      /* the Snapshots page's, kept between openings */
 
 static struct {
@@ -96,7 +112,7 @@ static struct {
     bool     done;
     bool     direct;          /* opened at a page: closing it resumes */
     int      item;
-    enum { P_MAIN, P_TAPES, P_SNAPS, P_SETUP, P_MACHINE, P_ABOUT, P_HELP } page;
+    enum { P_MAIN, P_TAPES, P_DISKS, P_SNAPS, P_SETUP, P_MACHINE, P_ABOUT, P_HELP } page;
     char     status[TEXT_COLS + 1];
     int      battery;
 
@@ -108,15 +124,19 @@ static struct {
     unsigned n_tapes;
     int      tape_sel, tape_top;
 
+    unsigned n_disks;
+    int      disk_sel, disk_top;
+
     int      machine_sel;
     bool     st_ext;           /* staged: applied only by a power-on */
     unsigned st_ram;           /* index into k_rams                  */
-    int      st_cart;          /* -1 none, else into s_carts         */
-    int      run_cart;         /* the running cartridge's, -2 unknown */
+    int      st_cart;          /* CART_NONE, CART_RSDOS, else into s_carts */
+    int      run_cart;         /* the running cartridge's             */
     unsigned n_carts;
 
     struct {
         bool     on;
+        bool     disk;         /* a new disk's name, not a tape's    */
         char     text[COCO_MEDIA_NAME_MAX + 1];
         unsigned len;
     } name;
@@ -176,6 +196,11 @@ static void draw_main(void) {
     textpage_line(s_scr, ROW_TOP + I_COUNT + 1, line, false);
     snprintf(line, sizeof line, " %.30s", machine_name(g_machine.extended, g_machine.ram_k));
     textpage_line(s_scr, ROW_TOP + I_COUNT + 2, line, false);
+    if (g_machine.rsdos) {
+        const char *d = dskio_inserted(0);
+        snprintf(line, sizeof line, " RS-DOS, DISK 0: %.15s", d[0] ? base(d) : "NONE");
+        textpage_line(s_scr, ROW_TOP + I_COUNT + 3, line, false);
+    }
 }
 
 static void draw_tapes(void) {
@@ -202,6 +227,38 @@ static void draw_tapes(void) {
     }
 }
 
+/* Which drive an image is in: 0 to 3, or a space. */
+static char drive_of(const char *path) {
+    for (unsigned d = 0; d < COCO_DISK_DRIVES; d++)
+        if (strcmp(path, dskio_inserted(d)) == 0) return (char)('0' + d);
+    return ' ';
+}
+
+static void draw_disks(void) {
+    char line[TEXT_COLS + 1];
+    snprintf(line, sizeof line, " DRIVE < %c >  %.18s", '0' + s_drive,
+             !s.card ? "NO CARD" : s.n_disks ? "IMAGE     IN R/O" : "NONE ON THE CARD");
+    textpage_line(s_scr, ROW_TOP, line, false);
+    for (int r = 0; r < DISK_ROWS; r++) {
+        int i = s.disk_top + r;
+        line[0] = 0;
+        if (i == K_EMPTY) {
+            const char *in = dskio_inserted(s_drive);
+            snprintf(line, sizeof line, " (EMPTY DRIVE %c: %.12s)", '0' + s_drive,
+                     in[0] ? base(in) : "EMPTY");
+        } else if (i == K_NEW) {
+            snprintf(line, sizeof line, " (NEW DISK, FOR DSKINI)");
+        } else if (i < K_FIRST + (int)s.n_disks) {
+            const dskio_entry_t *e = &s_disks[i - K_FIRST];
+            snprintf(line, sizeof line, " %-24.24s %c  %c", base(e->path), drive_of(e->path),
+                     e->protect ? '*' : ' ');
+        }
+        textpage_line(s_scr, ROW_TOP + 1 + r, line, i == s.disk_sel);
+    }
+    if (!g_machine.rsdos)
+        textpage_line(s_scr, ROW_STATUS - 1, " RS-DOS IS NOT IN: MACHINE PAGE", false);
+}
+
 static void draw_setup(void) {
     char line[TEXT_COLS + 1];
     for (int i = 0; i < D_COUNT; i++) {
@@ -225,6 +282,15 @@ static void draw_setup(void) {
             break;
         case D_FAST:
             snprintf(line, sizeof line, " FAST TAPE       < %s >", on_off(g_ui.fast_tape));
+            break;
+        case D_VDG:
+            /* The CoCo 2B's VDG, with lower case (display.h). */
+            snprintf(line, sizeof line, " VDG             < %s >",
+                     g_ui.vdg_t1 ? "6847T1" : "6847");
+            break;
+        case D_CLOCK:
+            /* A DS1216 at $FF78-$FF7F, for OS-9's clock_tc3 (rtc.h). */
+            snprintf(line, sizeof line, " SMARTWATCH      < %s >", on_off(g_ui.smartwatch));
             break;
         }
         textpage_line(s_scr, ROW_TOP + i, line, i == s.setup_sel);
@@ -260,7 +326,7 @@ static void draw_snaps(void) {
     }
     textpage_line(s_scr, ROW_TOP + N_COUNT + 2 + (int)SNAPIO_SLOTS, " IN /COCO/SNAPS/. A LOAD POWERS", false);
     textpage_line(s_scr, ROW_TOP + N_COUNT + 3 + (int)SNAPIO_SLOTS, " ON AS THE MACHINE IT WAS SAVED", false);
-    textpage_line(s_scr, ROW_TOP + N_COUNT + 4 + (int)SNAPIO_SLOTS, " ON, WITH ITS TAPE AND CARTRIDGE.", false);
+    textpage_line(s_scr, ROW_TOP + N_COUNT + 4 + (int)SNAPIO_SLOTS, " ON, WITH ITS TAPE, CART, DISKS.", false);
 }
 
 static bool machine_changed(int r) {
@@ -292,8 +358,10 @@ static void draw_machine(void) {
             break;
         case M_CART:
             snprintf(line, sizeof line, "%cCART    < %.16s >", mark,
-                     s.st_cart < 0 ? "NONE" : s.st_cart == (int)s.n_carts ? base(g_boot.cart_path)
-                                                                     : base(s_carts[s.st_cart]));
+                     s.st_cart == CART_NONE    ? "NONE"
+                     : s.st_cart == CART_RSDOS ? "RS-DOS"
+                     : s.st_cart == (int)s.n_carts ? base(g_boot.cart_path)
+                                                   : base(s_carts[s.st_cart]));
             break;
         case M_APPLY:
             snprintf(line, sizeof line, " (APPLY AND RESTART)");
@@ -307,7 +375,9 @@ static void draw_machine(void) {
     textpage_line(s_scr, ROW_TOP + M_COUNT + 4, "   LOST ON RESTART.", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 5, " - A CARTRIDGE STARTS ITSELF,", false);
     textpage_line(s_scr, ROW_TOP + M_COUNT + 6, "   FROM /COCO/CARTS/.", false);
-    if (!s.card) textpage_line(s_scr, ROW_TOP + M_COUNT + 7, " - NO CARD: NO CARTRIDGES.", false);
+    textpage_line(s_scr, ROW_TOP + M_COUNT + 7, " - RS-DOS IS DISK BASIC: 16K OR", false);
+    textpage_line(s_scr, ROW_TOP + M_COUNT + 8, "   MORE, EXTENDED, DISK11.ROM.", false);
+    if (!s.card) textpage_line(s_scr, ROW_TOP + M_COUNT + 9, " - NO CARD: NO CARTRIDGES.", false);
 }
 
 static void about_rom(int row, rom_id_t id) {
@@ -344,6 +414,7 @@ static void draw_about(void) {
 static void draw_help(void) {
     static const char *const keys[][2] = {
         { "F1",     "TAPES" },
+        { "F2",     "DISKS" },
         { "F3",     "SNAPSHOTS" },
         { "F4",     "SETUP" },
         { "F5",     "MACHINE" },
@@ -354,6 +425,7 @@ static void draw_help(void) {
         { "ALT+K",  "RESET BUTTON" },
         { "F4 KEYS", "JOYSTICK: ARROWS, ]" },
         { "ESC",    "BREAK" },
+        { "CTRL",   "CLEAR, OS-9'S CONTROL" },
         { "TAB",    "CLEAR" },
         { "BKSP",   "LEFT ARROW" },
     };
@@ -384,12 +456,14 @@ static bool read_battery(void) {
 static void draw(void) {
     static const char *const title[] = {
         [P_MAIN] = " PICO-COCO",          [P_TAPES] = " PICO-COCO: TAPES",
+        [P_DISKS] = " PICO-COCO: DISKS",
         [P_SNAPS] = " PICO-COCO: SNAPSHOTS",
         [P_SETUP] = " PICO-COCO: SETUP",  [P_MACHINE] = " PICO-COCO: MACHINE",
         [P_ABOUT] = " PICO-COCO: ABOUT",  [P_HELP] = " PICO-COCO: KEYS",
     };
     static const char *const keys[] = {
         [P_MAIN] = " ARROWS ENTER  ESC RESUMES",  [P_TAPES] = " ENTER INSERTS  ESC BACK",
+        [P_DISKS] = " < > DRIVE  ENTER  ESC BACK",
         [P_SNAPS] = " < > SLOT  ENTER  ESC BACK",
         [P_SETUP] = " < > CHANGES  ESC BACK",     [P_MACHINE] = " < > STAGES  ENTER  ESC BACK",
         [P_ABOUT] = " ESC BACK",                  [P_HELP] = " ESC RESUMES",
@@ -399,6 +473,7 @@ static void draw(void) {
     draw_battery();
     switch (s.page) {
     case P_TAPES:   draw_tapes(); break;
+    case P_DISKS:   draw_disks(); break;
     case P_SNAPS:   draw_snaps(); break;
     case P_SETUP:   draw_setup(); break;
     case P_MACHINE: draw_machine(); break;
@@ -408,7 +483,8 @@ static void draw(void) {
     }
     if (s.name.on) {
         char line[TEXT_COLS + 1];
-        int at = snprintf(line, sizeof line, " TAPE NAME: %s", s.name.text);
+        int at = snprintf(line, sizeof line, " %s NAME: %s", s.name.disk ? "DISK" : "TAPE",
+                          s.name.text);
         textpage_line(s_scr, ROW_STATUS, line, false);
         if (at < TEXT_COLS) textpage_put(s_scr, ROW_STATUS, at, " ", true);
         textpage_line(s_scr, ROW_KEYS, " ENTER MAKES IT  ESC CANCELS", true);
@@ -435,6 +511,22 @@ static void open_tapes(void) {
                   s_list[i].type == 2 ? ", code" : "");
 }
 
+static void open_disks(void) {
+    s.n_disks = s.card ? dskio_list(s_disks, COCO_DISK_LIST_MAX) : 0;
+    s.page = P_DISKS;
+    s.disk_sel = K_EMPTY;
+    for (unsigned i = 0; i < s.n_disks; i++)
+        if (strcmp(s_disks[i].path, dskio_inserted(s_drive)) == 0) s.disk_sel = K_FIRST + (int)i;
+    s.disk_top = s.disk_sel >= DISK_ROWS ? s.disk_sel - DISK_ROWS + 1 : 0;
+    log_core1("  disks        : page open, drive %u, %u images in " DSKIO_DIR "%s\n", s_drive,
+              s.n_disks, s.card ? "" : " (no card)");
+    for (unsigned i = 0; i < s.n_disks; i++)
+        log_core1("  disks        : %2u %s, %lu bytes%s%s%c\n", i + 1u, s_disks[i].path,
+                  (unsigned long)s_disks[i].size, s_disks[i].protect ? ", read-only" : "",
+                  drive_of(s_disks[i].path) != ' ' ? ", in drive " : "",
+                  drive_of(s_disks[i].path) != ' ' ? drive_of(s_disks[i].path) : ' ');
+}
+
 static void refresh_slots(void) {
     for (unsigned i = 0; i < SNAPIO_SLOTS; i++) s.used[i] = s.card && snapio_exists(i);
 }
@@ -457,8 +549,10 @@ static void open_machine(void) {
     s.n_carts = s.card ? card_cart_list(s_carts, COCO_CART_LIST_MAX) : 0;
     /* The running cartridge among the card's; one the card no longer
      * lists is offered as itself, after them. */
-    s.run_cart = -1;
-    if (g_machine.cart) {
+    s.run_cart = CART_NONE;
+    if (g_machine.rsdos) {
+        s.run_cart = CART_RSDOS;
+    } else if (g_machine.cart) {
         s.run_cart = (int)s.n_carts;
         for (unsigned i = 0; i < s.n_carts; i++)
             if (strcmp(s_carts[i], g_boot.cart_path) == 0) s.run_cart = (int)i;
@@ -497,11 +591,14 @@ static void save_settings(void) {
     out.status = g_ui.status;
     if (s_bkl_set) out.backlight = g_ui.backlight;
     out.fast_tape = g_ui.fast_tape;
+    out.vdg_t1 = g_ui.vdg_t1;
+    out.smartwatch = g_ui.smartwatch;
     /* A layout a loaded file chose is not the user's choice, so the file
      * keeps the one it had (§11.3). */
     if (!keymapio_chosen_by()[0])
         snprintf(out.layout, sizeof out.layout, "%s", g_ui.layout ? g_ui.layout->name : "");
     settings_card_name(SETTINGS_TAPE_DIR, tapeio_chosen() ? tapeio_inserted() : "", out.boot_tape);
+    settings_card_name(SETTINGS_DISK_DIR, dskio_inserted(0), out.boot_disk);
     const char *err = settingsio_save(&out);
     if (!err) s_file = out;
     say(err ? " NOT SAVED: %.20s" : " SETTINGS SAVED", err);
@@ -518,9 +615,21 @@ static void apply_machine(void) {
     rom_id_t basic = roms_basic_for(&g_boot.job, k_rams[s.st_ram], &ext, &why);
     if (basic == ROM_UNKNOWN || ext != s.st_ext) { say(" %.30s", why ? why : "NO BASIC"); return; }
     machine_t mc = { .ram_k = k_rams[s.st_ram], .basic = basic, .extended = ext,
-                     .cart = s.st_cart >= 0 };
+                     .cart = s.st_cart != CART_NONE, .rsdos = s.st_cart == CART_RSDOS };
+    if (mc.rsdos) {
+        const char *no = roms_rsdos_why(mc.ram_k, mc.extended);
+        if (no) { say(" %.30s", no); return; }
+    }
     if (s.st_cart != s.run_cart) {
-        if (s.st_cart >= 0) {
+        if (s.st_cart == CART_RSDOS) {
+            say(" READING DISK11.ROM...", "");
+            draw();
+            uint32_t len = 0;
+            const char *err = card_disk_rom_load(&g_boot.job, g_boot.cart, &len);
+            if (err) { say(" RS-DOS: %.22s", err); return; }
+            g_boot.cart_len = len;
+            snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s", CARD_RSDOS);
+        } else if (s.st_cart >= 0) {
             say(" READING %.20s...", base(s_carts[s.st_cart]));
             draw();
             uint32_t len = 0;
@@ -535,7 +644,8 @@ static void apply_machine(void) {
         }
     }
     log_core1("  machine      : restarting as %s%s%s\n", machine_name(mc.extended, mc.ram_k),
-              mc.cart ? ", cartridge " : "", mc.cart ? g_boot.cart_path : "");
+              mc.rsdos ? ", RS-DOS" : mc.cart ? ", cartridge " : "",
+              mc.rsdos ? "" : mc.cart ? g_boot.cart_path : "");
     g_ui.restart_cfg = mc;
     g_ui.restart = true;
     s.done = true;
@@ -559,7 +669,7 @@ static void open_item(void) {
     s.status[0] = 0;
     switch (s.item) {
     case I_TAPES:   open_tapes(); break;
-    case I_DISKS:   say(" DISKS COME WITH RS-DOS (M13)", ""); break;
+    case I_DISKS:   open_disks(); break;
     case I_SNAPS:   open_snaps(); break;
     case I_SETUP:   s.page = P_SETUP; s.setup_sel = D_STATUS; break;
     case I_MACHINE: open_machine(); break;
@@ -572,9 +682,11 @@ static void open_item(void) {
 
 /* ---- naming a new tape ------------------------------------------------------ */
 
-static void name_start(void) {
+static void name_start(bool disk) {
     s.name.on = true;
-    tapeio_next_name(s.name.text);
+    s.name.disk = disk;
+    if (disk) dskio_next_name(s.name.text);
+    else tapeio_next_name(s.name.text);
     s.name.len = (unsigned)strlen(s.name.text);
     s.status[0] = 0;
 }
@@ -587,6 +699,16 @@ static bool name_char(uint8_t c) {
 static void name_make(void) {
     if (!s.name.len) return;
     s.name.on = false;
+    if (s.name.disk) {
+        const char *err = dskio_new(s.m, s_drive, s.name.text);
+        if (err) { say(" NO NEW DISK: %.18s", err); return; }
+        say(" IN DRIVE %c: DSKINI IT", (char[]){ (char)('0' + s_drive), 0 });
+        s.n_disks = dskio_list(s_disks, COCO_DISK_LIST_MAX);
+        for (unsigned i = 0; i < s.n_disks; i++)
+            if (strcmp(s_disks[i].path, dskio_inserted(s_drive)) == 0) s.disk_sel = K_FIRST + (int)i;
+        if (s.disk_sel >= s.disk_top + DISK_ROWS) s.disk_top = s.disk_sel - DISK_ROWS + 1;
+        return;
+    }
     const char *err = tapeio_new(s.m, s.name.text);
     if (err) { say(" NO NEW TAPE: %.18s", err); return; }
     say(" IN: %.12s, CSAVE ONTO IT", base(tapeio_inserted()));
@@ -629,7 +751,7 @@ static void key_tapes(uint8_t c) {
             return;
         } else if (s.tape_sel == T_NEW) {
             if (!s.card) { say(" NO CARD", ""); return; }
-            name_start();
+            name_start(false);
             return;
         } else {
             const tapeio_entry_t *e = &s_list[s.tape_sel - T_FIRST];
@@ -646,6 +768,43 @@ static void key_tapes(uint8_t c) {
     }
     if (s.tape_sel < s.tape_top) s.tape_top = s.tape_sel;
     if (s.tape_sel >= s.tape_top + TAPE_ROWS) s.tape_top = s.tape_sel - TAPE_ROWS + 1;
+}
+
+static void key_disks(uint8_t c) {
+    int last = K_FIRST + (int)s.n_disks - 1;
+    switch (c) {
+    case PICOCALC_KEY_UP:   if (s.disk_sel > 0) s.disk_sel--; break;
+    case PICOCALC_KEY_DOWN: if (s.disk_sel < last) s.disk_sel++; break;
+    case PICOCALC_KEY_LEFT:
+    case PICOCALC_KEY_RIGHT:
+        s_drive = (s_drive + (c == PICOCALC_KEY_RIGHT ? 1u : COCO_DISK_DRIVES - 1u)) % COCO_DISK_DRIVES;
+        s.status[0] = 0;
+        break;
+    case PICOCALC_KEY_ENTER: {
+        char d[2] = { (char)('0' + s_drive), 0 };
+        if (s.disk_sel == K_EMPTY) {
+            const char *err = dskio_insert(s.m, s_drive, NULL);
+            if (err) say(" NOT EMPTIED: %.18s", err);
+            else say(" DRIVE %s EMPTIED", d);
+        } else if (s.disk_sel == K_NEW) {
+            if (!s.card) { say(" NO CARD", ""); return; }
+            name_start(true);
+        } else {
+            const dskio_entry_t *e = &s_disks[s.disk_sel - K_FIRST];
+            const char *err = dskio_insert(s.m, s_drive, e->path);
+            if (err) { say(" NOT IN: %.22s", err); return; }
+            char line[TEXT_COLS + 1];
+            snprintf(line, sizeof line, " IN DRIVE %c: %.18s", d[0], base(e->path));
+            say("%s", line);
+        }
+        return;
+    }
+    case PICOCALC_KEY_ESC:
+        s.page = P_MAIN;
+        return;
+    }
+    if (s.disk_sel < s.disk_top) s.disk_top = s.disk_sel;
+    if (s.disk_sel >= s.disk_top + DISK_ROWS) s.disk_top = s.disk_sel - DISK_ROWS + 1;
 }
 
 /* ---- snapshots ---------------------------------------------------------------- */
@@ -666,8 +825,8 @@ static bool snap_switch(const snap_info_t *in) {
         return false;
     }
     log_core1("  snapshot     : slot %u is the %s%s%s's; powering on as it\n", s_slot + 1u,
-              machine_name(mc.extended, mc.ram_k), mc.cart ? " with " : "",
-              mc.cart ? base(g_boot.cart_path) : "");
+              machine_name(mc.extended, mc.ram_k), mc.rsdos ? " with RS-DOS" : mc.cart ? " with " : "",
+              mc.rsdos ? "" : mc.cart ? base(g_boot.cart_path) : "");
     core0_power_on(s.m, &mc);
     return true;
 }
@@ -685,7 +844,7 @@ static void snap_load(void) {
     bool recovered, changed = false;
     uint32_t t0 = time_us_32();
     snap_status_t st = snapio_check(s.m, s_slot, &in, &recovered);
-    bool busy = coco_tape_pending(s.m) != TAPE_NONE;
+    bool busy = coco_tape_pending(s.m) != TAPE_NONE || coco_disk_busy(s.m);
     if (snapshot_other_machine(st) || (st == SNAP_OK && busy)) {
         if (!snap_switch(&in)) return;
         st = SNAP_OK;
@@ -829,6 +988,23 @@ static void key_setup(uint8_t c) {
         g_ui.fast_tape = !g_ui.fast_tape;
         say(g_ui.fast_tape ? "" : " THE TAPE PLAYS AT ITS OWN PACE", "");
         break;
+    case D_VDG:
+        g_ui.vdg_t1 = !g_ui.vdg_t1;
+        display_set_t1(g_ui.vdg_t1);
+        break;
+    case D_CLOCK:
+        g_ui.smartwatch = !g_ui.smartwatch;
+        if (g_ui.smartwatch) {
+            /* Where its time comes from (rtc.h). */
+            char t[24];
+            int off = g_clock.offset_min, a = off < 0 ? -off : off;
+            snprintf(t, sizeof t, "THE SHELL'S, UTC%c%02d:%02d", off < 0 ? '-' : '+', a / 60,
+                     a % 60);
+            say(" TIME: %.24s", g_clock.source == RTC_SHELL    ? t
+                                : g_clock.source == RTC_DS3231 ? "THE DS3231'S, AS UTC"
+                                                               : "NONE, FROM 2000");
+        }
+        break;
     }
 }
 
@@ -850,11 +1026,12 @@ static void key_machine(uint8_t c) {
             if (k_rams[s.st_ram] <= 4u) s.st_ext = false;
             break;
         case M_CART: {
-            /* None, the card's, and the running one if the card has it
-             * no longer. */
-            int n = (int)s.n_carts + (s.run_cart == (int)s.n_carts ? 1 : 0);
-            int v = s.st_cart + 1 + dir;
-            s.st_cart = ((v % (n + 1)) + (n + 1)) % (n + 1) - 1;
+            /* None, RS-DOS, the card's, and the running one if the card
+             * has it no longer: as places 0, 1, 2 on. */
+            int n = 2 + (int)s.n_carts + (s.run_cart == (int)s.n_carts ? 1 : 0);
+            int at = s.st_cart == CART_NONE ? 0 : s.st_cart == CART_RSDOS ? 1 : s.st_cart + 2;
+            at = ((at + dir) % n + n) % n;
+            s.st_cart = at == 0 ? CART_NONE : at == 1 ? CART_RSDOS : at - 2;
             break;
         }
         case M_APPLY: return;
@@ -891,6 +1068,7 @@ static void keys(void) {
         case P_SETUP:   key_setup(c); break;
         case P_MACHINE: key_machine(c); break;
         case P_TAPES:   key_tapes(c); break;
+        case P_DISKS:   key_disks(c); break;
         case P_SNAPS:   key_snaps(c); break;
         case P_ABOUT:
         case P_HELP:
@@ -911,6 +1089,10 @@ void menu_run(coco_t *m, unsigned page, bool alt) {
 
     s.card = sd_present() && storage_mount() == 0;
     if (!s.card) say(" NO CARD", "");
+    /* A written track the disk controller has in hand goes back now:
+     * whatever the menu does next, a state saved, a power-on, a disk
+     * changed or the shell, it is on the card first (dskio.h). */
+    if (s.card) dskio_flush(m);
     /* The card's layouts afresh: a file may have been added or edited
      * on a computer since (keymapio.h). A layout a file chose says so
      * (§11.3), then the tape's last word. */
@@ -926,7 +1108,7 @@ void menu_run(coco_t *m, unsigned page, bool alt) {
     memcpy(said, s.status, sizeof said);
     switch (page) {
     case KM_PAGE_TAPE:     s.item = I_TAPES; open_item(); break;
-    case KM_PAGE_DISC:     s.item = I_DISKS; open_item(); s.direct = false; break;
+    case KM_PAGE_DISC:     s.item = I_DISKS; open_item(); break;
     case KM_PAGE_SNAPSHOT: s.item = I_SNAPS; open_item(); break;
     case KM_PAGE_SETUP:    s.item = I_SETUP; open_item(); break;
     case KM_PAGE_MACHINE:  s.item = I_MACHINE; open_item(); break;

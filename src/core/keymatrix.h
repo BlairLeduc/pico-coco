@@ -12,7 +12,8 @@
  * the binding fixed at press, paced replay, the Alt layer and the text
  * path are its. What changes is the guest's: typing is by character
  * (§11.3), so an entry may take the guest's SHIFT away as well as add
- * it, and the CoCo 1 and 2 have no CTRL. Game layouts with their .map
+ * it, and the CoCo 1 and 2 have no CTRL: Ctrl is CLEAR, which OS-9
+ * reads as its control key. Game layouts with their .map
  * files are pico-oric's too, and a layout's key may be a joystick's
  * direction or button as well as a cell (§11.4): the keyboard joystick
  * is a built-in layout.
@@ -64,6 +65,8 @@
 /* The CoCo's SHIFT (§11.2). */
 #define CK_ROW_SHIFT  6u
 #define CK_COL_SHIFT  7u
+#define CK_ROW_CLEAR  6u   /* held by the PicoCalc's Ctrl (§11.3)          */
+#define CK_COL_CLEAR  1u
 
 typedef struct {
     uint8_t code;         /* host key code, as translated by the MCU      */
@@ -181,7 +184,7 @@ typedef struct { uint8_t state, code; } picocalc_event_t;
  * characters are themselves, inside Shift where the PicoCalc types them
  * as a Shift chord; CR and LF are Enter, BS and DEL Backspace, ESC is
  * Esc, TAB is Tab, and the other control characters are Ctrl with a
- * letter, which the CoCo has no use for. A function key's code is that
+ * letter, which is CLEAR with it, OS-9's control key. A function key's code is that
  * key, F6-F10 inside Shift. Returns the count, 0 for a byte no key
  * sends. */
 unsigned keymap_picocalc_text(uint8_t ch, picocalc_event_t out[COCO_KEY_TEXT_EVENTS]);
@@ -230,6 +233,9 @@ typedef struct {
     uint8_t shift_fields;
     /* The guest's SHIFT as the matrix showed it at the last field. */
     bool shift_shown;
+    /* Fields Ctrl has been down: it is the CoCo's CLEAR, held as long as
+     * a key, as Shift is SHIFT (§11.3). */
+    uint8_t ctrl_fields;
 
     /* Alt as the events arrive, ahead of the replay: it decides which
      * key an Insert is (keymatrix_event). */

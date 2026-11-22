@@ -1,5 +1,5 @@
 /* snapio.c — our save states on the card (snapio.h). From pico-oric's,
- * with the CoCo's media: the deck and the cartridge. */
+ * with the CoCo's media: the deck, the cartridge and the drives. */
 
 #include "snapio.h"
 
@@ -10,6 +10,7 @@
 #include "pico/stdlib.h"
 
 #include "card.h"
+#include "dskio.h"
 #include "log.h"
 #include "tapeio.h"
 
@@ -59,6 +60,7 @@ snap_status_t snapio_save(const coco_t *m, unsigned slot, uint32_t *us) {
     memset(&s_media, 0, sizeof s_media);
     tapeio_media(m, &s_media);
     if (g_machine.cart) snprintf(s_media.cart, sizeof s_media.cart, "%s", g_boot.cart_path);
+    if (g_machine.rsdos) dskio_media(&s_media);
 
     snap_status_t st = SNAP_IO;
     if (f_open(&s_file, tmp, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) {
@@ -142,7 +144,8 @@ const char *snapio_machine(const coco_t *m, const snap_info_t *info, machine_t *
          * failure the running cartridge's image goes back from the
          * machine's window, where coco_load_rom put it first. */
         uint32_t len = 0;
-        const char *err = card_cart_load(s_media.cart, g_boot.cart, &len);
+        const char *err = info->rsdos ? card_disk_rom_load(&g_boot.job, g_boot.cart, &len)
+                                      : card_cart_load(s_media.cart, g_boot.cart, &len);
         if (err) {
             if (g_machine.cart) memcpy(g_boot.cart, m->cart, g_boot.cart_len);
             snprintf(why, sizeof why, "NO %.24s", base(s_media.cart));
@@ -156,6 +159,7 @@ const char *snapio_machine(const coco_t *m, const snap_info_t *info, machine_t *
     mc->basic = info->rom[1];
     mc->extended = info->rom_present[0];
     mc->cart = info->cart;
+    mc->rsdos = info->rsdos && info->cart;
     *st = SNAP_OK;
     return NULL;
 }
@@ -169,6 +173,20 @@ static void restore_media(coco_t *m) {
     if (why) {
         snprintf(s_said, sizeof s_said, " TAPE %.18s MISSING", base(s_media.tape));
         log_core1("  snapshot     : the deck's %s: %s; the deck is empty\n", s_media.tape, why);
+    }
+    /* The drives' disks, those not in them already: a drive whose disk
+     * stays keeps the track the state had in hand asked for again
+     * (wd_restored). A disk that has gone leaves its drive empty, as a
+     * tape does. */
+    if (!m->cfg.rsdos) return;
+    for (unsigned d = 0; d < COCO_DISK_DRIVES && d < COCO_SNAP_DRIVES; d++) {
+        if (strcmp(s_media.disk[d], dskio_inserted(d)) == 0) continue;
+        why = dskio_insert(m, d, s_media.disk[d]);
+        if (why) {
+            snprintf(s_said, sizeof s_said, " DISK %.18s MISSING", base(s_media.disk[d]));
+            log_core1("  snapshot     : drive %u's %s: %s; the drive is empty\n", d,
+                      s_media.disk[d], why);
+        }
     }
 }
 

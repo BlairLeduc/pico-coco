@@ -8,7 +8,9 @@
  *   basic     = extended | color   Extended over Color BASIC 1.3, or a
  *                                  Color BASIC alone (1.3, else 1.1)
  *   ram       = 4 | 16 | 32 | 64   KB
- *   cart      = <file>             a ROM cartridge in /coco/carts/, or none
+ *   cart      = <file> | rsdos     a ROM cartridge in /coco/carts/, the
+ *                                  RS-DOS controller with Disk BASIC
+ *                                  (rsdos.h), or none
  *   volume    = 0-8
  *   perf      = on | off           the perf line above the picture (§9.6)
  *   status    = on | off           the status line below it
@@ -16,7 +18,12 @@
  *   layout    = standard | <name>  a game layout: JOY RIGHT, JOY LEFT, or
  *                                  one of /coco/keymaps/ (§11.3)
  *   fast_tape = on | off           the trap, or the tape's signal (§12.3)
+ *   vdg       = 6847 | 6847t1      the CoCo 1 and 2's VDG, or the CoCo
+ *                                  2B's, with lower case (§9.2)
+ *   smartwatch = on | off          a DS1216 at $FF78-$FF7F, set from the
+ *                                  board's clock (§12.7)
  *   boot_tape = <file>             a tape in /coco/tapes/ put in the deck
+ *   boot_disk = <file>             a disk in /coco/disks/ put in drive 0
  *
  * The parser is here, in the core, so it is tested on the host. What a
  * value names on the card is the port's to find, and it says so when it
@@ -33,9 +40,11 @@
 #include "config.h"
 #include "coco.h"
 
-/* Where a bare tape or cartridge name in the file is looked for (§12.6). */
+/* Where a bare tape, cartridge or disk name in the file is looked for
+ * (§12.6). */
 #define SETTINGS_TAPE_DIR "/coco/tapes"
 #define SETTINGS_CART_DIR "/coco/carts"
+#define SETTINGS_DISK_DIR COCO_DISK_DIR
 
 typedef struct {
     bool       extended;    /* Extended Color BASIC, else Color BASIC alone */
@@ -47,13 +56,16 @@ typedef struct {
                                panel's own, and a save keeps the file's  */
 
     bool       fast_tape;   /* blocks served by the trap (§12.3)         */
+    bool       vdg_t1;      /* the MC6847T1 drawn, not the MC6847 (§9.2) */
+    bool       smartwatch;  /* a DS1216 at $FF78-$FF7F (§12.7)           */
     /* A layout's name, upper case; "" is the standard map (§11.3). */
     char       layout[COCO_KEYMAP_NAME_LEN + 1];
 
     /* As written in the file, "" for none. The port resolves a bare name
-     * against SETTINGS_CART_DIR or SETTINGS_TAPE_DIR. */
+     * against SETTINGS_CART_DIR, SETTINGS_TAPE_DIR or SETTINGS_DISK_DIR. */
     char       cart[COCO_PATH_MAX];
     char       boot_tape[COCO_PATH_MAX];
+    char       boot_disk[COCO_PATH_MAX];
 } settings_t;
 
 void settings_default(settings_t *s);

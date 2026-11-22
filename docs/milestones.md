@@ -4,12 +4,227 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M13: disks, OS-9, the SmartWatch and the MC6847T1
+
+On branch `m13`, 2026-11-16 to 2026-11-22 (`design.md` §17). On the
+owner's board. **Built, and checked on the host, over the UART and by
+the owner on the panel; done** by §17's row: Disk BASIC's `DIR`,
+`LOAD`, `SAVE`, `DSKINI` and `BACKUP` on the host and the device, and
+the CoCo disk archive held to XRoar by screen.
+
+**Built.** In the core: pico-oric's WD1793, counting master-oscillator
+ticks over a 6,250-byte track at 300 rpm (`wd1793.c`, §12.4); JVC and
+DSK images, with a headerless image's shape read from OS-9's LSN0 as
+XRoar reads it (`jvc.c`); tracks built from sectors and taken apart
+again (`mfmdisk.c`); and the RS-DOS cartridge, the latch at `$FF40`,
+INTRQ on NMI and DRQ on HALT (`rsdos.c`). Save states carry the
+cartridge and the drives. At the owner's request, three more: the
+DS1216 SmartWatch at `$FF78`–`$FF7F` (`smartwatch.c`, §12.7); the
+MC6847T1's lower case as a setting, `vdg = 6847t1` (§9.2); and two keys,
+Ctrl held as CLEAR and the PicoCalc's Shift as SHIFT on a capital
+(§11). In the port: `dskio.c` for `/coco/disks/`, the Disks page on
+F2, RS-DOS on the Machine page, `boot_disk`, `vdg` and `smartwatch` in
+the settings, the drive on the status line, `rtc.c` for the time (the
+shell's, else the DS3231's). Tools: `fetch-os9.sh`, `os9-lowercase.py`,
+`os9-clock.py`, and the disk archive run (`fetch-disks.sh`,
+`archive-disks.sh`, `disk-compare.py`, `coco-corpus -ref`).
+
+**Disk BASIC** (host, Apple clang). The track's layout was read off the
+track `DSKINI0` wrote, with DSKINI's skip factor of 4, and the track
+the image builds is held to it byte for byte. **A CPU fault was found
+by `BACKUP`**, which lost each sector's last byte: halted after `LDB
+$FF4B`, the core took the NMI before `STB ,X+`, where XRoar's CPU,
+which does not sample its lines while halted, runs one instruction
+more. A HALT trial joined the CPU oracle: 14,253 of its 27,468 trials
+failed before the fix, none after. Disk BASIC is refused without
+Extended Color BASIC, which alone looks at `$C000`, as well as at 4K.
+A save state is refused while a command or a written track is in hand;
+restored, a machine asks again for the track it had and stays equal to
+the original for 150 fields while reading; the control, which skips
+that, parts from it.
+
+**OS-9** (host). Tandy's OS-9 Level One 2.00 and 2.01 and NitrOS-9
+3.3.0's Level 1 for the CoCo 1, on 40-track two-sided and 80-track
+two-sided disks, boot from `DOS`; `DIR`, `FORMAT /D1`, a copy and its
+listing; NitrOS-9's `FREE` 1,440 and 2,880 sectors. Two faults found
+on the way: a headerless two-sided disk of 368,640 bytes taken by its
+size as one side of 80 tracks, and **the side chosen after the
+command**, as NitrOS-9's driver does, ignored once the search had
+begun, which was found from XRoar's log of the controller's commands.
+A one-sided image a DOS formats a second side on is rewritten
+two-sided, as XRoar writes it. `test_os9` boots each by its disk's
+SHA-1, with the control of the 360K disk read as one side, which must
+not boot. Ten bugs planted one at a time each failed it; at first two
+passed the side-change check and two did not build, and those were
+mended and planted again.
+
+**The MC6847T1 and the SmartWatch** (host), recorded in
+`out/m13/t1-notes.txt`. `test_vdg_oracle t1` holds every alphanumeric
+mode with GM2–GM0 and the graphics modes to XRoar 1.13's MC6847T1
+pixel for pixel. Both OS-9s set GM0 only as their console starts, from
+bit 0 of TERM's PAR, so `os9-lowercase.py` writes copies of the boot
+disks with it set; `test_os9` boots them against the disks as shipped.
+Six bugs planted one at a time each failed one test: GM1 ignored, GM0
+not choosing the seven-bit glyph, SG6 with GM0, bright orange for
+orange, the border on GM2 alone (`test_mc6847`), and lower case off
+(`test_os9`). The SmartWatch is held by `test_smartwatch`, and by
+`test_os9` booting 2.01 with `clock_tc3` (`os9-clock.py`): `DATE T`
+gives the host's date and `SETIME` sets the chip, against the control
+with no chip. Four bugs planted one at a time each failed: the key's
+bits most significant first, the year as the year modulo 100, the chip
+answering when not fitted, and a read not restarting the key. 2.01's
+`SETIME` takes a four-digit year, and reads `99/12/31` as 9912, the
+same on the plain disk. **Ctrl and Shift**: `test_os9` types Ctrl+0
+at NitrOS-9 and reads `ECHO`'s letters in lower case after it;
+`test_keyboard` types a and Shift+A in lower case and reads $61 and
+$41. Each failed with its fix taken out.
+
+**The disk archive** (host, 2026-11-21), from the Color Computer
+Archive's disk folders, fetched politely into `out/disks-all` (CoCo 3
+titles left out): 2,244 titles, each started from Disk BASIC 1.1 on a
+64 KB CoCo by the command its drive 0's directory gives (`DOS`, `RUN`,
+or `LOADM` and `EXEC`), and under XRoar 1.13 with the same disks and
+the same command, XRoar's snapshot written at the E cycle of our
+capture, 30 s in, and both drawn alike. Since the two disk models time
+a load differently, ours is also compared with XRoar's picture at every
+field within 10 s. 641 titles have no clear way in and are listed, not
+guessed at; 12 are refused, DMK images among them (§20).
+
+| | First run | With the seek fixed |
+|---|---:|---:|
+| The same picture as XRoar's at the capture | 1,004 | **1,031** |
+| The same picture within 10 s of it | 489 | 468 |
+| Graphics within 1 % | 17 | 17 |
+| Text that differs | 19 | 18 |
+| Pictures that differ | 62 | 57 |
+
+Every title that differs was looked at. **One fault**: Tandy OS-9's
+driver homes the head with a Seek from a track register of `$FF` to 0,
+and the chip pulsed all 255 steps, 7.65 s, where the datasheet's flow,
+as XRoar runs it, stops at TR00 (§12.4); every Tandy OS-9 title was 1
+to 9 s late. Fixed; `test_disk` holds the Seek out and the Step out at
+TR00, each failing on a planted bug, and the archive's second run
+gained six titles and lost none. **Not ours**: titles that seed RND
+from TIMER (Quest, Spelling) or pick a pattern or colour set by timing
+(Gold Finder, Maths Invaders, Lancer), animations caught at another
+moment (both Space Wars, Artyfacts), PAL titles, Model Rocketry's
+changes along every line, which a snapshot cannot hold. The Source
+(Cer-Comp) runs into Disk BASIC 1.1's data at `$F6E0` on both
+emulators, with the same registers, and goes its own way after; it
+expects another ROM. Teleterm v1.21 Tape and Color-80 BBS do not run
+under XRoar either. Two faults in the harness, not the emulator, were
+found first: XRoar wrote a disk the guest changed back over the
+archive's image (`-no-disk-write-back`), and its guess at OS-9 took
+some RS-DOS disks for OS-9's (`-no-disk-auto-os9` unless our reader
+says OS-9).
+
+**M12's split titles on the panel, and a PIA delay** (2026-11-22).
+The owner looked at M12's three split titles on the board: Dark Star's
+and Rommel's Revenge's heading bars right, Dragonfire's title not, and
+not right under XRoar either. From a photograph of Dragonfire on a real
+CoCo, out of a video the owner found: the real machine changes colour
+set along a line about 8 pixels later than the model, which had drawn a
+yellow strip inside the left wall and magenta inside the right. **A
+PIA1 write now reaches the picture 1 µs after its cycle**, 14 ticks
+(`COCO_PIA_VIDEO_TICKS`, `design.md` §9.4, §18, medium): first an E
+cycle, 16 ticks, from that photograph, then 14 from a sharper picture
+the owner found of a later build, in which every edge falls on a
+byte's boundary (24, 32, 112, 144, 224, 232) where 16 left a pixel of
+the other colour set at each. With it, on the host, the walls run
+clean to blue edges, and Dark Star's and Rommel's Revenge's bars move
+from pixels 1–240 to 8–247, centred on the screen. Of the 16 titles
+that change mode in most fields, only those three (six images, with
+the PAL and cartridge ones) were drawn differently, looked at.
+`test_video`'s change along a line includes the delay, its padding and
+window moved to keep both changes on one line, and planted delays of 0
+and of 16 each fail it. The owner then looked again on the
+board (the UART0 image with 16 ticks): Dark Star and Rommel's Revenge
+right, Dragonfire much better, its moat still magenta right of the
+pillar and the strip under the bridge unlike the left. **That was the
+limit of two changes a line**: on lines 105–110 and 137–143 the game
+makes four, to the green set, back to buff at the pillar, green again
+after it and buff at the right wall, and the last three folded into
+one; on the moat's lower edge, lines 144–146, it makes six, which the
+owner saw as a magenta strip right of the pillar once four were kept.
+`COCO_LINE_SPLITS` is now 8: a line's pixels last 32 E cycles and the
+quickest store to the PIA takes 4. The moat, its lower edge and the
+strip under the bridge are drawn alike both sides, as the sharper
+picture has them; all 284 of the field's changes are drawn; of the 16
+titles, only the two Dragonfire images changed. `test_video` makes six
+changes on a line, CSS on and off three times 40 pixels apart, and
+planted limits of two and of four each fail it ("2 kept of 6", "4
+kept of 6").
+
+All 34 host tests pass (Apple clang, 2026-11-22).
+
+**Checked on the board**: the owner's Pico Plus 2 W, the
+`-DPICO_COCO_UART_PORT=0` image, Pico SDK 2.3.1, Arm GNU 15.2.Rel1,
+150 MHz.
+
+- 2026-11-16, driven over the UART (`out/m13/dev2.sh`, `dev2.log`, not
+  committed): RS-DOS chosen on the Machine page, a new disk made on the
+  Disks page, `DSKINI0`, `SAVE"M13"`, `DIR`, `NEW`, `LOAD`, `LIST`,
+  `RUN`, then `DSKINI1`, `BACKUP 0 TO 1` and `DIR1` with the copy, and
+  a state saved and loaded. 1,906 sectors read, 634 written, 70 tracks
+  formatted, 218 tracks fetched and 108 put back, none lost; 220 parks,
+  the longest 70 ms. Zero late fields, slips, dropped snapshots, lost
+  keys, I2C errors, underruns and late refills. The first run
+  (`dev1.log`) put each written track back after every sector, about
+  37 ms each, and BACKUP crawled; tracks now go back when another is
+  needed, when the head unloads or when the menu opens. A track written
+  within about 3 s of a power-off is lost.
+- 2026-11-17, the owner, the release build: `DATE T` in OS-9 2.01 with
+  `clock_tc3` gave the right local date and time, from the shell.
+- 2026-11-22, the owner: lower case on the MC6847T1 under OS-9; The
+  Interbank Incident at its speech cartridge question about 30 s after
+  `DOS`, as under XRoar, where the image before the seek fix took about
+  45 s; and the SmartWatch started from the loader's menu, the time the
+  DS3231's, read as UTC. The owner's own disk read 2065 at first, with
+  the SmartWatch off in `coco.ini`; with it on, the date was right.
+  An 80-track two-sided disk formatted in OS-9 several times, a new
+  image made two-sided on the card each time, and used. CLEAR from Ctrl
+  and from Tab: CLEAR+0 toggles the upper-case lock, and CLEAR with A
+  types a control character, by either key. Shift's capitals in OS-9's
+  lower case.
+
+The image: 214,768 bytes of text and 369,624 of bss, 97,592 bytes of
+SRAM left (the UART0 build, 2026-11-22), where §21.2 measured 118,328 on
+2026-11-21; eight changes a line, in the field's list and each
+snapshot's line table, took 20.7 KB of it.
+
+**Not checked:**
+
+- The perf cost of the disk against a control in one sitting; a soak
+  with a disk turning.
+- The trace diff with a disk: it has none, and XRoar's controller is
+  timed by the cycle where ours is served at a field's end, so the two
+  traces would part at the first read.
+- On the board: NitrOS-9's speed measured, with a card read at every
+  change of side, and a DMK image (not supported).
+- Without the shell, the SmartWatch's time is UTC: the DS3231 holds no
+  offset (§12.7). Remembering the shell's offset in `coco.ini`, or a
+  fixed one, was proposed on 2026-11-22; not yet decided.
+- A real CoCo, CoCo 2B or DS1216 compared with any of this.
+- §21 proposes the MOOH (D15); nothing of it is built.
+- **Dragonfire's room draws its moving figures in step with the beam**
+  (found 2026-11-22, the owner on the board): it erases each just after
+  the beam has passed and draws it again before the beam comes back, so
+  the picture, taken from memory once a field, shows the room and the
+  items but only slivers of the dragon and the player and no fireball.
+  A scratch probe that took each byte at the tick the VDG fetches it
+  drew them whole, with the bridge's collision checks patched out of its
+  copy of the cartridge ($C87C, $C894) to reach the room. This is §9.4's
+  "a field's own changes in that field"; fetching each line as the field
+  runs is the next piece of work, on a branch of its own.
+
 ## M12: the tape's signal, the keyboard joystick and layouts, split fields
 
 On branch `m12`, 2026-11-16 (`design.md` §17). On the owner's board.
 **Built, and checked on the host, over the UART and by the owner's
-hand. Not done**: the owner has not yet looked at a split title on the
-panel.
+hand. Done** on 2026-11-22, when the owner looked at the split titles
+on the panel, on M13's branch: Dark Star and Rommel's Revenge right,
+and Dragonfire right once a PIA write's delay and up to eight changes a
+line were modelled (M13 above).
 
 **Built.** In the core: `cassette.c`, the tape's signal, a player and
 a recorder (`design.md` §12.3, `cassette.h`), with `fast_tape = off`

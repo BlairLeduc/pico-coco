@@ -4,7 +4,7 @@
  * master-oscillator ticks (§13.2). Paced on the audio queue (§10, M8),
  * or with PICO_COCO_AUDIO=OFF on the timer against a deadline from the
  * ticks run, the control for audio's cost (EL §6.3). The park, between
- * two fields, serves the tape, the menu and pause (park.h).
+ * two fields, serves the disk, the tape, the menu and pause (park.h).
  */
 
 #include "core0.h"
@@ -25,8 +25,10 @@
 #include "kbd.h"
 #include "keymapio.h"
 #include "log.h"
+#include "dskio.h"
 #include "park.h"
 #include "roms.h"
+#include "rtc.h"
 #include "southbridge.h"
 #include "status.h"
 #include "tapeio.h"
@@ -116,6 +118,9 @@ void core0_power_on(coco_t *m, const machine_t *mc) {
     coco_config_t cfg;
     coco_config_default(&cfg);
     cfg.ram_k = mc->ram_k;
+    /* The RS-DOS cartridge, never in a 4 KB CoCo (roms.h). */
+    bool rsdos = mc->rsdos && mc->cart && g_boot.cart_len > 0 && mc->ram_k >= 16u;
+    cfg.rsdos = rsdos;
     coco_init(m, &cfg);
     /* Color BASIC 1.1 kept apart for a 4 KB CoCo (roms.h); otherwise the
      * job's image, 1.3 or 1.1 without it. */
@@ -124,8 +129,12 @@ void core0_power_on(coco_t *m, const machine_t *mc) {
     if (mc->extended) coco_load_rom(m, 0x8000u, g_boot.ext, COCO_ROM_HALF);
     bool cart = mc->cart && g_boot.cart_len > 0;
     if (cart) coco_load_rom(m, 0xC000u, g_boot.cart, g_boot.cart_len);
+    /* Disk BASIC is started by Color BASIC's look at $C000, not by the
+     * CART line (§12.2). */
+    if (rsdos) coco_cart_autostart(m, false);
     coco_power_on(m);
     tapeio_attach(m);
+    dskio_attach(m);
 #if PICO_COCO_AUDIO
     uint32_t rate_num, rate_den;
     audio_rate(&rate_num, &rate_den);
@@ -133,6 +142,7 @@ void core0_power_on(coco_t *m, const machine_t *mc) {
 #endif
     g_machine = *mc;
     g_machine.cart = cart;
+    g_machine.rsdos = rsdos;
 }
 
 /* While the tape's signal runs the guest runs unpaced: the tape is
@@ -335,6 +345,9 @@ void core0_run(coco_t *m, keymatrix_t *k) {
      * with PICO_COCO_TURBO=OFF core 0's share while it plays. */
     bool deck_was = false;
     uint64_t deck_us = 0, deck_ticks = 0, deck_busy = 0;
+    /* The disk's parks, a track each (§12.4). */
+    uint32_t disk_parks = 0, disk_park_max = 0;
+    uint64_t disk_parked_us = 0;
     park_init(m);
     (void)apply_ui(m);
     keymatrix_set_layout(k, g_ui.layout);
@@ -366,11 +379,19 @@ void core0_run(coco_t *m, keymatrix_t *k) {
          * windows start again from now. After a hold, the menu or a
          * pause the keys start again from none held: theirs were not the
          * guest's. A tape request goes first. */
-        while (why != PARK_NONE || tapeio_wanted(m)) {
-            bool tape = tapeio_wanted(m);
-            uint32_t w = tape ? PARK_TAPE : why;
+        while (why != PARK_NONE || coco_disk_request(m) || tapeio_wanted(m)) {
+            /* A disk's track goes first: the controller waits on it,
+             * busy, as a drive does while its head settles (dskio.h). */
+            bool disk = coco_disk_request(m) != NULL;
+            bool tape = !disk && tapeio_wanted(m);
+            uint32_t w = disk ? PARK_DISK : tape ? PARK_TAPE : why;
             uint32_t parked = park(w, page, alt);
-            if (w != PARK_TAPE) {
+            if (w == PARK_DISK) {
+                disk_parks++;
+                disk_parked_us += parked;
+                if (parked > disk_park_max) disk_park_max = parked;
+            }
+            if (w != PARK_TAPE && w != PARK_DISK) {
                 keymatrix_init(k);
                 why = PARK_NONE;
             }
@@ -388,8 +409,10 @@ void core0_run(coco_t *m, keymatrix_t *k) {
             sched_us = time_us_64() + 1000u;
             sched_ticks = 0;
 #endif
-            log_printf("  park         : %s%lu us parked\n", w == PARK_TAPE ? "tape, " : "",
-                       (unsigned long)parked);
+            /* A disk's park is every track: the heartbeat counts them. */
+            if (w != PARK_DISK)
+                log_printf("  park         : %s%lu us parked\n", w == PARK_TAPE ? "tape, " : "",
+                           (unsigned long)parked);
         }
 
         uint32_t t_busy = time_us_32();
@@ -409,10 +432,15 @@ void core0_run(coco_t *m, keymatrix_t *k) {
             alt = false;
         }
 
+        /* The SmartWatch and the board's time (rtc.h). */
+        m->clock.fitted = g_ui.smartwatch;
+        smartwatch_set_host(&m->clock, g_clock.secs);
+
         uint32_t t_run = time_us_32();
         uint32_t ran = coco_run_field(m);
         uint32_t run_us = time_us_32() - t_run;
         g_c0.tape_unsaved = tapeio_unsaved(m);
+        g_c0.disk = coco_disk_active(m);
 #if PICO_COCO_AUDIO
         (void)ran;
 #else
@@ -607,6 +635,17 @@ void core0_run(coco_t *m, keymatrix_t *k) {
                        (unsigned long)turbo_fields, (unsigned long)cas->edges,
                        (unsigned long)cas->rec_blocks, (unsigned long)cas->rec_errors,
                        (unsigned long)m->tape.requests, (unsigned long)m->split_dropped);
+            if (m->cfg.rsdos) {
+                const wd1793_t *f = &m->dk.fdc;
+                log_printf("  disk         : %lu sectors read, %lu written, %lu tracks formatted; "
+                           "%lu tracks fetched, %lu put back, %lu lost; %lu parks, %llu us, "
+                           "longest %lu us\n",
+                           (unsigned long)f->sectors_read, (unsigned long)f->sectors_written,
+                           (unsigned long)f->tracks_written, (unsigned long)dskio_tracks(false),
+                           (unsigned long)dskio_tracks(true), (unsigned long)dskio_lost(),
+                           (unsigned long)disk_parks, (unsigned long long)disk_parked_us,
+                           (unsigned long)disk_park_max);
+            }
 #if PICO_COCO_AUDIO
             log_audio(m, &au_last, wall, m->sound_edges - hb_edges);
             audio_stats(&au_last, false);

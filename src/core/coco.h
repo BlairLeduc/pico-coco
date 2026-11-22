@@ -27,7 +27,9 @@
 #include "mc6821.h"
 #include "mc6847.h"
 #include "pcm.h"
+#include "rsdos.h"
 #include "sam6883.h"
+#include "smartwatch.h"
 #include "tape.h"
 
 /* Exactly two pointers, as the siblings' (EL §4.1). A NULL read pointer
@@ -42,6 +44,8 @@ typedef struct {
 typedef struct {
     unsigned       ram_k;      /* 4, 16, 32 or 64                          */
     bool           tape_trap;  /* serve Color BASIC's tape routines (tape.h) */
+    bool           rsdos;      /* the RS-DOS controller in the cartridge port
+                                  (rsdos.h); its ROM is loaded at $C000   */
 } coco_config_t;
 
 /* A change of the video bits while the picture was being drawn (§9.4):
@@ -106,6 +110,9 @@ typedef struct coco_s {
 
     coco_config_t cfg;
     sam6883_t sam;
+    /* A DS1216 SmartWatch at $FF78-$FF7F, when fitted (smartwatch.h):
+     * the port sets fitted and the host's time before each field. */
+    smartwatch_t clock;
     mc6821_t  pia0, pia1;
 
     /* Pressed keys: per column, a bit per row. */
@@ -168,6 +175,9 @@ typedef struct coco_s {
     coco_tape_t tape;
     cassette_t  cas;
 
+    /* The RS-DOS cartridge, when cfg.rsdos (rsdos.h). */
+    rsdos_t  dk;
+
     /* The trace driver's hook (tools/trace/coco-trace.c): when set, each
      * run slice is one step, an instruction, an interrupt's entry or a
      * cycle of a wait, and the hook is called after it. Tested once a
@@ -196,7 +206,7 @@ bool     coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len
 void     coco_cart_remove(coco_t *m);
 
 /* Whether the cartridge's CART line is tied to the Q clock, as a game's
- * is, so that BASIC starts it (§12.2); a DOS's is not (M13). */
+ * is, so that BASIC starts it (§12.2); the RS-DOS cartridge's is not. */
 void     coco_cart_autostart(coco_t *m, bool on);
 
 /* RAM cleared (§13.3), then RESET. */

@@ -13,7 +13,7 @@
  *           the media (SNAP_MEDIA_LEN)
  *
  * The media are the files the port had in the deck and the cartridge
- * slot, and the deck's place (snap_media_t), with room for M13's drives:
+ * slot, the four drives', and the deck's place (snap_media_t):
  * names, not contents, which stay on the card. The core carries them and
  * never opens them; the port fills them on a save and puts them back
  * after a load.
@@ -54,10 +54,10 @@
 #define SNAP_VERSION     1u
 #define SNAP_HEADER_LEN  20u
 #define SNAP_STATE_LEN   256u
-/* The deck's path, the cartridge's, COCO_SNAP_DRIVES drives' (M13: written
- * empty until then), each COCO_PATH_MAX bytes NUL-padded; then the deck's
+/* The deck's path, the cartridge's, COCO_SNAP_DRIVES drives', each
+ * COCO_PATH_MAX bytes NUL-padded; then the deck's
  * place, its rewind mark and flags (4 bytes each), and 4 reserved. */
-#define COCO_SNAP_DRIVES 4u
+#define COCO_SNAP_DRIVES COCO_DISK_DRIVES
 #define SNAP_MEDIA_LEN   ((2u + COCO_SNAP_DRIVES) * COCO_PATH_MAX + 16u)
 #define SNAP_PAYLOAD_LEN (SNAP_STATE_LEN + COCO_ADDR_SPACE + SNAP_MEDIA_LEN)
 #define SNAP_FILE_LEN    (SNAP_HEADER_LEN + SNAP_PAYLOAD_LEN)
@@ -73,7 +73,8 @@ typedef enum {
     SNAP_OTHER_ROM,       /* a BASIC ROM is not the one it ran on        */
     SNAP_OTHER_RAM,       /* another RAM size                            */
     SNAP_OTHER_MACHINE,   /* another machine, cartridge, CART line or trap */
-    SNAP_BUSY,            /* a tape request waiting                      */
+    SNAP_BUSY,            /* a tape request waiting, or a disk command or
+                             track in hand (rsdos.h)                     */
     SNAP_NO_ROM,          /* the port's: a ROM it needs is not on the card
                              or not one the emulator knows               */
     SNAP_NO_CART,         /* the port's: its cartridge is not on the card */
@@ -87,7 +88,7 @@ typedef enum {
 typedef struct snap_media_s {
     char     tape[COCO_PATH_MAX];
     char     cart[COCO_PATH_MAX];
-    char     disk[COCO_SNAP_DRIVES][COCO_PATH_MAX];   /* M13 */
+    char     disk[COCO_SNAP_DRIVES][COCO_PATH_MAX];
     uint32_t tape_pos;            /* where the head stands               */
     uint32_t tape_rewind;         /* the port's rewind mark (tapeio.c)   */
     bool     tape_chosen;         /* put in by the user or boot_tape     */
@@ -104,6 +105,7 @@ typedef struct {
     bool           cart;             /* a ROM at $C000                  */
     bool           cart_autostart;   /* its CART line on the Q clock    */
     bool           tape_trap;
+    bool           rsdos;            /* the RS-DOS cartridge (rsdos.h)  */
 } snap_info_t;
 
 /* Move exactly n bytes; false on any failure. */

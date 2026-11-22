@@ -23,3 +23,8 @@
 
 extern const uint8_t font_6847[768];
 
+/* The MC6847T1's, from XRoar's src/mc6847/font-6847t1.c the same way
+ * (mc6847_font_t1.c): 128 glyphs x 12 rows, lower case at $00..$1F. */
+#define MC6847T1_FONT_GLYPHS 128u
+extern const uint8_t font_6847t1[1536];
+
