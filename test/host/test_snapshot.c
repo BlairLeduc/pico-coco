@@ -130,17 +130,18 @@ static int refused(unsigned off, uint8_t v, snap_status_t want, const char *what
     return 0;
 }
 
-/* A step at a time across each field's FS fall, the rest of the field
- * run whole, until `pred` holds at a boundary: only coco_run_field moves
- * to the next field, and only it or a PIA access sees FS fall. */
+/* A step at a time across each field's FS fall, from the field's start,
+ * the blanking run whole, until `pred` holds at a boundary: only
+ * coco_run_blanking moves to the next field, and only it, coco_run_field
+ * or a PIA access sees FS fall. */
 static bool step_to(coco_t *m, bool (*pred)(const coco_t *)) {
     for (int f = 0; f < 300; f++) {
+        coco_run_blanking(m);
         uint64_t fall = m->field_start + (uint64_t)COCO_FS_FALL_LINE * COCO_LINE_TICKS;
         while (coco_ticks(m) < fall + 2000u) {
             coco_run(m, 1);
             if (pred(m)) return true;
         }
-        coco_run_field(m);
     }
     return false;
 }

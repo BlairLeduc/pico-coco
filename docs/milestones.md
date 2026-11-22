@@ -4,6 +4,79 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## Each line fetched as it is shown
+
+On branch `beam-lines`, from M13, 2026-11-22 (`design.md` §9.3, §9.4,
+§13.1). **Built, and checked on the host, over the UART and by the
+owner on the panel; done**: Dragonfire's room, whose figures were drawn
+in part or not at all, is drawn whole on the owner's board
+(2026-11-22).
+
+**Why.** Dragonfire's room erases and redraws its figures in step with
+the beam, so RAM at one moment in the field never holds the picture the
+VDG showed. Shown on the host with a probe that fetched each line's
+bytes as the beam reached them: the dragon, the player and the fireball
+appear whole in the probe's capture and not in the snapshot's.
+
+**Built.** Each active line is fetched at its first byte's tick into
+`coco_t.vid_lines`, with its mode and the SAM's V, and the snapshot
+copies those lines. The run does not stop at each line: a line is
+fetched at a slice's boundary, before a write to RAM the VDG may fetch
+(those pages write by the slow path), and before a write to PIA1 or the
+SAM. A field's run now ends where FS falls, after line 230;
+`coco_run_blanking` runs the rest. A copy restored from a save state,
+which holds no fetched lines, is drawn from RAM until its next field.
+
+**On the host** (Apple clang): the 34 tests pass. `test_video`'s new
+check draws a byte ahead of the beam and erases it behind: shown on its
+row's 12 lines, at 4K (the general slow path) and at 64K (the short
+one); RAM walked where FS falls, the control, shows it on none.
+Planted, one at a time, each failing it: the snapshot never taking the
+fetched lines, no fetch on the short write path, none on the general
+one, none before a PIA1 write. The first plant on the short path
+passed, since the test then ran at 4K only, which is why the 64K run
+was added. Tests that stepped a field's lines by hand were moved to
+`coco_run_blanking`; the keyboard's holds, in fields, are now 2, 3 and
+2. The trace diff agrees with XRoar through 2,186,516 and 2,216,069
+instructions. Dragonfire's room matches the probe's capture in all 66
+fields where the probe is valid.
+
+**The disk archive**, rerun against XRoar: 1,015 titles exact and 486
+at another moment within 10 s, against M13's 1,031 and 468; 1,501
+either way against 1,499. The titles that moved are mostly text
+screens one cursor apart that match 0.1 s away, in both directions,
+most likely from the typed command landing at another point in the
+cursor's blink; not traced title by title. Shuffle, which chooses its
+colours with RND, went from exact to the same screen in another
+colour. The comparison in `coco-corpus` now takes our picture from a
+copy run on to the field's end, XRoar's moment; without that, 1,010
+were exact.
+
+**On the board**, the owner's Plus 2 W, UART0 build, against M13's
+image in the same sitting, eight windows each, busy share of core 0:
+
+| Workload | M13 | Stopping each line | As built |
+|---|---:|---:|---:|
+| Idle prompt | 22.7 % | 28.5 % | 23.5 % |
+| Scrolling `PRINT` | 23.1 % | 29.6 % | 27.4 % |
+| `compute` | 18.7 % | — | 19.5 % |
+| `pmode4` | 18.5 % | — | 19.7 % |
+| `set` | 18.6 % | — | 19.4 % |
+| `sound` | 23.7 % | — | 24.9 % |
+
+The snapshot's share fell from 3.6 % to 0.3 %. The image (UART0):
+216,800 bytes of text and 376,224 of bss, 88,944 bytes of SRAM left,
+against M13's 97,592; the fetched lines take 8,064 of the difference.
+The release build is 213,764 text and 374,152 bss. Captures in
+`out/beam/`, not committed.
+
+**Not checked:**
+
+- A change of the SAM's base part-way down the field: the fetch
+  follows the SAM's counter as it runs, but no test or title has been
+  held to it.
+- The per-title cause of the archive's cursor flips.
+
 ## M13: disks, OS-9, the SmartWatch and the MC6847T1
 
 On branch `m13`, 2026-11-16 to 2026-11-22 (`design.md` §17). On the

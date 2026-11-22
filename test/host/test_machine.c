@@ -151,7 +151,12 @@ int main(void) {
                     for (unsigned i = 1; flat && i < COCO_PAGE_SIZE; i++)
                         flat = coco_ram_index(&ma, (uint16_t)(base + i)) == i0 + (int32_t)i;
                     const uint8_t *want = flat ? &ma.ram[i0] : NULL;
-                    if (ma.page[pg].read != want || ma.page[pg].write != want) bad++;
+                    /* Writes to RAM the VDG may fetch take the slow path,
+                     * which takes the lines due first (§9.3). */
+                    unsigned rp = flat ? (unsigned)i0 >> 8 : 0u;
+                    bool shown = flat && ((ma.vid_pages[rp >> 5] >> (rp & 31u)) & 1u);
+                    const uint8_t *want_w = shown ? NULL : want;
+                    if (ma.page[pg].read != want || ma.page[pg].write != want_w) bad++;
                     fast += flat;
                 }
             }
@@ -179,14 +184,14 @@ int main(void) {
     {
         build_rom(0x05, 0x04, false);
         machine(&ma, 64);
-        /* Ticks from power-on, the reset's own cycles among them. A field
-         * runs on to the next one's first active line (§13.1): 38 lines
-         * into it. */
+        /* Ticks from power-on, the reset's own cycles among them. A field's
+         * run ends where FS falls, as the line after its 192 active ones
+         * begins (§9.3, §13.1): 230 lines in. */
         (void)coco_run_field(&ma);
         uint64_t first = coco_ticks(&ma);
         uint32_t second = coco_run_field(&ma);
-        CHECK(first >= (262u + 38u) * 912u && first < (262u + 38u) * 912u + 20u * 16u,
-              "the first field ended at %llu, not 262 + 38 lines in", (unsigned long long)first);
+        CHECK(first >= 230u * 912u && first < 230u * 912u + 20u * 16u,
+              "the first field ended at %llu, not 230 lines in", (unsigned long long)first);
         CHECK(second > 262u * 912u - 20u * 16u && second < 262u * 912u + 20u * 16u,
               "a field ran %u ticks, not 262 lines", second);
     }
@@ -231,9 +236,11 @@ int main(void) {
         machine(&ma, 64);
         (void)coco_run_field(&ma);
         uint64_t first = coco_ticks(&ma);
-        CHECK(first < (262u + 38u) * 912u + 20u * 16u,
-              "a slice sized fast ran on slow: the first field ended at %llu, not 262 + 38 lines in",
+        CHECK(first < 230u * 912u + 20u * 16u,
+              "a slice sized fast ran on slow: the first field ended at %llu, not 230 lines in",
               (unsigned long long)first);
+        /* Each field's FS falls as its run ends, and is taken in the next. */
+        (void)coco_run_field(&ma);
         (void)coco_run_field(&ma);
         (void)coco_run_field(&ma);
         CHECK(counter(&ma) == 3, "FS interrupts in three fields with a rate change: %u", counter(&ma));
@@ -255,7 +262,8 @@ int main(void) {
         memcpy(rom, ca1_code, sizeof ca1_code);
         machine(&ma, 64);
         (void)coco_run_field(&ma);
-        CHECK(counter(&ma) >= 250, "HS interrupts in the field CA1 was enabled in: %u, not ~260",
+        /* The first run is 230 lines, to FS's fall, less the delay. */
+        CHECK(counter(&ma) >= 215, "HS interrupts in the field CA1 was enabled in: %u, not ~225",
               counter(&ma));
     }
 

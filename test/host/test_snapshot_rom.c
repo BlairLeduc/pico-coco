@@ -158,11 +158,13 @@ static int four_k(void) {
 
 /* ---- a CLOAD in flight ----------------------------------------------------- */
 
-/* Step through fields, an instruction at a time up to each FS fall, until
- * pred holds at a boundary, with ENTER held for the first fields. */
+/* Step through fields, an instruction at a time from each one's start
+ * to its FS fall, until pred holds at a boundary, with ENTER held for
+ * the first fields. */
 static bool step_until(coco_t *m, bool (*pred)(const coco_t *), int max_fields, int enter_fields) {
     for (int f = 0; f < max_fields; f++) {
         coco_key_set(m, 6, 0, f < enter_fields);
+        coco_run_blanking(m);
         uint64_t fall = m->field_start + (uint64_t)COCO_FS_FALL_LINE * COCO_LINE_TICKS;
         while (coco_ticks(m) + 64u < fall) {
             coco_run(m, 1);

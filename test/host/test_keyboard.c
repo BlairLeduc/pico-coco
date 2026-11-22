@@ -612,10 +612,16 @@ int main(int argc, char **argv) {
     guest_find_roms(&dir);
     bool print = argc > 1 && strcmp(argv[1], "--print") == 0;
 
+    /* The fields a key must be held, as executed: a key goes down part
+     * of the way into a run and up as a run ends, so the counts depend
+     * on where a field's run ends. 3, 2 and 3 with it at the next
+     * field's first active line; 2, 3 and 2 with it at FS's fall, where
+     * it has ended since each line was fetched as it ran (§9.3). The
+     * replay's own 4 and 2 type every one of them. */
     static const rom_case_t cases[] = {
-        { ROM_COCO_BAS11, false, "Color BASIC 1.1",    3 },
-        { ROM_COCO_BAS13, false, "Color BASIC 1.3",    2 },
-        { ROM_COCO_BAS13, true,  "Extended BASIC 1.1", 3 },
+        { ROM_COCO_BAS11, false, "Color BASIC 1.1",    2 },
+        { ROM_COCO_BAS13, false, "Color BASIC 1.3",    3 },
+        { ROM_COCO_BAS13, true,  "Extended BASIC 1.1", 2 },
     };
     int ran = 0;
     for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {

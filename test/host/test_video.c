@@ -56,17 +56,30 @@ static void at_rest(uint8_t vdg_mode, unsigned v, uint16_t base) {
     m.sam.reg = (uint16_t)(v | (base >> 9) << 3 | 2u << 13);
     m.pia1.b.ddr = 0xF8u;
     m.pia1.b.out = vdg_mode;
+    /* Set behind the machine's back: the picture's mode with it, and a
+     * field run, since the counter loaded F as the first began. */
+    m.vid_shown = coco_vdg_mode(&m);
+    coco_run_field(&m);
 }
 
-/* The address each shown byte was fetched from, from two snapshots: one
- * of RAM holding each address's low byte, one its high. */
+/* The address each shown byte was fetched from, from two fields'
+ * snapshots: one of RAM holding each address's low byte, one its high.
+ * Each field's lines are fetched as it runs (§9.3); with `walk`, the
+ * snapshot is taken with no field run, from RAM as it is, as after a
+ * power-on or a restored state. */
 static uint16_t addr[COCO_PIC_H][COCO_VDG_LINE_BYTES];
+static bool s_walk;
+static void snap_now(void) {
+    if (s_walk) m.vid_whole = false;
+    else coco_run_field(&m);
+    coco_video_snapshot(&m, &f);
+}
 static void addresses(void) {
     for (unsigned a = 0; a < COCO_ADDR_SPACE; a++) m.ram[a] = (uint8_t)a;
-    coco_video_snapshot(&m, &f);
+    snap_now();
     for (unsigned i = 0; i < COCO_SNAP_VRAM_MAX; i++) addr[i / 32u][i % 32u] = f.lines[i];
     for (unsigned a = 0; a < COCO_ADDR_SPACE; a++) m.ram[a] = (uint8_t)(a >> 8);
-    coco_video_snapshot(&m, &f);
+    snap_now();
     for (unsigned i = 0; i < COCO_SNAP_VRAM_MAX; i++)
         addr[i / 32u][i % 32u] = (uint16_t)(addr[i / 32u][i % 32u] | f.lines[i] << 8);
 }
@@ -112,14 +125,19 @@ int main(void) {
             { 0x00, 4,  2, 32, 32, "SG12" },
             { 0x00, 6,  1, 32, 32, "SG24" },
         };
-        for (size_t i = 0; i < sizeof modes / sizeof modes[0]; i++) {
-            at_rest(modes[i].mode, modes[i].v, 0x0E00u);
-            addresses();
-            CHECK(f.mode == modes[i].mode && f.sam_v == modes[i].v && f.base == 0x0E00u,
-                  "%s: the frame's modes", modes[i].name);
-            if (check_layout(modes[i].name, 0x0E00u, modes[i].per, modes[i].stride,
-                             modes[i].shown)) return 1;
+        /* Fetched as each field runs, then walked from RAM as it is. */
+        for (unsigned walk = 0; walk < 2u; walk++) {
+            s_walk = walk != 0;
+            for (size_t i = 0; i < sizeof modes / sizeof modes[0]; i++) {
+                at_rest(modes[i].mode, modes[i].v, 0x0E00u);
+                addresses();
+                CHECK(f.mode == modes[i].mode && f.sam_v == modes[i].v && f.base == 0x0E00u,
+                      "%s%s: the frame's modes", modes[i].name, walk ? ", walked" : "");
+                if (check_layout(modes[i].name, 0x0E00u, modes[i].per, modes[i].stride,
+                                 modes[i].shown)) return 1;
+            }
         }
+        s_walk = false;
 
         /* The counter wraps past $FFFF: RG6 from $FE00 reaches $0000 at
          * line 16. */
@@ -131,7 +149,7 @@ int main(void) {
         /* A 16-byte mode's other 16 bytes are zero, not left over. */
         at_rest(0x90, 1, 0x0400u);
         for (unsigned a = 0; a < COCO_ADDR_SPACE; a++) m.ram[a] = 0xA5u;
-        coco_video_snapshot(&m, &f);
+        snap_now();
         CHECK(f.lines[16] == 0 && f.lines[31] == 0 && f.lines[15] == 0xA5u,
               "RG1's line: 16 bytes shown, the rest zero");
     }
@@ -199,8 +217,8 @@ int main(void) {
             }
             rom[0x1FFE] = 0xA0; rom[0x1FFF] = 0x00;
             machine();
-            for (int i = 0; i < 6; i++) coco_run_field(&m);
             m.sam.reg |= 2u << 13;   /* 64K chips, as at_rest has them */
+            for (int i = 0; i < 6; i++) coco_run_field(&m);
             addresses();
             if (control) {
                 unsigned plain = 0;
@@ -238,6 +256,7 @@ int main(void) {
             /* The same next field: the split is steady. */
             coco_run_field(&m);
             coco_video_snapshot(&m, &f);
+            if (at == 0 || at >= COCO_PIC_H) continue;   /* failed above */
             CHECK(f.how[at].mode == 0xF8u && f.how[at - 1u].mode == 0,
                   "the next field's RG6 not from line %u", at);
             printf("regions: text to line %u, RG6 from %u, %u change(s) along line %u\n",
@@ -425,10 +444,13 @@ int main(void) {
         unsigned torn = 0, torn_control = 0, steps = 0;
         uint8_t last = 0;
         for (int field = 0; field < 120; field++) {
-            /* The control: a copy run only to where FS rises. */
+            /* The control: a copy run only to where FS rises, and RAM
+             * walked there, as the snapshot was taken before each line
+             * was fetched as it ran (§9.3). */
             coco_copy(&m2, &m);
             uint64_t rise = m2.field_start + (uint64_t)COCO_FIELD_LINES * COCO_LINE_TICKS;
             (void)coco_run(&m2, (uint32_t)(rise - coco_ticks(&m2)));
+            m2.vid_whole = false;
             coco_video_snapshot(&m2, &f);
             for (unsigned i = 1; i < 256u; i++)
                 if (f.lines[(i / 32u) * 12u * 32u + i % 32u] != f.lines[0]) { torn_control++; break; }
@@ -450,6 +472,69 @@ int main(void) {
         CHECK(torn_control >= 119u,
               "the control, snapshots where FS rises, should catch the redraw: %u of 120",
               torn_control);
+    }
+
+    /* ---- §9.3: a byte drawn in step with the beam ------------------- */
+    {
+        /* Dragonfire's room (docs/milestones.md, M13): the screen at
+         * $0400 in text, 12 lines a row. Wait for FS's fall, line 230;
+         * 7,408 cycles on, line 60 of the next field, write $FF to row
+         * 9's first byte, which lines 108-119 show; 5,128 cycles on, line
+         * 150, after the beam has passed it, write $00 back. Each line
+         * fetched as it is shown has the $FF; RAM where FS falls, the
+         * control, has $00. */
+        static const uint8_t code[] = {
+            0xB7, 0xFF, 0xC9,           /* $A000 STA $FFC9  F1: $0400     */
+            0x86, 0x04,                 /* $A003 LDA #$04                 */
+            0xB7, 0xFF, 0x03,           /* $A005 STA $FF03                */
+            0xB6, 0xFF, 0x03,           /* $A008 LDA $FF03                */
+            0x2A, 0xFB,                 /* $A00B BPL $A008                */
+            0xB6, 0xFF, 0x02,           /* $A00D LDA $FF02  clear the flag */
+            0x8E, 0x03, 0x9E,           /* $A010 LDX #926                 */
+            0x30, 0x1F, 0x26, 0xFC,     /* $A013 LEAX -1,X, BNE $A013     */
+            0x86, 0xFF, 0xB7, 0x05, 0x20, /* $A017 LDA #$FF, STA $0520    */
+            0x8E, 0x02, 0x81,           /* $A01C LDX #641                 */
+            0x30, 0x1F, 0x26, 0xFC,     /* $A01F LEAX -1,X, BNE $A01F     */
+            0x7F, 0x05, 0x20,           /* $A023 CLR $0520                */
+            0x20, 0xE0,                 /* $A026 BRA $A008                */
+        };
+        /* Twice: with the SAM's memory size left at 4K, where the CPU's
+         * pages lie out of order in the chips and every write takes the
+         * slow path; and set to 64K first ($FFDD, the same code 3 bytes
+         * on), where the screen's pages lie in order and their writes
+         * take the short path of a page the VDG may fetch (coco.c). */
+        for (unsigned k64 = 0; k64 < 2u; k64++) {
+            memset(rom, 0x12, sizeof rom);
+            if (k64) {
+                rom[0] = 0xB7; rom[1] = 0xFF; rom[2] = 0xDD;   /* STA $FFDD */
+            }
+            memcpy(rom + 3u * k64, code, sizeof code);
+            rom[0x1FFE] = 0xA0; rom[0x1FFF] = 0x00;
+            machine();
+            for (int i = 0; i < 4; i++) coco_run_field(&m);
+            const char *how_written = k64 ? "64K, in order" : "4K, out of order";
+            int32_t i520 = coco_ram_index(&m, 0x0520u);
+            CHECK(k64 ? (m.page[0x05].read && !m.page[0x05].write) : !m.page[0x05].read,
+                  "%s: page $05 not as expected", how_written);
+            coco_video_snapshot(&m, &f);
+            unsigned shown = 0, elsewhere = 0;
+            for (unsigned y = 0; y < COCO_PIC_H; y++) {
+                bool row9 = y >= 108u && y < 120u;
+                if (row9) shown += f.lines[y * 32u] == 0xFFu;
+                else elsewhere += f.lines[y * 32u] == 0xFFu;
+            }
+            CHECK(shown == 12u && elsewhere == 0 && i520 >= 0 && m.ram[i520] == 0,
+                  "%s: the byte drawn ahead of the beam: on %u of row 9's 12 lines, %u "
+                  "elsewhere", how_written, shown, elsewhere);
+            m.vid_whole = false;
+            coco_video_snapshot(&m, &f);
+            unsigned walked = 0;
+            for (unsigned y = 108; y < 120u; y++) walked += f.lines[y * 32u] == 0xFFu;
+            CHECK(walked == 0, "%s: the control, RAM walked where FS falls: on %u of 12 lines",
+                  how_written, walked);
+            printf("in step with the beam, %s: shown on row 9's %u lines, none when RAM is "
+                   "walked\n", how_written, shown);
+        }
     }
 
     TEST_DONE();
