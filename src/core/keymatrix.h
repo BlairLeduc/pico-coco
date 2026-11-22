@@ -36,7 +36,8 @@
 #define KM_SHIFT   0x01u   /* the guest's SHIFT down with this cell        */
 #define KM_ALT     0x02u   /* the entry is on the Alt layer                */
 #define KM_NOSHIFT 0x04u   /* the guest's SHIFT up with this cell          */
-#define KM_RESET   0x08u   /* no cell: the reset button (§8.3)             */
+#define KM_RESET   0x08u   /* no cell: the reset button (§8.3); with row 1,
+                            * the power switched off and on               */
 #define KM_MENU    0x10u   /* no cell: the emulator menu (§14)             */
 #define KM_SHOT    0x20u   /* no cell: a screenshot to the card (§14)      */
 #define KM_JOY     0x40u   /* no cell: a joystick's line (§11.4): the row
@@ -250,6 +251,7 @@ typedef struct {
     bool pause_request;
     bool shot_request;
     bool reset_request;   /* the port presses the reset button (§8.3) */
+    bool power_request;   /* the port switches off and on (§13.3)     */
 } keymatrix_t;
 
 /* Empty, with no layout. */

@@ -713,6 +713,14 @@ one changed cell cost 0.28 ms, not the 0.05 ms the pixel count predicts.
 Measured scrolling text: 0 dropped snapshots over 3,300 fields; presents of
 0.1–5.5 ms.
 
+**A pixel coloured by its neighbours widens every span.** An artefact
+renderer that colours a pixel by the pixels around it (XRoar's 5-bit
+table looks two either side) changes pixels outside the bytes that
+changed, so the span sent must grow by that reach on each side. The same
+simulated-panel test shows it: on the CoCo, with a reach of 2, nothing
+was stale over a thousand changes; with 1 or 0, about 450 presents left
+stale pixels.
+
 ### 5.4 Geometry and what to leave out
 
 Draw the guest **1:1 at its native resolution**, centred, if it fits the

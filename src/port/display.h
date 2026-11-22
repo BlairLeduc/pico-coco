@@ -38,6 +38,11 @@ void display_init(void);
  * pool as soon as this returns. */
 void display_present(const coco_frame_t *f, display_stats_t *st);
 
+/* The border a full repaint left to the next present, filled now: for a
+ * page that presents only when it changes (the menu, the missing-ROM
+ * page), whose next present may be a key away. */
+void display_settle(void);
+
 /* Forget what is on the panel, so the next present sends every band. */
 void display_invalidate(void);
 
@@ -45,6 +50,11 @@ void display_invalidate(void);
  * (mc6847.h, design.md §9.2): the next present repaints every band, and
  * the border if its colour changes. */
 void display_set_t1(bool t1);
+
+/* The artefacts (§9.5): `how` 0 off, 1 simple, 2 full, as
+ * SETTINGS_ARTEFACTS_* numbers them, and the phase whose pair 01 is red
+ * (`red`) or blue. A change repaints every band. */
+void display_set_artefacts(unsigned how, bool red);
 
 /* The perf line at the panel's top and the status line at its foot
  * (§9.6): COCO_TEXT_COLS characters in the VDG's glyphs, capitals only,

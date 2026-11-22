@@ -102,6 +102,8 @@ typedef struct {
     uint32_t tape_unsaved;   /* the deck holds a recording not on the card */
     uint32_t deck;           /* the signal: a STATUS_DECK_ state (status.h) */
     int32_t  disk;           /* the drive whose head is loaded, -1 none (rsdos.h) */
+    uint32_t resets;         /* RESETs and power-ons since boot: core 1
+                              * chooses a random artefact phase on each (§9.5) */
 } core0_perf_t;
 
 extern volatile core0_perf_t g_c0;
@@ -168,9 +170,16 @@ typedef struct {
     volatile bool     fast_tape;
     /* The MC6847T1 drawn (display.h): core 1's alone. */
     volatile bool     vdg_t1;
+    /* The artefacts (§9.5): SETTINGS_ARTEFACTS_* and SETTINGS_PHASE_*,
+     * and the phase drawn now, red's or blue's, which "random" chooses
+     * at each of core 0's resets. Core 1's alone. */
+    volatile uint8_t  artefacts;
+    volatile uint8_t  artefact_phase;
+    volatile bool     artefact_red;
     /* A SmartWatch fitted (smartwatch.h): core 0 takes it each field. */
     volatile bool     smartwatch;
     volatile bool     reset;       /* the menu's Reset: core 0 clears it  */
+    volatile bool     power;       /* its Power off/on: core 0 clears it  */
     /* The Machine page's Apply: power on as restart_cfg, with the ROMs
      * and the cartridge core 1 has left in g_boot. Core 0 clears it. */
     volatile bool     restart;

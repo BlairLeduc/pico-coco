@@ -231,6 +231,11 @@ one: the core building clean without the SDK is what keeps SDK headers out of
   test that sets the machine's registers by hand runs a field before it
   takes a snapshot; one that steps a field's active lines calls
   `coco_run_blanking` first.
+- **The full artefacts colour a pixel by its neighbours** (§9.5): they
+  run over a line once composed (`mc6847_artefact_line`, from
+  `present_render_line`), and a dirty span widens by `present_t.reach`.
+  `test_vdg_oracle` holds them to XRoar's own renderer, linked from the
+  checkout (`xroar_render.c`).
 - **Planting a bug: wait a second, touch the file when it is restored,
   and stop on a compiler error.** Otherwise the test runs the last
   bug's binary (EL §3.3).

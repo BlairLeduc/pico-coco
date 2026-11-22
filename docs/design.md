@@ -125,7 +125,7 @@ word before the milestone that depends on them.
 | D12 | 2026-11-14 | 6809 undocumented opcodes are **trapped and counted** first; the archive run decides whether any is implemented (EL §3.1, §11.6). **Decided 2026-11-16 from M11's archive run**: every undocumented opcode is executed as the NMOS chip executes it, XRoar's model held by the oracle, and still counted (§7.1, §15.4). | Settled by the owner |
 | D13 | 2026-11-14 | The project is named **pico-coco**, after its first machine as the siblings are, with the card folder `/coco/`. The owner renamed the repository directory from `picocalc-xroar` when its GitHub origin was set up. | Settled by the owner |
 | D14 | 2026-11-14 | PicoCalc findings go into `hardware-notes.md`, and what generalises into `emulator-lessons.md`, as learned, each written to stand alone (EL §14.1). One branch and pull request per milestone, CI green on both builds. | Settled by the owner |
-| D15 | 2026-11-21 | **The MOOH** (512 KB and its MMU, a CoCo 1/2 cartridge), its memory in the Plus 2 W's PSRAM, revising D3's *no PSRAM*; other boards run without it. Not before PSRAM's cost is measured against SRAM (§21). A 4 KB-page variant after the 8 KB is held (§21.6). | Proposed |
+| D15 | 2026-11-21 | **The MOOH** (512 KB and its MMU, a CoCo 1/2 cartridge), its memory in the Plus 2 W's PSRAM, revising D3's *no PSRAM*; other boards run without it. Not before PSRAM's cost is measured against SRAM (§21). A 4 KB-page variant after the 8 KB is held (§21.6). **Deferred by the owner, 2026-11-22**: moved to a separate, aspirational CoCo build for OS-9; not built here, and D3 stands. | Deferred |
 
 ---
 
@@ -944,6 +944,37 @@ fails it.
   single pixels to pair, so only its table takes them; the mono palette
   shows none. The colours are XRoar's simple table's, a sky blue and an
   orange. The setting itself comes with the menu (M9).
+  **Settings and the full artefacts** (the owner, 2026-11-22). Three
+  ways to draw them, `artifacts = off | simple | full`, and the phase,
+  `artifact_phase = blue | red | random`; simple and blue by default.
+  *Full* is XRoar 1.13's default renderer, its 5-bit table: a pixel
+  that is black or buff, with both neighbours black or buff, takes its
+  colour from the five pixels centred on it (which are buff) and from
+  its phase, which alternates pixel by pixel from the active line's
+  first (XRoar's active area starts at sample 254 of its line, so the
+  first pixel takes KBRW's first table). Runs of lit pixels come out
+  white with coloured fringes, wherever they start. It applies in every
+  mode, as XRoar's does: a two-pixel pattern in RG3 colours too. It runs
+  over each line once composed (`mc6847_artefact_line`, from
+  `present_render_line`), so a change of mode along a line is seen as
+  the signal shows it; the border either side counts as a neighbour.
+  The 64 entries are XRoar's, data, generated from its file by script.
+  A pixel's colour reaches two pixels beside a changed byte, so a dirty
+  band's span widens by two (`present_t.reach`). With the dark
+  backgrounds drawn black, those colours are drawn a shade apart
+  (the lowest bit of green or red), since XRoar's renderer does not
+  take them for black. *Random* chooses the phase at each RESET and
+  power-on, as a real CoCo 1 or 2's VDG locks to either clock edge
+  ("press reset until the colours are right"); blue and red take effect
+  at once from the menu, which no CoCo 1 or 2 could do. Held by
+  `test_vdg_oracle` to XRoar's own `vo_render.c`, its 2-bit and 5-bit
+  renderers linked into the test with its palette code and fed its
+  VDG's output line by line (`xroar_render.c`): 160 fields, every mode,
+  both colour sets, both phases, the dark backgrounds both ways, every
+  pixel equal. XRoar's palette, with its start-up saturation of 50,
+  takes only black for black and buff for white, which the simple
+  rule's test had assumed. `test_present` holds the widened spans to
+  a full render; with a reach of 0 or 1, presents are left stale.
 - **The backgrounds.** XRoar's VDG, and so this one, gives dark green
   behind alphanumeric cells with CSS low, dark orange with it high, and
   dark green behind the two-colour graphics modes with CSS low; black
@@ -1506,6 +1537,9 @@ layout's name, and `fast_tape`, on by default; a layout the card does
 not have is said on the status row and the standard keys kept. Files are written with FatFs's fixed date
 (`FF_FS_NORTC`); the DS3231's time is used only by the SmartWatch
 (§12.7). **M13** adds `vdg` (§9.2) and `smartwatch` (§12.7).
+**2026-11-22** adds `artifacts` and `artifact_phase` (§9.5), spelt as
+the CoCo's manuals and its users spell the word; the code and these
+documents keep *artefact*.
 
 ### 12.7 The SmartWatch
 
@@ -1633,6 +1667,14 @@ no seed is taken from RAM, and both give 50 and 32 for their first two
 is powered on, in one documented order the host harness shares
 (EL §9.2).
 
+**The power switch** (the owner, 2026-11-22): the menu's Power off/on
+and Alt+O power on the running machine again, its RAM cleared, so
+BASIC starts cold, with the tape, cartridge and disks left in; the
+menu's Reset and Alt+K are the reset button, a warm start. Refused, as
+Apply is, while a recording is not on the card. Alt+O parks the guest
+for no work of core 1's (`PARK_POWER`), so the power-on comes after a
+park, where core 0 re-paces, as the menu's does.
+
 ---
 
 ## 14. User interface
@@ -1695,6 +1737,14 @@ does not keep it. Fast tape, off, plays the tape's signal (§12.3). The
 status line says `PLAY` or `REC` after the tape's name while the
 signal runs. The Keys page of the list above is this row, as on the
 siblings.
+
+**2026-11-22**: Setup gains Artifacts (off, simple, full) and Phase
+(blue, red, random, with the phase drawn now shown beside random),
+§9.5; the main page gains Power off/on after Reset (§13.3), and the
+help page Alt+O. The help page had fifteen rows of keys under its
+title on a page of sixteen, so the last were never shown; the function
+keys now share two rows, and each page's rows are checked against the
+status row at compile time.
 
 ---
 
@@ -1884,7 +1934,7 @@ configuration; once settled, it is a constant.
 | WD2797 against WD1793: which differences each DOS sees | Side select, some status bits | Low | Datasheets |
 | VDK and JVC header rules | Community descriptions | Low | A corpus of real files (EL §8.8) |
 | Seeds and flags in RAM at power-on (§13.3) | **M3, the CoCo**: none taken from RAM; the warm-start flag `$71`/`$55` fails on zeros (§13.3) | High | Both ROMs read |
-| Artefact colours: which pair gives which colour in each phase (§9.5) | Blue and red, swapped by phase. **M4**: XRoar's simple renderer's rule, its colours, and its two phases, KBRW its NTSC default; held to that rule applied to XRoar's VDG output by the oracle; no photograph compared | Low | XRoar's table; photographs of a real set |
+| Artefact colours: which pair gives which colour in each phase (§9.5) | Blue and red, swapped by phase. **M4**: XRoar's simple renderer's rule, its colours, and its two phases, KBRW its NTSC default; held to that rule applied to XRoar's VDG output by the oracle; no photograph compared. **2026-11-22**: the simple and full renderers held to XRoar's own 2-bit and 5-bit renderers; still XRoar's model, and no photograph compared | Low | XRoar's table; photographs of a real set |
 | The VDG's fetches on a line (§9.2) | **M4**: 42 bytes in the 32-byte modes and 22 in the 16-byte ones, on to the right border, each counted by the SAM; XRoar's VDG | Medium | MC6847 datasheet's timing; a mismatched pair on a real machine |
 | The VDG's address through the multiplexer (§9.2) | **M4**: no page bit P, and the first bank, as XRoar's fetch; only a machine with two banks or P set could tell | Low | MC6883 datasheet |
 | The VDG's mode pins while PIA1 port B is an input (§9.3) | **M4**: low, as XRoar's PIA has an undriven pin; seen only before BASIC sets the port's direction | Low | Schematics |
@@ -1948,8 +1998,10 @@ configuration; once settled, it is a constant.
   needed PSRAM (D1).
 - **Scaling the picture**: uneven doubling for 56 % more wire time
   (EL §5.4).
-- **Composite simulation and XRoar's finer artefact table**: the
-  byte-pair table gives the colours software drew with (§9.5).
+- **Composite simulation**: the byte-pair table gives the colours
+  software drew with (§9.5). XRoar's finer artefact table, dropped
+  with it at first, was built on 2026-11-22 at the owner's request as
+  the *full* artefacts (§9.5).
 - **Video noise** in the SAM's all-fast rate, and bus snow.
 - **A faster guest clock** as an emulator option: no common modification
   beyond the SAM's own rate bits (EL §9.3).
@@ -1960,7 +2012,9 @@ configuration; once settled, it is a constant.
 
 - **CoCo 3** (GIME, 512 KB, 640-sample modes) and **MC-10** (a 6803):
   machines of their own, after release.
-- **RAM expansions**: the MOOH is proposed in §21 (D15).
+- **RAM expansions**: the MOOH (§21, D15) was moved by the owner on
+  2026-11-22 to a separate project, an aspirational CoCo build for OS-9.
+  Not to be built here.
 - **The Dragon 32, 64, 200-E, Alpha and Professional, and PAL machines**:
   removed by the owner on 2026-11-16 (D6). Not deferred; out of scope.
 - ~~**The MC6847T1** and its lower case, for later CoCo 2s~~: built in
@@ -1978,6 +2032,11 @@ configuration; once settled, it is a constant.
 ---
 
 ## 21. Proposal: the MOOH's 512 KB
+
+**Deferred, 2026-11-22**: the owner moved this proposal to a separate
+project, an aspirational CoCo build for OS-9; nothing of it will be built
+here, and D3's *no PSRAM* stands. The section is kept as that project's
+starting point.
 
 **Proposed, 2026-11-21; nothing is built.** The owner asked whether the
 emulated CoCo could have extra memory, as a CoCo 3 or a MOOH does, and

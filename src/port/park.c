@@ -154,6 +154,8 @@ bool park_serve(void) {
     case PARK_MENU:
         menu_run(s_m, s_page, s_alt);
         break;
+    case PARK_POWER:   /* nothing of core 1's: core 0 powers on (park.h) */
+        break;
     case PARK_PAUSE: {
         bool alt;
         int page = pause_run(s_alt, &alt);

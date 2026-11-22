@@ -46,6 +46,11 @@
 #define SETTINGS_CART_DIR "/coco/carts"
 #define SETTINGS_DISK_DIR COCO_DISK_DIR
 
+/* The artefact colours (§9.5): off, XRoar's 2-bit renderer's, or its
+ * 5-bit one's; the phase whose pair 01 is blue or red, or either. */
+enum { SETTINGS_ARTEFACTS_OFF, SETTINGS_ARTEFACTS_SIMPLE, SETTINGS_ARTEFACTS_FULL };
+enum { SETTINGS_PHASE_BLUE, SETTINGS_PHASE_RED, SETTINGS_PHASE_RANDOM };
+
 typedef struct {
     bool       extended;    /* Extended Color BASIC, else Color BASIC alone */
     unsigned   ram_k;       /* 4, 16, 32 or 64 (§8.1)                    */
@@ -58,6 +63,11 @@ typedef struct {
     bool       fast_tape;   /* blocks served by the trap (§12.3)         */
     bool       vdg_t1;      /* the MC6847T1 drawn, not the MC6847 (§9.2) */
     bool       smartwatch;  /* a DS1216 at $FF78-$FF7F (§12.7)           */
+    /* The artefact colours (§9.5): how they are drawn, and their phase,
+     * which "random" chooses afresh at each reset, as a real CoCo's VDG
+     * comes up locked to either clock edge. */
+    uint8_t    artefacts;       /* SETTINGS_ARTEFACTS_*                  */
+    uint8_t    artefact_phase;  /* SETTINGS_PHASE_*                      */
     /* A layout's name, upper case; "" is the standard map (§11.3). */
     char       layout[COCO_KEYMAP_NAME_LEN + 1];
 
@@ -123,5 +133,10 @@ void settings_card_name(const char *dir, const char *path, char out[COCO_PATH_MA
  * "16", "32", "64". */
 const char *settings_basic_str(bool extended);
 const char *settings_ram_str(unsigned ram_k);
+
+/* The artefacts and their phase as the file writes them: "off",
+ * "simple", "full"; "blue", "red", "random". */
+const char *settings_artefacts_str(unsigned a);
+const char *settings_phase_str(unsigned p);
 
 #endif /* PICO_COCO_SETTINGS_H */

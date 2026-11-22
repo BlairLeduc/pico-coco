@@ -89,8 +89,14 @@ vdg_colour_t mc6847_border(uint8_t mode, bool t1) {
 
 /* ---- the table -------------------------------------------------------- */
 
+bool mc6847_artefacts_full(const mc6847_t *v) {
+    return vdg_artefact_full(v->artefact) && v->pal != mc6847_palette_mono;
+}
+
+/* The simple artefacts, in the table: RG6 with CSS high. */
 static bool artefacts_shown(const mc6847_t *v) {
-    return v->artefact != VDG_ARTEFACT_OFF && v->pal != mc6847_palette_mono &&
+    return v->artefact != VDG_ARTEFACT_OFF && !vdg_artefact_full(v->artefact) &&
+           v->pal != mc6847_palette_mono &&
            (v->mode & (VDG_AG | VDG_GM_MASK | VDG_CSS)) == (VDG_AG | VDG_GM_MASK | VDG_CSS);
 }
 
@@ -99,6 +105,13 @@ static void build_lut(mc6847_t *v) {
     if (!v->dark_bg) {
         v->col[VDG_DARK_GREEN] = v->pal[VDG_BLACK];
         v->col[VDG_DARK_ORANGE] = v->pal[VDG_BLACK];
+        /* The full artefacts know black by its colour, and XRoar's
+         * renderer does not take the dark backgrounds for black: a
+         * shade apart, the lowest bit of green or red. */
+        if (mc6847_artefacts_full(v)) {
+            v->col[VDG_DARK_GREEN] = (uint16_t)(v->pal[VDG_BLACK] ^ 0x0020u);
+            v->col[VDG_DARK_ORANGE] = (uint16_t)(v->pal[VDG_BLACK] ^ 0x0800u);
+        }
     }
     v->lut_valid = true;
 
@@ -129,7 +142,7 @@ static void build_lut(mc6847_t *v) {
          * as XRoar's simple renderer has them (§9.5). Only RG6 has single
          * pixels to pair; the coarser modes' pairs are always alike. */
         uint16_t pair[4] = { bg, v->col[VDG_ARTEFACT_BLUE], v->col[VDG_ARTEFACT_RED], fg };
-        if (v->artefact == VDG_ARTEFACT_KRBW) {
+        if (vdg_artefact_krbw(v->artefact)) {
             pair[1] = v->col[VDG_ARTEFACT_RED];
             pair[2] = v->col[VDG_ARTEFACT_BLUE];
         }
@@ -295,6 +308,80 @@ void mc6847_render_line(const mc6847_t *v, const uint8_t *bytes, unsigned y, uin
             uint16_t *d = dst + b * 16u;
             for (unsigned i = 0; i < 16u; i++) d[i] = e[i];
         }
+    }
+}
+
+/* ---- the full artefacts (§9.5) ----------------------------------------- */
+
+/* XRoar 1.13's 5-bit table (vo_render.c's cmp_lut_5bit), by phase and by
+ * the five pixels centred on one, the leftmost in bit 4, a bit set where
+ * the pixel is buff: data, held entry by entry to XRoar's renderer by
+ * test_vdg_oracle. The first phase is KBRW's on even pixels. */
+static const uint16_t art5[2][32] = {
+    {
+        RGB565(0x00, 0x00, 0x00), RGB565(0x00, 0x00, 0x00),
+        RGB565(0x00, 0x32, 0x78), RGB565(0x00, 0x28, 0x00),
+        RGB565(0xFF, 0x8C, 0x64), RGB565(0xFF, 0x8C, 0x64),
+        RGB565(0xFF, 0xD2, 0xFF), RGB565(0xFF, 0xF0, 0xC8),
+        RGB565(0x00, 0x32, 0x78), RGB565(0x00, 0x00, 0x3C),
+        RGB565(0x00, 0x80, 0xFF), RGB565(0x00, 0x80, 0xFF),
+        RGB565(0xD2, 0xFF, 0xD2), RGB565(0xFF, 0xFF, 0xFF),
+        RGB565(0x64, 0xF0, 0xFF), RGB565(0xFF, 0xFF, 0xFF),
+        RGB565(0x3C, 0x00, 0x00), RGB565(0x3C, 0x00, 0x00),
+        RGB565(0x00, 0x00, 0x00), RGB565(0x00, 0x28, 0x00),
+        RGB565(0xFF, 0x80, 0x00), RGB565(0xFF, 0x80, 0x00),
+        RGB565(0xFF, 0xFF, 0xFF), RGB565(0xFF, 0xF0, 0xC8),
+        RGB565(0x28, 0x00, 0x28), RGB565(0x28, 0x00, 0x28),
+        RGB565(0x00, 0x80, 0xFF), RGB565(0x00, 0x80, 0xFF),
+        RGB565(0xFF, 0xF0, 0xC8), RGB565(0xFF, 0xF0, 0xC8),
+        RGB565(0xFF, 0xFF, 0xFF), RGB565(0xFF, 0xFF, 0xFF),
+    },
+    {
+        RGB565(0x00, 0x00, 0x00), RGB565(0x00, 0x00, 0x00),
+        RGB565(0xB4, 0x3C, 0x1E), RGB565(0x28, 0x00, 0x28),
+        RGB565(0x46, 0xC8, 0xFF), RGB565(0x46, 0xC8, 0xFF),
+        RGB565(0xD2, 0xFF, 0xD2), RGB565(0x64, 0xF0, 0xFF),
+        RGB565(0xB4, 0x3C, 0x1E), RGB565(0x3C, 0x00, 0x00),
+        RGB565(0xFF, 0x80, 0x00), RGB565(0xFF, 0x80, 0x00),
+        RGB565(0xFF, 0xD2, 0xFF), RGB565(0xFF, 0xFF, 0xFF),
+        RGB565(0xFF, 0xF0, 0xC8), RGB565(0xFF, 0xFF, 0xFF),
+        RGB565(0x00, 0x00, 0x3C), RGB565(0x00, 0x00, 0x3C),
+        RGB565(0x00, 0x00, 0x00), RGB565(0x28, 0x00, 0x28),
+        RGB565(0x00, 0x80, 0xFF), RGB565(0x00, 0x80, 0xFF),
+        RGB565(0xFF, 0xFF, 0xFF), RGB565(0x64, 0xF0, 0xFF),
+        RGB565(0x00, 0x28, 0x00), RGB565(0x00, 0x28, 0x00),
+        RGB565(0xFF, 0x80, 0x00), RGB565(0xFF, 0x80, 0x00),
+        RGB565(0x64, 0xF0, 0xFF), RGB565(0x64, 0xF0, 0xFF),
+        RGB565(0xFF, 0xFF, 0xFF), RGB565(0xFF, 0xFF, 0xFF),
+    },
+};
+
+void mc6847_artefact_line(const mc6847_t *v, uint16_t *px, uint16_t left, uint16_t right) {
+    if (!mc6847_artefacts_full(v)) return;
+    const uint16_t black = v->col[VDG_BLACK], white = v->col[VDG_BUFF];
+    /* Per pixel, from two left of the line to two right: bit 1 black or
+     * white, bit 0 white, as XRoar's is_black_or_white has it. */
+    uint8_t f[COCO_PIC_W + 4u];
+    uint8_t fl = left == white ? 3u : left == black ? 2u : 0u;
+    uint8_t fr = right == white ? 3u : right == black ? 2u : 0u;
+    f[0] = f[1] = fl;
+    f[COCO_PIC_W + 2u] = f[COCO_PIC_W + 3u] = fr;
+    bool any = false;
+    for (unsigned x = 0; x < COCO_PIC_W; x++) {
+        uint16_t c = px[x];
+        uint8_t k = c == white ? 3u : c == black ? 2u : 0u;
+        f[x + 2u] = k;
+        any |= k == 3u;
+    }
+    /* With no buff on the line or beside it, the table gives black for
+     * black: nothing changes where black is drawn as the table's. */
+    if (!any && !(fl & 1u) && !(fr & 1u) && black == art5[0][0]) return;
+    unsigned p = vdg_artefact_krbw(v->artefact) ? 1u : 0u;
+    unsigned idx = (f[0] & 1u) << 3 | (f[1] & 1u) << 2 | (f[2] & 1u) << 1 | (f[3] & 1u);
+    for (unsigned x = 0; x < COCO_PIC_W; x++) {
+        /* f[x + 2] is pixel x: the window is f[x .. x + 4]. */
+        idx = ((idx << 1) | (f[x + 4u] & 1u)) & 31u;
+        if (f[x + 1u] & f[x + 2u] & f[x + 3u] & 2u) px[x] = art5[(x & 1u) ^ p][idx];
     }
 }
 

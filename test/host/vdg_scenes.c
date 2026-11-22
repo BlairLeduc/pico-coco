@@ -93,6 +93,25 @@ static void fill_artefact(uint8_t *ram, uint8_t mode) {
             ram[VDG_SCENE_BASE + y * 32u + c] = bands[c / 4u];
 }
 
+/* RG6 in bands of 12 lines: lit runs of 1 to 8 pixels with gaps as
+ * long, starting on an even column in the top eight bands and an odd
+ * one in the rest, for the full artefacts (§9.5): runs of three or more
+ * white with fringes, either way. */
+static void fill_runs(uint8_t *ram, uint8_t mode) {
+    (void)mode;
+    for (unsigned y = 0; y < 192u; y++) {
+        unsigned band = y / 12u, run = band % 8u + 1u, off = band / 8u;
+        for (unsigned c = 0; c < 32u; c++) {
+            uint8_t b = 0;
+            for (unsigned p = 0; p < 8u; p++) {
+                unsigned x = c * 8u + p;
+                if (x >= off && ((x - off) / run) % 2u == 0u) b |= (uint8_t)(0x80u >> p);
+            }
+            ram[VDG_SCENE_BASE + y * 32u + c] = b;
+        }
+    }
+}
+
 /* ---- the list -------------------------------------------------------- */
 
 #define G(gm) (uint8_t)(VDG_AG | (gm) << VDG_GM_SHIFT)
@@ -123,6 +142,10 @@ const vdg_scene_t vdg_scenes[] = {
     { "sg24", 0x00, 6, VDG_ARTEFACT_OFF, fill_sg },
     { "rg6-kbrw", G(7) | VDG_CSS, 6, VDG_ARTEFACT_KBRW, fill_artefact },
     { "rg6-krbw", G(7) | VDG_CSS, 6, VDG_ARTEFACT_KRBW, fill_artefact },
+    { "rg6-full-kbrw", G(7) | VDG_CSS, 6, VDG_ARTEFACT_FULL_KBRW, fill_artefact },
+    { "rg6-full-krbw", G(7) | VDG_CSS, 6, VDG_ARTEFACT_FULL_KRBW, fill_artefact },
+    { "rg6-runs-simple", G(7) | VDG_CSS, 6, VDG_ARTEFACT_KBRW, fill_runs },
+    { "rg6-runs-full", G(7) | VDG_CSS, 6, VDG_ARTEFACT_FULL_KBRW, fill_runs },
 };
 const unsigned vdg_scene_count = sizeof vdg_scenes / sizeof vdg_scenes[0];
 

@@ -96,21 +96,48 @@ static uint32_t uart_keys(keymatrix_t *k, const coco_t *m) {
     return PARK_NONE;
 }
 
+/* RESET, counted for core 1's artefact phase (handoff.h). */
+static void reset_button(coco_t *m) {
+    coco_reset(m);
+    g_c0.resets++;
+}
+
+/* The power switched off and on (§13.3): the machine that runs, powered
+ * on again, its RAM cleared, so BASIC starts cold; the tape, cartridge
+ * and disks stay in. Refused while a recording is not on the card, as
+ * the Machine page's Apply is (EL §10). True if it was done. */
+static bool power_cycle(coco_t *m, const char *who) {
+    if (tapeio_unsaved(m)) {
+        log_printf("  %-13s: off and on refused: a recording is not saved\n", who);
+        return false;
+    }
+    machine_t mc = g_machine;
+    core0_power_on(m, &mc);
+    coco_cassette_set_fast(m, g_ui.fast_tape);
+    log_printf("  %-13s: powered off and on\n", who);
+    return true;
+}
+
 /* The keys that ask the emulator rather than the guest for something
  * (§14): the menu and pause park the guest at the next boundary; Alt+K
  * presses the reset button: RESET, which Color BASIC takes as a warm
- * start, the program kept (§8.3, §13.3). Returns the park, or
- * PARK_NONE. */
+ * start, the program kept (§8.3, §13.3); Alt+O switches the power off
+ * and on, after a park, as the menu's Power off/on does. Returns the
+ * park, or PARK_NONE. */
 static uint32_t requests(keymatrix_t *k, coco_t *m) {
     uint32_t why = PARK_NONE;
-    if (k->reset_request) {
-        coco_reset(m);
+    if (k->power_request) {
+        g_ui.power = true;
+        why = PARK_POWER;
+    } else if (k->reset_request) {
+        reset_button(m);
         log_printf("  keys         : the reset button\n");
     }
     if (k->menu_request) why = PARK_MENU;
     else if (k->pause_request) why = PARK_PAUSE;
     if (k->shot_request) log_printf("  keys         : screenshots are not in this firmware yet\n");
     k->reset_request = k->pause_request = k->menu_request = k->shot_request = false;
+    k->power_request = false;
     return why;
 }
 
@@ -133,6 +160,7 @@ void core0_power_on(coco_t *m, const machine_t *mc) {
      * CART line (§12.2). */
     if (rsdos) coco_cart_autostart(m, false);
     coco_power_on(m);
+    g_c0.resets++;
     tapeio_attach(m);
     dskio_attach(m);
 #if PICO_COCO_AUDIO
@@ -161,8 +189,12 @@ static bool apply_ui(coco_t *m) {
 #endif
     if (g_ui.reset) {
         g_ui.reset = false;
-        coco_reset(m);
+        reset_button(m);
         log_printf("  menu         : reset (the RESET line)\n");
+    }
+    if (g_ui.power) {
+        g_ui.power = false;
+        if (power_cycle(m, "power")) return true;
     }
     if (g_ui.restart) {
         machine_t mc = g_ui.restart_cfg;

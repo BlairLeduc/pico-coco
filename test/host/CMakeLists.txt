@@ -99,6 +99,18 @@ if (EXISTS ${PICO_COCO_XROAR_DIR}/src/mc6847/mc6847.c)
         ${PICO_COCO_XROAR_DIR}/src/events.c
         ${PICO_COCO_XROAR_DIR}/portalib/delegate.c
         xroar_vdg.c
+        # Its composite renderer, for the artefacts (§9.5).
+        ${PICO_COCO_XROAR_DIR}/src/vo_render.c
+        ${PICO_COCO_XROAR_DIR}/src/ntsc.c
+        ${PICO_COCO_XROAR_DIR}/src/filter.c
+        ${PICO_COCO_XROAR_DIR}/src/colourspace.c
+        ${PICO_COCO_XROAR_DIR}/src/messenger.c
+        ${PICO_COCO_XROAR_DIR}/src/ui.c
+        ${PICO_COCO_XROAR_DIR}/src/vdg_palette.c
+        ${PICO_COCO_XROAR_DIR}/portalib/xmalloc.c
+        ${PICO_COCO_XROAR_DIR}/portalib/intfuncs.c
+        ${PICO_COCO_XROAR_DIR}/portalib/slist.c
+        xroar_render.c
     )
     target_include_directories(xroar_vdg PRIVATE
         ${PICO_COCO_XROAR_DIR}
@@ -118,7 +130,7 @@ if (EXISTS ${PICO_COCO_XROAR_DIR}/src/mc6847/mc6847.c)
         font_6847t1=xr_font_6847t1)
 
     add_executable(test_vdg_oracle test_vdg_oracle.c)
-    target_link_libraries(test_vdg_oracle PRIVATE pico_coco_core xroar_vdg)
+    target_link_libraries(test_vdg_oracle PRIVATE pico_coco_core xroar_vdg m)
     target_include_directories(test_vdg_oracle PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_options(test_vdg_oracle PRIVATE ${PICO_COCO_WARNINGS})
 else()
