@@ -92,8 +92,7 @@ int main(void) {
     /* The drive at work in the cartridge's place (rsdos.h). */
     status_format("/coco/tapes/PIPES.CAS", false, STATUS_DECK_IDLE, "rsdos", 1,
                   "/coco/disks/GAMES.DSK", line);
-    CHECK(strncmp(line, "TAPE: PIPES.CAS", 15) == 0 &&
-          strcmp(line + COCO_TEXT_COLS - 15, "DISK 1: GAMES.DSK") != 0 &&
+    CHECK(strncmp(line, "TAPE: PIPES.CAS", 15) == 0 && line[COCO_TEXT_COLS - 18] == ' ' &&
           strcmp(line + COCO_TEXT_COLS - 17, "DISK 1: GAMES.DSK") == 0, "a drive at work: [%s]", line);
     status_format("", false, STATUS_DECK_IDLE, "rsdos", 2, "", line);
     CHECK(strcmp(trimmed() + strlen(trimmed()) - 13, "DISK 2: EMPTY") == 0, "an empty drive: [%s]", line);

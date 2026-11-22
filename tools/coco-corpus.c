@@ -667,19 +667,19 @@ static void disk_entry(const host_disk_t *d, char *cmd, size_t cap, char *why, s
         return;
     }
     if (nbas == 1) {
-        snprintf(cmd, cap, "RUN\"%s\"", bas[0]);
+        snprintf(cmd, cap, "RUN\"%.12s\"", bas[0]);
         snprintf(why, wcap, "one-bas");
         return;
     }
     for (unsigned s = 0; nbas > 1 && s < sizeof k_starters / sizeof k_starters[0]; s++)
         for (unsigned i = 0; i < nbas; i++)
             if (!strcmp(bas[i], k_starters[s])) {
-                snprintf(cmd, cap, "RUN\"%s\"", bas[i]);
+                snprintf(cmd, cap, "RUN\"%.12s\"", bas[i]);
                 snprintf(why, wcap, "starter");
                 return;
             }
     if (nbas == 0 && nbin == 1) {
-        snprintf(cmd, cap, "LOADM\"%s\":EXEC", bin[0]);
+        snprintf(cmd, cap, "LOADM\"%.12s\":EXEC", bin[0]);
         snprintf(why, wcap, "one-bin");
         return;
     }
@@ -808,11 +808,14 @@ static int run_disk(const char *path, const struct stat *st, long fields, const 
         unsigned cols = 0;
         for (unsigned c = 0; c < COCO_KEY_COLS; c++)
             if (g.m.key_col_reads[c] >= 16u) cols |= 1u << c;
-        snprintf(out, sizeof out, "%s\tdsk\t%s\t%u\t%u\t%u\t%s\t%u\t%s\t%s\t%s\t%s\t%u\t%u\t%u\t%u\t%02X\t%s",
-                 name, outcome, n, bytes, (unsigned)s_rl.total, ops, (unsigned)g.m.split_fields,
-                 changed, lines, mstr, note, s_rl.regions, (unsigned)g.m.split_dropped,
-                 (unsigned)g.m.joy_samples[COCO_JOY_RIGHT], (unsigned)g.m.joy_samples[COCO_JOY_LEFT],
-                 cols, cmd);
+        int w = snprintf(out, sizeof out,
+                         "%s\tdsk\t%s\t%u\t%u\t%u\t%s\t%u\t%s\t%s\t%s\t%s\t%u\t%u\t%u\t%u\t%02X\t%s",
+                         name, outcome, n, bytes, (unsigned)s_rl.total, ops,
+                         (unsigned)g.m.split_fields, changed, lines, mstr, note, s_rl.regions,
+                         (unsigned)g.m.split_dropped, (unsigned)g.m.joy_samples[COCO_JOY_RIGHT],
+                         (unsigned)g.m.joy_samples[COCO_JOY_LEFT], cols, cmd);
+        /* A name long enough to fill the line: the report shows it cut. */
+        if (w < 0 || (size_t)w >= sizeof out) out[sizeof out - 2] = '~';
         if (shots) shot(shots, name);
     }
     s_disk_mode = false;
