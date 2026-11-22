@@ -13,9 +13,10 @@ pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
 **Status: M13 is built and checked on the host, over the UART and by
-the owner on the panel, and M12 is done; next, each line fetched as the
-field runs, for titles that draw in step with the beam (Dragonfire's
-room)** (`docs/design.md` §17, `docs/milestones.md`).
+the owner on the panel, and M12 is done; after M13, each active line is
+fetched as the field runs, for titles that draw in step with the beam,
+checked on the panel with Dragonfire's room** (`docs/design.md` §9.3,
+§17, `docs/milestones.md`).
 M13: disks, the WD1793 behind the RS-DOS cartridge with its HALT
 pacing, JVC/DSK images from `/coco/disks/` (`wd1793.h`, `jvc.h`,
 `rsdos.h`, `dskio.h`, `test_disk`); Tandy OS-9 Level One and NitrOS-9
@@ -223,6 +224,13 @@ one: the core building clean without the SDK is what keeps SDK headers out of
 - **A frame's lines have modes of their own** (`coco_frame_t.how`, §9.4):
   draw one with `present_render_line`, and call `coco_frame_plain` on a
   frame you fill by hand.
+- **Each active line is fetched as it is shown** (`coco_t.vid_lines`,
+  §9.3), and a field's run ends where FS falls. A line is fetched at a
+  slice's boundary or before a write that would change it: RAM the VDG
+  may fetch (those pages write by the slow path), PIA1 or the SAM. A
+  test that sets the machine's registers by hand runs a field before it
+  takes a snapshot; one that steps a field's active lines calls
+  `coco_run_blanking` first.
 - **Planting a bug: wait a second, touch the file when it is restored,
   and stop on a compiler error.** Otherwise the test runs the last
   bug's binary (EL §3.3).

@@ -107,10 +107,20 @@ void coco_tape_page(coco_t *m) {
     if (!sam6883_ty(&m->sam)) m->page[TAPE_PAGE].read = rom_page(m, TAPE_PAGE);
 }
 
+static void lines_due(coco_t *m, uint64_t now);
+static void vid_protect(coco_t *m);
+
+/* A RAM index the VDG may fetch from this field (§9.3). */
+static inline bool vid_page(const coco_t *m, int32_t i) {
+    unsigned p = (unsigned)i >> 8;
+    return (m->vid_pages[p >> 5] >> (p & 31u)) & 1u;
+}
+
 /* Rebuilt when a bit that chooses the map changes: the SAM's M, P and TY,
- * and a ROM loaded. A RAM page takes the fast path when its 256 bytes lie
- * in order in one chip bank; otherwise every byte is translated on the
- * slow path. The page of tape routines takes the slow path while a
+ * a ROM loaded, and a field's start. A RAM page takes the fast path when
+ * its 256 bytes lie in order in one chip bank, and its writes do unless
+ * the VDG may fetch from it this field (§9.3); otherwise every byte is
+ * translated on the slow path. The page of tape routines takes the slow path while a
  * routine of it is about to be trapped (tape.h). */
 static void map(coco_t *m) {
     bool ty = sam6883_ty(&m->sam);
@@ -121,7 +131,7 @@ static void map(coco_t *m) {
             int32_t i0 = 0;
             bool flat = page_in_order(m, base, &i0);
             pg->read = flat ? &m->ram[i0] : NULL;
-            pg->write = flat ? &m->ram[i0] : NULL;
+            pg->write = flat && !vid_page(m, i0) ? &m->ram[i0] : NULL;
         } else if (p < 0xC0u) {
             pg->read = rom_page(m, p);
             pg->write = NULL;
@@ -286,6 +296,8 @@ uint8_t coco_vdg_mode(const coco_t *m) {
 static uint32_t video_bits(const coco_t *m) {
     return ((uint32_t)coco_vdg_mode(m) << 16) | (m->sam.reg & (SAM_V_MASK | SAM_F_MASK));
 }
+
+static void mode_written(coco_t *m, uint64_t t);
 
 /* After a write that may change the video bits: if they changed while the
  * VDG was showing an active line, this field shows more than one mode,
@@ -528,6 +540,7 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
     }
     if (off < 0x40u) {
         before_pia(m);
+        lines_due(m, access_tick(m));   /* in the mode they had (§9.3) */
         mc6821_write(&m->pia1, reg, v);
         if (reg == 3u) cart_q(m, access_tick(m) + m->tpc);
         if (reg == 1u) cassette_motor(m, motor_on(m), access_tick(m));
@@ -535,6 +548,7 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
             cassette_dac(m, mc6821_out(&m->pia1.a) & 0xFCu, access_tick(m));
         update_sound(m);
         note_video(m, access_tick(m) + COCO_PIA_VIDEO_TICKS);
+        mode_written(m, access_tick(m));
         update_irq(m);
         if (reg & 1u) mc6809_stop(&m->cpu);
         return;
@@ -544,7 +558,9 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         return;
     }
     if (off >= 0xC0u && off < 0xE0u) {
+        lines_due(m, access_tick(m));   /* with the V they had (§9.3) */
         uint16_t changed = sam6883_write(&m->sam, a);
+        if (changed & SAM_M_MASK) vid_protect(m);   /* the chips' organisation */
         if (changed & SAM_MAP_BITS) map(m);
         if (changed & SAM_R_MASK) retime(m);
         if (changed & (SAM_V_MASK | SAM_F_MASK)) note_video(m, access_tick(m));
@@ -569,13 +585,30 @@ uint8_t COCO_HOT1(coco_slow_read)(coco_t *m, uint16_t a) {
 }
 
 void COCO_HOT1(coco_slow_write)(coco_t *m, uint16_t a, uint8_t v) {
+    /* A page of RAM the VDG may fetch from this field, the only RAM page
+     * that reads fast and writes here (map): the lines shown before the
+     * write, as they were (§9.3), then the byte. */
+    /* As integers: r may be NULL or point into ROM, and a relational
+     * compare of unrelated pointers is undefined in C. */
+    const uint8_t *r = m->page[a >> 8].read;
+    uintptr_t off = (uintptr_t)r - (uintptr_t)m->ram;
+    if (off < COCO_ADDR_SPACE) {
+        if (m->vid_line < COCO_PIC_H) lines_due(m, access_tick(m));
+        m->ram[off + (a & 0xFFu)] = v;
+        return;
+    }
     if ((a >> 8) == COCO_IO_PAGE) {
         io_write(m, a, v);
         return;
     }
     if (ram_space(m, a)) {
         int32_t i = coco_ram_index(m, a);
-        if (i >= 0) m->ram[i] = v;
+        if (i >= 0) {
+            /* A page out of order in the chips: the lines shown before
+             * the write, as they were (§9.3). */
+            if (m->vid_line < COCO_PIC_H && vid_page(m, i)) lines_due(m, access_tick(m));
+            m->ram[i] = v;
+        }
     }
     /* A write to ROM goes nowhere. */
 }
@@ -601,6 +634,7 @@ void coco_init(coco_t *m, const coco_config_t *cfg) {
     mc6809_init(&m->cpu);
     wd_init(&m->dk.fdc);
     pcm_init(&m->pcm, 0, COCO_SOUND_LEVEL_MAX, COCO_TICK_HZ, 0, 0);
+    m->vid_bytes_mode = 0x01u;   /* no mode yet (lines_due) */
     map(m);
 }
 
@@ -639,10 +673,14 @@ void coco_cart_autostart(coco_t *m, bool on) {
 }
 
 void coco_reset(coco_t *m) {
+    lines_due(m, coco_ticks(m));   /* in the state they had (§9.3) */
     mc6821_reset(&m->pia0);
     mc6821_reset(&m->pia1);
     sam6883_reset(&m->sam);
     tape_reset(m);
+    /* M is cleared, which reorganises the chips: the pages the VDG may
+     * fetch for the rest of the field, from the base FS's rise loaded. */
+    vid_protect(m);
     map(m);
     retime(m);
     uint64_t t = coco_ticks(m);
@@ -654,6 +692,7 @@ void coco_reset(coco_t *m) {
     cart_q(m, t + m->tpc);
     update_irq(m);
     update_sound(m);   /* the bus holds what it had: nothing drives it */
+    mode_written(m, t);   /* the PIA's outputs go to inputs: mode $00 */
     mc6809_reset(m);
     if (m->cfg.rsdos) rsdos_reset(m);
     else {
@@ -661,6 +700,8 @@ void coco_reset(coco_t *m) {
         mc6809_set_nmi(&m->cpu, false);
     }
 }
+
+static void lines_begin(coco_t *m);
 
 void coco_power_on(coco_t *m) {
     memset(m->ram, 0, sizeof(m->ram));   /* §13.3 */
@@ -684,6 +725,121 @@ void coco_power_on(coco_t *m) {
     m->split_dropped = 0;
     coco_reset(m);
     m->video_bits = video_bits(m);
+    m->vid_shown = coco_vdg_mode(m);
+    m->vid_next_at = UINT64_MAX;
+    vid_protect(m);
+    map(m);
+    lines_begin(m);
+}
+
+/* ---- the lines as fetched (§9.3) ------------------------------------- */
+
+/* One line's bytes through the SAM's counter: HS clears its low bits,
+ * then the VDG fetches through the right border, 42 bytes a line in its
+ * 32-byte modes and 22 in its 16-byte ones, of which the picture shows
+ * the first 32 or 16 (XRoar's VDG, §18: medium). The dividers are wired
+ * for V as the line begins. */
+static void COCO_HOT1(fetch_bytes)(const coco_t *m, sam6883_vc_t *vc, unsigned shown, unsigned v,
+                                   uint8_t *dst) {
+    unsigned fetched = shown == 32u ? 42u : 22u;
+    vc->v = (uint8_t)v;
+    sam6883_vc_hsync(vc);
+    unsigned got = 0;
+    while (got < fetched) {
+        uint16_t a;
+        unsigned n = sam6883_vc_fetch(vc, fetched - got, &a);
+        if (got < shown) {
+            unsigned k = n < shown - got ? n : shown - got;
+            /* Sixteen bytes from a 16-byte boundary lie in order in the
+             * chips: the low four address bits are row bits. */
+            int32_t i = coco_vram_index(m, a);
+            if (i < 0) memset(dst + got, 0xFF, k);
+            else       memcpy(dst + got, &m->ram[i], k);
+        }
+        got += n;
+    }
+    if (shown < COCO_VDG_LINE_BYTES) memset(dst + shown, 0, COCO_VDG_LINE_BYTES - shown);
+}
+
+/* The tick line y of this field has its first byte fetched. */
+static inline uint64_t line_fetch_tick(const coco_t *m, unsigned y) {
+    return m->field_start + (uint64_t)(COCO_ACTIVE_LINE + y) * COCO_LINE_TICKS +
+           COCO_LINE_ACTIVE_TICKS;
+}
+
+/* The VDG's mode the picture shows at tick t: a PIA1 write's, from
+ * COCO_PIA_VIDEO_TICKS after it (§9.4). */
+static uint8_t shown_mode(coco_t *m, uint64_t t) {
+    if (m->vid_next_at <= t) {
+        m->vid_shown = m->vid_next;
+        m->vid_next_at = UINT64_MAX;
+    }
+    return m->vid_shown;
+}
+
+/* A PIA1 write at tick t that may change the VDG's mode. */
+static void mode_written(coco_t *m, uint64_t t) {
+    uint8_t mode = coco_vdg_mode(m);
+    uint64_t at = t + COCO_PIA_VIDEO_TICKS;
+    (void)shown_mode(m, at);
+    if (mode == (m->vid_next_at == UINT64_MAX ? m->vid_shown : m->vid_next)) return;
+    m->vid_next = mode;
+    m->vid_next_at = at;
+}
+
+/* FS rises: the counter is loaded from F, and the field's lines are
+ * fetched from its first. */
+/* The RAM pages the VDG may fetch from, from vid_base: the counter only
+ * counts up from it, and 192 lines of at most 42 bytes, 8,064, lie
+ * within 8 KB of it, wrapping at 64 KB. Sixteen bytes from a 16-byte
+ * boundary lie in one place in the chips. The caller remaps. */
+static void vid_protect(coco_t *m) {
+    m->vid_prot_base = m->vid_base;
+    m->vid_prot_m = (uint16_t)(m->sam.reg & SAM_M_MASK);
+    memset(m->vid_pages, 0, sizeof m->vid_pages);
+    for (unsigned k = 0; k < 8192u; k += 16u) {
+        int32_t i = coco_vram_index(m, (uint16_t)(m->vid_base + k));
+        if (i < 0) continue;
+        unsigned p = (unsigned)i >> 8;
+        m->vid_pages[p >> 5] |= 1u << (p & 31u);
+    }
+}
+
+static void lines_begin(coco_t *m) {
+    m->vid_bytes_mode = 0x01u;   /* no mode: its low three bits are 0 */
+    sam6883_vc_load(&m->vid_vc, &m->sam);
+    m->vid_base = sam6883_display_base(&m->sam);
+    m->vid_line = 0;
+    m->vid_whole = true;
+    /* The page table again only when the pages change: rebuilding it is
+     * 2,300 translations, 4 % of core 0 at 60 fields a second. */
+    if (m->vid_base != m->vid_prot_base || (m->sam.reg & SAM_M_MASK) != m->vid_prot_m) {
+        vid_protect(m);
+        map(m);
+    }
+}
+
+/* The lines whose first byte is due by now, each whole at that moment:
+ * taken a byte at a time at each byte's tick instead, Dragonfire's room
+ * was drawn the same in 76 fields of 76 (docs/milestones.md). Called at
+ * each slice's boundary, and before anything that would change what a
+ * line due by then fetched: a write to RAM the VDG may fetch, and a
+ * write to PIA1 or the SAM, each at its own cycle. So the run need not
+ * stop at each line. */
+static void COCO_HOT1(lines_due)(coco_t *m, uint64_t now) {
+    while (m->vid_line < COCO_PIC_H && line_fetch_tick(m, m->vid_line) <= now) {
+        unsigned y = m->vid_line;
+        uint8_t mode = shown_mode(m, line_fetch_tick(m, y));
+        unsigned v = sam6883_v(&m->sam);
+        m->vid_mode[y] = mode;
+        m->vid_v[y] = (uint8_t)v;
+        if (mode != m->vid_bytes_mode) {   /* the table is in flash */
+            m->vid_bytes_mode = mode;
+            m->vid_bytes = (uint8_t)mc6847_mode_info(mode)->bytes_per_line;
+        }
+        fetch_bytes(m, &m->vid_vc, m->vid_bytes, v, &m->vid_lines[y * COCO_VDG_LINE_BYTES]);
+        m->vid_line++;
+    }
 }
 
 /* A slice ends at the target, or a cycle after a PIA's interrupt output
@@ -701,6 +857,7 @@ uint32_t COCO_HOT2(coco_run)(coco_t *m, uint32_t ticks) {
          * between runs, is seen at this boundary. */
         if (now >= m->tpc) raise_due(m, now - m->tpc);
         update_irq(m);
+        lines_due(m, now);
         if (now >= target) break;
         uint64_t stop = target;
         if (m->pia0.a.cr & MC6821_CR_C1_IRQ) {
@@ -732,21 +889,21 @@ uint32_t COCO_HOT2(coco_run)(coco_t *m, uint32_t ticks) {
     return (uint32_t)(coco_ticks(m) - start);
 }
 
-/* FS falls at its line, set at the first boundary at or after it (or
- * sooner, by an access to a PIA), and rises as the next field begins; the
- * run goes on to that field's first active line, where the snapshot is
- * taken (EL §5.6). */
-uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
-    uint64_t start = coco_ticks(m);
+/* A field's run ends where FS falls, as the line after its 192 active
+ * ones begins: every line has been fetched as it was shown (§9.3), and
+ * the snapshot is of the field just shown. The next run begins with the
+ * blanking, FS low, until it rises as the next field begins and the
+ * SAM's counter is loaded; then that field's active lines. FS falls at
+ * the first boundary at or after its line, or sooner, by an access to a
+ * PIA. A run from a field's start (a power-on, a state restored before
+ * its fall) goes to that field's fall. */
+void COCO_HOT2(coco_run_blanking)(coco_t *m) {
     uint64_t fall = m->field_start + (uint64_t)COCO_FS_FALL_LINE * COCO_LINE_TICKS;
     uint64_t end = m->field_start + (uint64_t)COCO_FIELD_LINES * COCO_LINE_TICKS;
-
     uint64_t now = coco_ticks(m);
-    if (now < fall) (void)coco_run(m, (uint32_t)(fall - now));
-    fs_catch_up(m, fall);
+    if (now < fall) return;
+    fs_catch_up(m, now);
     update_irq(m);
-
-    now = coco_ticks(m);
     if (now < end) (void)coco_run(m, (uint32_t)(end - now));
     c1_edge(m, 1, true, end);
     m->sound_fed = true;
@@ -756,14 +913,23 @@ uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
     m->fields++;
     if (m->video_split) m->split_fields++;
     m->video_split = false;
-    /* The changes the field just shown had are the coming one's (§9.4). */
+    lines_begin(m);
+}
+
+uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
+    uint64_t start = coco_ticks(m);
+    coco_run_blanking(m);
+    uint64_t fall = m->field_start + (uint64_t)COCO_FS_FALL_LINE * COCO_LINE_TICKS;
+    uint64_t now = coco_ticks(m);
+    if (now < fall) (void)coco_run(m, (uint32_t)(fall - now));
+    fs_catch_up(m, fall);
+    update_irq(m);
+
+    /* The changes this field's active lines had, which its snapshot is
+     * drawn by (§9.4). */
     memcpy(m->split_last, m->split_now, m->n_split_now * sizeof m->split_now[0]);
     m->n_split_last = m->n_split_now;
     m->n_split_now = 0;
-
-    uint64_t active = end + (uint64_t)COCO_ACTIVE_LINE * COCO_LINE_TICKS;
-    now = coco_ticks(m);
-    if (now < active) (void)coco_run(m, (uint32_t)(active - now));
     /* The samples up to here, for the port to drain with the snapshot. */
     pcm_advance(&m->pcm, (uint32_t)coco_ticks(m));
     return (uint32_t)(coco_ticks(m) - start);
@@ -771,13 +937,10 @@ uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
 
 /* ---- the snapshot (§9.3) ---------------------------------------------- */
 
-/* The VDG fetches through the right border as well, 42 bytes a line in
- * its 32-byte modes and 22 in its 16-byte ones, and the SAM's counter
- * counts them all; the picture shows the first 32 or 16. XRoar's VDG
- * (§18: medium). In matched modes the extra bytes change nothing; in
- * some mismatched ones they move the X divider. Only the active lines
- * fetch, and HS clears part of the counter before each. */
-/* In SRAM from tier 1 with the counter it walks: from flash it cost core
+/* The field's lines as they were fetched (§9.3), or RAM as it is. In
+ * matched modes the bytes fetched through the right border change
+ * nothing; in some mismatched ones they move the X divider (fetch_bytes).
+ * In SRAM from tier 1 with the counter it walks: from flash it cost core
  * 0 4.8 % at the idle prompt once it drew each line's mode (§9.4;
  * docs/milestones.md, M12). */
 void COCO_HOT1(coco_video_snapshot)(const coco_t *m, coco_frame_t *out) {
@@ -788,59 +951,56 @@ void COCO_HOT1(coco_video_snapshot)(const coco_t *m, coco_frame_t *out) {
     out->sam_v = (uint8_t)v;
     out->base = sam6883_display_base(&m->sam);
     out->field = m->fields;
-    /* The last field's changes (§9.4): a title that splits the screen
-     * does it every field, at the same places. A line is fetched by the
-     * VDG's mode as it begins, with the SAM's dividers chosen by V as it
-     * was then, the counter going on from where it stood; a change along
-     * the line is drawn from its pixel, from the bytes the line fetched,
-     * and its V is the next line's. */
     out->splits = m->n_split_last;
     const coco_split_t *s = m->split_last, *end = s + m->n_split_last;
 
-    /* The bytes a line fetches, worked out when its mode is a new one. */
-    uint8_t fetch_mode = mode;
-    unsigned shown = mc6847_mode_info(mode)->bytes_per_line;
-    unsigned fetched = shown == 32u ? 42u : 22u;
+    /* The field fetched from its first line (§9.3): each line's bytes as
+     * the VDG fetched them, in the mode it began, and the changes along
+     * it from pixel x (§9.4). */
+    if (m->vid_whole && m->vid_line == COCO_PIC_H) {
+        out->mode = m->vid_mode[0];
+        out->sam_v = m->vid_v[0];
+        out->base = m->vid_base;
+        memcpy(out->lines, m->vid_lines, sizeof out->lines);
+        for (unsigned y = 0; y < COCO_PIC_H; y++) {
+            coco_line_t *how = &out->how[y];
+            *how = (coco_line_t){ .mode = m->vid_mode[y] };
+            for (; s < end && s->line < y; s++) {}
+            for (unsigned k = 0; s < end && s->line == y; s++) {
+                if (s->x == 0) continue;   /* the line's mode as it began */
+                /* More than a line has room for: the last takes the newest. */
+                if (k == COCO_LINE_SPLITS) k--;
+                else how->x[k] = s->x;
+                how->m[k++] = s->mode;
+            }
+        }
+        return;
+    }
 
+    /* Otherwise, after a power-on or a restored state, RAM as it is, each
+     * line fetched by the VDG's mode as it began, with the SAM's dividers
+     * chosen by V as it was then, the counter going on from where it
+     * stood; a change along the line is drawn from its pixel, from the
+     * bytes the line fetched, and its V is the next line's. */
     sam6883_vc_t vc;
     sam6883_vc_load(&vc, &m->sam);
     for (unsigned y = 0; y < COCO_PIC_H; y++) {
-        uint8_t *dst = &out->lines[y * COCO_VDG_LINE_BYTES];
         coco_line_t *how = &out->how[y];
         for (; s < end && s->line == y && s->x == 0; s++) {
             mode = s->mode;
             v = s->sam_v;
         }
         *how = (coco_line_t){ .mode = mode };
-        vc.v = (uint8_t)v;
-        if (mode != fetch_mode) {
-            fetch_mode = mode;
-            shown = mc6847_mode_info(mode)->bytes_per_line;
-            fetched = shown == 32u ? 42u : 22u;
-        }
+        unsigned line_v = v;
+        uint8_t line_mode = mode;
         for (unsigned k = 0; s < end && s->line == y; s++) {
-            /* More than a line has room for: the last takes the newest. */
             if (k == COCO_LINE_SPLITS) k--;
             else how->x[k] = s->x;
             how->m[k++] = mode = s->mode;
             v = s->sam_v;
         }
-        sam6883_vc_hsync(&vc);
-        unsigned got = 0;
-        while (got < fetched) {
-            uint16_t a;
-            unsigned n = sam6883_vc_fetch(&vc, fetched - got, &a);
-            if (got < shown) {
-                unsigned k = n < shown - got ? n : shown - got;
-                /* Sixteen bytes from a 16-byte boundary lie in order in
-                 * the chips: the low four address bits are row bits. */
-                int32_t i = coco_vram_index(m, a);
-                if (i < 0) memset(dst + got, 0xFF, k);
-                else       memcpy(dst + got, &m->ram[i], k);
-            }
-            got += n;
-        }
-        if (shown < COCO_VDG_LINE_BYTES) memset(dst + shown, 0, COCO_VDG_LINE_BYTES - shown);
+        fetch_bytes(m, &vc, mc6847_mode_info(line_mode)->bytes_per_line, line_v,
+                    &out->lines[y * COCO_VDG_LINE_BYTES]);
     }
 }
 
@@ -872,6 +1032,16 @@ void coco_restored(coco_t *m) {
     memset(m->keys, 0, sizeof(m->keys));
     joysticks_centre(m);
     m->n_split_now = m->n_split_last = 0;   /* a field brings them back (§9.4) */
+    /* The lines already shown this field are not in the state: this
+     * field's snapshot walks RAM, and the next is fetched (§9.3). */
+    m->vid_whole = false;
+    m->vid_base = sam6883_display_base(&m->sam);   /* as FS's rise loaded it */
+    vid_protect(m);
+    m->vid_shown = coco_vdg_mode(m);
+    m->vid_next_at = UINT64_MAX;
+    m->vid_line = 0;
+    while (m->vid_line < COCO_PIC_H && line_fetch_tick(m, m->vid_line) <= coco_ticks(m))
+        m->vid_line++;
     /* The signal from a byte's start, the relay as the PIA has it. */
     m->cas.motor = false;
     cassette_moved(m);

@@ -771,25 +771,36 @@ static int run_disk(const char *path, const struct stat *st, long fields, const 
         bool captured = cap_field >= 0;
         if (captured && g.m.cpu.cycles >= hi) break;
         field();
-        if (have_ref && g.m.cpu.cycles >= lo) {
-            /* As XRoar's is drawn: the field's end state alone, since a
-             * snapshot holds no changes along the field (§9.4). */
-            uint16_t splits = g.m.n_split_last;
-            g.m.n_split_last = 0;
-            render(&g.m, ours);
-            g.m.n_split_last = splits;
+        /* Our field ends where FS falls (design.md §9.3), XRoar's snapshot
+         * at a field's end: each moment is taken from a copy run on to the
+         * end of its field, when one is near. */
+        static coco_t s_cmp;
+        uint64_t now = g.m.cpu.cycles;
+        bool near = now + FIELD_CYCLES >= (have_ref ? lo : until);
+        if (near) {
+            coco_copy(&s_cmp, &g.m);
+            coco_run_blanking(&s_cmp);
+            now = s_cmp.cpu.cycles;
+        }
+        if (have_ref && near && now >= lo) {
+            /* As XRoar's is drawn: RAM at one moment, with no changes
+             * along the field, since a snapshot holds neither each line
+             * as it was fetched (§9.3) nor the changes (§9.4). */
+            s_cmp.n_split_last = 0;
+            s_cmp.vid_whole = false;
+            render(&s_cmp, ours);
             unsigned px = 0;
             for (unsigned k = 0; k < FRAME_RGB_BYTES; k += 3)
                 px += memcmp(ours + k, ref + k, 3) != 0;
             /* In fields from the capture, by the cycle count. */
-            long off = (long)(((int64_t)g.m.cpu.cycles - (int64_t)until) / (int64_t)FIELD_CYCLES);
+            long off = (long)(((int64_t)now - (int64_t)until) / (int64_t)FIELD_CYCLES);
             if (px < best_px || (px == best_px && labs(off) < labs(best_off))) {
                 best_px = px;
                 best_off = off;
             }
-            if (cap_field < 0 && g.m.cpu.cycles >= until) at_px = px;
+            if (cap_field < 0 && now >= until) at_px = px;
         }
-        if (captured || g.m.cpu.cycles < until) continue;
+        if (captured || now < until) continue;
 
         /* The capture: what is reported, and the picture compared. */
         cap_field = s_field;
@@ -909,6 +920,7 @@ static const char *read_sna(const char *path, coco_t *m) {
     m->pia1.b.ddr = (uint8_t)ddr;
     m->pia1.b.out = (uint8_t)out;
     m->n_split_last = 0;
+    m->vid_whole = false;   /* drawn from the RAM it holds (§9.3) */
     return NULL;
 }
 

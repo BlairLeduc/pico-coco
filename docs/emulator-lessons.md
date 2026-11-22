@@ -848,9 +848,13 @@ build split rendering only if the count asks. When it does:
   places, and one that changes mode once is a field late, as any
   change of mode is.
 - **A fixed table a line, not a list to search**: the mode the line
-  begins in and room for two changes along it. The presenter indexes
-  it by line, compares it by band with a `memcmp`, and a third change
-  on a line folds into the second. The machine keeps the list, since
+  begins in and room for the changes along it. The presenter indexes
+  it by line, compares it by band with a `memcmp`, and one change too
+  many folds into the last. **Size the room by the hardware, not by the
+  first titles**: the CoCo's two were enough for Dark Star and Rommel's
+  Revenge, but Dragonfire makes four on some lines and six on others,
+  and the folded ones drew half its moat in the wrong colours. A line's
+  pixels last 32 CPU cycles and the quickest store takes 4: eight. The machine keeps the list, since
   it must note changes as they come; the snapshot turns it into the
   table as it walks the lines anyway.
 - **The shadow keeps how each line was drawn** (§5.3): a band whose
@@ -864,6 +868,52 @@ build split rendering only if the count asks. When it does:
   see a bug in it; a test of the machine that checks pixels can. Of
   nine bugs planted in the CoCo's, the presenter's own test missed
   the one in the function it shares with its checker.
+
+### 5.11 Fetch each line as it is shown, if anything draws in step with the beam
+
+A snapshot of video memory at one moment a field (§5.6) is wrong for a
+program that draws in step with the beam: Dragonfire on the CoCo
+erases each moving figure just after the beam has passed it and draws
+it again before the beam comes back, so a snapshot shows the
+background whole and only slivers of the figures. Real hardware shows
+each line as the beam reaches it; the emulator has to fetch it then.
+
+- **A probe first.** A step hook that copies each byte at the tick the
+  video chip fetches it, against the snapshot, showed the fault, and
+  then showed that taking each line whole at its first byte's tick drew
+  the same picture as byte by byte in every field it could check. A
+  line at a time is enough.
+- **Do not stop the run at every line.** Ending a slice at each of 192
+  lines cost the CoCo's core 0 about 6 points: the stops, not the
+  copying. Fetch lazily instead: at each slice's boundary, take the
+  lines due by then, and before anything that would change what a due
+  line fetched, take those first: a write to memory the video chip may
+  fetch this field, and a write to the registers that set its mode, each
+  at its own cycle. The result is the same picture, and at the write's
+  cycle, not the boundary after it.
+- **Catch those writes with the page table** (§4.1): the pages the
+  chip may fetch this field write by the slow path, which takes the
+  due lines and stores. Test first in the slow path for such a page,
+  before the I/O decode and the address translation, and **rebuild
+  the page table only when those pages change**: rebuilding it every
+  field was 2,300 translations and 4 % of a core at 60 fields a second.
+  Idle, the cost fell to about a point; a program that writes the
+  screen pays for its slow path, about 4 points scrolling BASIC.
+- **Hand the frame over where the last active line has been fetched**:
+  where the field's vertical-sync flag falls. The rule of §5.6, to take
+  it where the next frame begins, was there so that a redraw during
+  the blanking is finished; fetching each line as it is shown meets
+  that by construction, and the frame is the one just shown rather than
+  the one about to be.
+- **Test it with a byte drawn ahead of the beam and erased behind it**,
+  shown on its lines when fetched and on none when memory is walked
+  where the flag falls, the control. Run it through each write path the
+  page table has: the CoCo's screen writes take a short path when its
+  pages lie in order in the chips and the general one when they do not,
+  and a bug planted in either passed the test that used only the other.
+- Moving where the field's run ends moves anything measured in runs:
+  the CoCo's measured key holds changed by a field either way, with the
+  keyboard's own timing still typing every key.
 
 ---
 

@@ -720,7 +720,8 @@ drawn from the T1's lower case.
 ### 9.3 The snapshot
 
 Published at the end of each field, **where the next active line begins**
-(EL §5.6):
+(EL §5.6); since 2026-11-22, where FS falls, each line having been
+fetched as it was shown (below, EL §5.11):
 
 - the VDG mode byte (A/G, GM0–GM2, CSS) and the SAM's video mode;
 - **the bytes the SAM would fetch this field**, copied from guest RAM
@@ -754,6 +755,66 @@ snapshot's modes with the presented ones first, and a change marks every
 band dirty and rebuilds the table. Otherwise it diffs bytes against the
 shadow in bands of 8 rows with a column span, and sends each dirty band
 as one LCD window.
+
+**Each line fetched as it is shown** (2026-11-22). Dragonfire's room
+draws its moving figures in step with the beam, erasing each just after
+the beam has passed it and drawing it again before the beam comes back,
+so a snapshot taken from RAM at one moment showed the room and its
+items but only slivers of the dragon and the player, and no fireball.
+Now the machine fetches each active line's bytes through the SAM's
+counter as the line's first byte is fetched, with the VDG's mode the
+picture shows then (a PIA write's 1 µs late, §9.4) and the SAM's V,
+into `coco_t.vid_lines`; the counter loads F as FS rises. A field's run
+ends where FS falls, the line after its 192 active ones (§13.1), and the
+snapshot copies the field just shown; a field not fetched from its
+first line, after a power-on or a restored state, is walked from RAM as
+before. Taken a byte at a time at each byte's tick instead, Dragonfire's
+room was drawn the same in every field a probe could check (66 of 66;
+in the other ten the game shows CG6 at SAM V0, which the probe did not
+model).
+
+The run does not stop at each line. A line is fetched at the first of:
+a slice's boundary after its first byte is due, a write to RAM the VDG
+may fetch from this field, or a write to PIA1 or the SAM, each at its
+own cycle. The CPU pages over the 8 KB from the field's base, 192 lines
+of at most 42 bytes, write by the slow path, whose first test is for
+such a page; the page table is rebuilt only when the base or the RAM's
+organisation changes. First built stopping the run at each line, 192
+stops a field, which cost core 0 about 6 points on the board; then as
+above. Measured on the owner's board against M13's image in one
+sitting, eight windows each (`out/beam/`, not committed):
+
+| Workload | M13 | Stopping each line | As built |
+|---|---:|---:|---:|
+| Idle prompt | 22.7 % | 28.5 % | 23.5 % |
+| Scrolling `PRINT` | 23.1 % | 29.6 % | 27.4 % |
+| `compute` | 18.7 % | — | 19.5 % |
+| `pmode4` | 18.5 % | — | 19.7 % |
+| `set` | 18.6 % | — | 19.4 % |
+| `sound` | 23.7 % | — | 24.9 % |
+
+The last four were measured in a second sitting the same day, the two
+images one after the other. A program that writes the screen pays for
+its writes' slow path; one that does not pays about a point. The
+snapshot's share of core 0 fell from 3.6 % to 0.3 %, since it copies the
+fetched lines; the guest's share rose by about 4 points. `test_video`
+holds it: a byte drawn ahead of the beam and erased behind it is shown
+on its row's 12 lines, with the SAM at 4K, every write on the general
+slow path, and at 64K, the screen's writes on the short one; RAM walked
+where FS falls, the control, shows it on none. Planted, one at a time:
+the snapshot never taking the fetched lines, no fetch before a write on
+either path, and none before a PIA1 write; each failed it. The trace
+diff agrees with XRoar as before.
+
+The disk archive (§15.4), rerun against XRoar on 2026-11-22: 1,015
+titles show XRoar's picture at the capture and 486 at another moment
+within 10 s, against M13's 1,031 and 468; 1,501 either way, against
+1,499. The titles that moved are mostly text screens one cursor apart
+that match 0.1 s away, both ways. Most likely the typed command lands at
+another point in the cursor's blink, since keys are pressed between
+fields and the field's run now ends where FS falls; not traced title by
+title. The comparison itself is taken at XRoar's moment, the end of the
+field, from a copy of the machine run on to it.
 
 ### 9.4 Changes of mode within a field
 
@@ -801,10 +862,11 @@ loads F only as the field begins. Up to eight changes a line are kept
 for a field (`COCO_SPLIT_MAX`), more dropped and counted; Dragon Fire
 makes 284.
 
-The snapshot is taken where the next active line begins, before the
-changes of the field it shows, so it is drawn by **the last whole
+The snapshot was taken where the next active line begins, before the
+changes of the field it shows, so it was drawn by **the last whole
 field's**: a title that splits the screen does so every field at the
-same places. `coco_frame_t.how` says, for each line, the mode it begins
+same places. Since each line is fetched as it is shown (§9.3, 2026-11-22),
+the snapshot is the field just shown, drawn by its own changes. `coco_frame_t.how` says, for each line, the mode it begins
 in and up to eight changes along it (two until 2026-11-22: Dragonfire
 makes up to six, on its moat's lower edge); a line's pixels last 32 E
 cycles and the quickest store to the PIA takes 4, so a ninth is not
@@ -826,9 +888,10 @@ shared XIP cache (HW §9.9; `docs/milestones.md`, M12).
 
 Not modelled: a change of the VDG's bytes a line (16 or 32) or of V
 part-way along a line, which is the next line's; the glitches XRoar
-models when V changes; a field's own changes in that field, which show
-a field late; and the regions after a state is loaded, which a field
-brings back (§12.5).
+models when V changes; and the regions after a state is loaded, which a
+field brings back (§12.5). A field's own changes in that field, which
+showed a field late, are modelled since each line is fetched as it is
+shown (§9.3).
 
 **A PIA write reaches the picture 1 µs late** (2026-11-22): 14 ticks,
 7 pixels after the write's cycle ends (`COCO_PIA_VIDEO_TICKS`), the
@@ -1512,7 +1575,8 @@ power-on (13 lines of blanking, 25 of top border, 192 active), and rises
 as the next field's line 0 begins, as XRoar counts them. The trace diff
 holds this core to XRoar's field interrupts for 50 guest seconds (M3).
 The line counts are the MC6847 datasheet's for NTSC. The snapshot is
-taken where the next active line begins.
+taken where FS falls, since each line is fetched as it is shown (§9.3);
+until 2026-11-22 it was taken where the next active line begins.
 
 From M3 to M11 the Dragon 32 ran on the host on XRoar's PAL field of 312
 lines. With the Dragon removed (D6, 2026-11-16) the field's shape is
@@ -1531,6 +1595,18 @@ first field after power-on runs from tick 0. `test_video` holds the
 rules above with a guest loop and a 58-line redraw, and snapshots taken
 where FS rises as the control. The trace diff agrees as before, since the
 split adds a boundary and moves no instruction.
+
+**Since 2026-11-22** a field's run ends where FS falls (§9.3): it runs
+the last field's blanking, FS low, then FS rising as this field begins
+and the SAM's counter loading (`coco_run_blanking`, which a test that
+steps a field's active lines calls alone), then this field's active
+lines, to its fall. The first after power-on runs from tick 0 to field
+0's fall. `test_video`'s control for the redraw now walks RAM where FS
+rises, as the snapshot did before each line was fetched as it ran. The
+keyboard's measured holds moved with the end (`test_keyboard`): a key
+goes down part of the way into a run and up as one ends, so 1.1 and
+Extended need 2 fields where they needed 3, and 1.3 needs 3 where it
+needed 2; the replay's 4 and 2 type all three.
 
 ### 13.2 Clocks
 

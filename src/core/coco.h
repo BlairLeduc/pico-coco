@@ -161,6 +161,30 @@ typedef struct coco_s {
     uint16_t n_split_now, n_split_last;
     uint32_t split_dropped;    /* changes past COCO_SPLIT_MAX in a field */
 
+    /* §9.3: each active line's bytes as the VDG fetched them, taken as
+     * the line's first byte is fetched, through the SAM's counter loaded
+     * as FS rose, with the VDG's mode and the SAM's V of that moment.
+     * `vid_line` is the next line to fetch; `vid_whole` says this field
+     * has been fetched from its first line, which a field run from its
+     * start has and a power-on or a restored state part-way through one
+     * has not (the snapshot then walks RAM as it is). Not state. */
+    uint8_t  vid_lines[COCO_PIC_H * COCO_VDG_LINE_BYTES];
+    uint8_t  vid_mode[COCO_PIC_H], vid_v[COCO_PIC_H];
+    sam6883_vc_t vid_vc;
+    uint16_t vid_base;
+    uint8_t  vid_line;
+    bool     vid_whole;
+    /* The VDG's mode as the picture has it: a PIA1 write reaches it
+     * COCO_PIA_VIDEO_TICKS late, so the newest is held until then. */
+    uint8_t  vid_shown, vid_next;
+    uint64_t vid_next_at;
+    uint8_t  vid_bytes_mode, vid_bytes;   /* a mode and its bytes a line */
+    /* The RAM pages, by index >> 8, the VDG may fetch from this field:
+     * their CPU pages write by the slow path, which takes the lines due
+     * before the write lands. */
+    uint32_t vid_pages[COCO_ADDR_SPACE / COCO_PAGE_SIZE / 32u];
+    uint16_t vid_prot_base, vid_prot_m;   /* the base and M they are for */
+
     /* RAM: the chips' organisation, from the size (§8.1). */
     uint8_t  ram_addr_bits;    /* address bits of one chip              */
     uint8_t  ram_row_bits;
@@ -219,16 +243,23 @@ void     coco_reset(coco_t *m);
  * count, and the caller carries the overshoot (§6, EL §2.2). */
 uint32_t coco_run(coco_t *m, uint32_t ticks);
 
-/* One field, split where FS falls and where it rises (§13.1), ending
- * where the next field's first active line begins, which is where the
- * caller takes the snapshot (EL §5.6). The first after power-on runs from
- * tick 0. Returns its ticks. */
+/* One field: from where the last one's FS fell, its blanking (FS low,
+ * then FS rising as this field begins and the SAM's counter loading),
+ * then its active lines, each fetched as it is shown, to where its FS
+ * falls, which is where the caller takes the snapshot (§9.3, §13.1). The
+ * first after power-on runs from tick 0. Returns its ticks. */
 uint32_t coco_run_field(coco_t *m);
 
-/* What the VDG will show in the field whose active lines begin now
- * (§9.3): its mode as PIA1 port B drives it, and each line's bytes as the
- * SAM's counter fetches them in the SAM's mode, from RAM as it is now.
- * Called after coco_run_field. */
+/* coco_run_field's first half, for a test that steps through a field's
+ * active lines: from FS's fall, or from past it, to the next field's
+ * start. Nothing before the fall. */
+void     coco_run_blanking(coco_t *m);
+
+/* What the VDG showed in the field whose run just ended (§9.3): each
+ * line's bytes as the SAM's counter fetched them as it was shown, in the
+ * VDG's mode as the line began, and the changes along it (§9.4). A field
+ * not fetched from its first line, after a power-on or a restored state,
+ * is walked from RAM as it is now. Called after coco_run_field. */
 void     coco_video_snapshot(const coco_t *m, coco_frame_t *out);
 
 /* The VDG's mode as PIA1 port B drives it now. */
