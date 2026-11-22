@@ -79,8 +79,11 @@ const mc6847_mode_info_t *mc6847_mode_info(uint8_t mode) {
     return &modes[(mode & VDG_GM_MASK) >> VDG_GM_SHIFT];
 }
 
-vdg_colour_t mc6847_border(uint8_t mode) {
-    if (!(mode & VDG_AG)) return VDG_BLACK;
+vdg_colour_t mc6847_border(uint8_t mode, bool t1) {
+    if (!(mode & VDG_AG)) {
+        if (t1 && (mode & 0x60u) == 0x40u) return (mode & VDG_CSS) ? VDG_ORANGE : VDG_GREEN;
+        return VDG_BLACK;
+    }
     return (mode & VDG_CSS) ? VDG_BUFF : VDG_GREEN;
 }
 
@@ -166,6 +169,10 @@ void mc6847_set_font(mc6847_t *v, const uint8_t *font) {
     v->font = font;
 }
 
+void mc6847_set_t1(mc6847_t *v, const uint8_t *font_t1) {
+    v->font_t1 = font_t1;
+}
+
 void mc6847_set_palette(mc6847_t *v, const uint16_t *pal) {
     if (pal == v->pal) return;
     v->pal = pal;
@@ -231,6 +238,23 @@ static void text_cell(const mc6847_t *v, uint8_t byte, unsigned row, bool ext, b
     for (unsigned x = 0; x < 8u; x++) dst[x] = ((bits >> (7u - x)) & 1u) ? fg : bg;
 }
 
+/* A T1's character cell (mc6847.h): GM0 high, the byte's seven bits
+ * pick the glyph and the cell is inverted; low, $40..$7F by its six with
+ * D6 as INV. GM1 inverts either. */
+static void t1_cell(const mc6847_t *v, uint8_t byte, unsigned row, uint8_t mode,
+                    uint16_t *dst) {
+    bool lower = (mode & VDG_GM0) != 0;
+    unsigned glyph = lower ? (byte & 0x7Fu) : (0x40u | (byte & 0x3Fu));
+    bool inv = lower || (byte & VDG_BYTE_INV);
+    if (mode & 0x20u) inv = !inv;
+    uint8_t bits = v->font_t1[glyph * MC6847_FONT_ROWS + row];
+    if (inv) bits = (uint8_t)~bits;
+    bool css = (mode & VDG_CSS) != 0;
+    uint16_t fg = v->col[css ? VDG_ORANGE : VDG_GREEN];
+    uint16_t bg = v->col[css ? VDG_DARK_ORANGE : VDG_DARK_GREEN];
+    for (unsigned x = 0; x < 8u; x++) dst[x] = ((bits >> (7u - x)) & 1u) ? fg : bg;
+}
+
 /* ---- a line ----------------------------------------------------------- */
 
 void mc6847_render_line(const mc6847_t *v, const uint8_t *bytes, unsigned y, uint16_t *dst) {
@@ -240,6 +264,14 @@ void mc6847_render_line(const mc6847_t *v, const uint8_t *bytes, unsigned y, uin
         unsigned row = y % MC6847_FONT_ROWS;
         bool gm0 = (v->mode & VDG_GM0) != 0;
         bool css = (v->mode & VDG_CSS) != 0;
+        if (v->font_t1) {
+            for (unsigned c = 0; c < 32u; c++) {
+                uint8_t b = bytes[c];
+                if (b & VDG_BYTE_AS) sg_cell(v, b, row, false, css, dst + c * 8u);
+                else                 t1_cell(v, b, row, v->mode, dst + c * 8u);
+            }
+            return;
+        }
         for (unsigned c = 0; c < 32u; c++) {
             uint8_t b = bytes[c];
             if (b & VDG_BYTE_AS) sg_cell(v, b, row, gm0, css, dst + c * 8u);

@@ -163,14 +163,26 @@ int main(void) {
         mc.basic = roms_basic_for(&g_boot.job, mc.ram_k, &mc.extended, &why);
     }
     if (why) log_printf("  guest        : %s\n", why);
+    /* The RS-DOS cartridge, where Disk BASIC can run (roms.h). */
+    if (mc.cart && card_is_rsdos(g_boot.cart_path)) {
+        const char *no = roms_rsdos_why(mc.ram_k, mc.extended);
+        if (no) {
+            log_printf("  guest        : cart = rsdos: %s; no cartridge\n", no);
+            mc.cart = false;
+            g_boot.cart_len = 0;
+            g_boot.cart_path[0] = 0;
+        } else {
+            mc.rsdos = true;
+        }
+    }
     core0_power_on(&g_coco, &mc);
     coco_config_t cfg = g_coco.cfg;
-    log_printf("  guest        : CoCo, %u KB, %s (%s%s), %lu ticks a field, "
+    log_printf("  guest        : CoCo, %u KB, %s (%s%s%s), %lu ticks a field, "
                "hot code in SRAM to tier %u (hot.h)%s\n",
                cfg.ram_k, roms_basic_name(mc.extended ? BOOT_EXTENDED
                                           : mc.basic == ROM_COCO_BAS11 ? BOOT_COLOR11 : BOOT_COLOR13),
                romset_images[mc.basic].file,
-               mc.extended ? ", extbas11.rom" : "",
+               mc.extended ? ", extbas11.rom" : "", cfg.rsdos ? ", RS-DOS with disk11.rom" : "",
                (unsigned long)COCO_FIELD_TICKS,
                (unsigned)PICO_COCO_RAM_TIER,
                PICO_COCO_FIELD_LOG ? ", logging the first fields" : "");

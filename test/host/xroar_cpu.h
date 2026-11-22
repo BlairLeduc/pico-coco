@@ -42,6 +42,9 @@ void          xr_load(const xr_regs_t *r, bool irq, bool firq, bool nmi);
 void          xr_save(xr_regs_t *r);
 void          xr_lines(bool irq, bool firq, bool nmi);
 
+/* The HALT line, from the next cycle; may be called from the cycle hook. */
+void          xr_halt(bool asserted);
+
 /* The RESET sequence, from the next xr_run. */
 void          xr_reset(void);
 

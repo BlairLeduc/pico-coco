@@ -17,3 +17,4 @@ media/*
 !media/README.md
 
 .DS_Store
+__pycache__/

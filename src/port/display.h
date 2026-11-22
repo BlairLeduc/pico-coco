@@ -41,6 +41,11 @@ void display_present(const coco_frame_t *f, display_stats_t *st);
 /* Forget what is on the panel, so the next present sends every band. */
 void display_invalidate(void);
 
+/* The MC6847T1 drawn, the CoCo 2B's VDG with lower case, or the MC6847
+ * (mc6847.h, design.md §9.2): the next present repaints every band, and
+ * the border if its colour changes. */
+void display_set_t1(bool t1);
+
 /* The perf line at the panel's top and the status line at its foot
  * (§9.6): COCO_TEXT_COLS characters in the VDG's glyphs, capitals only,
  * the screen's green on black, each drawn only when its text differs

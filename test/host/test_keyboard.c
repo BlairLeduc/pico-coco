@@ -265,6 +265,16 @@ static int editing_keys(void) {
     fresh();
     guest_press(&g, '0', false, true);
     uint8_t lower = peek(0x011A);
+    /* In lower case the PicoCalc's Shift is the CoCo's: a, then Shift+A,
+     * decode as $61 and $41 (2026-11-17). The control is upper case,
+     * above, where every capital typed with Shift decoded as itself. */
+    n_decoded = 0;
+    guest_press(&g, 'a', false, false);
+    guest_press(&g, 'A', true, false);
+    guest_fields(&g, 4);
+    CHECK(n_decoded == 2 && decoded[0] == 0x61 && decoded[1] == 0x41,
+          "%s: in lower case, a then Shift+A decoded %d: $%02X $%02X", label, n_decoded,
+          n_decoded > 0 ? decoded[0] : 0, n_decoded > 1 ? decoded[1] : 0);
     guest_press(&g, '0', false, true);
     CHECK(lower == 0x00 && peek(0x011A) == 0xFF, "%s: Alt+0 twice gave CASFLG $%02X then $%02X",
           label, lower, peek(0x011A));

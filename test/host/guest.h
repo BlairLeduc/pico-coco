@@ -47,6 +47,12 @@ void guest_build(guest_t *g, unsigned ram_k, bool extended);
  * present. */
 void guest_build_as(guest_t *g, unsigned ram_k, rom_id_t basic, bool extended);
 
+/* Disk Extended Color BASIC: Color BASIC 1.3, Extended 1.1 and the
+ * RS-DOS cartridge with Disk BASIC 1.1, in `ram_k` of 16 or more. The
+ * caller checks the images are present and serves the drives
+ * (disk_util.h), from after_field. */
+void guest_build_disk(guest_t *g, unsigned ram_k);
+
 /* Run fields until "OK" shows at the start of a screen row, or for ten
  * guest seconds. True if it showed. */
 bool guest_boot(guest_t *g);

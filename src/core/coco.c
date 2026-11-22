@@ -17,6 +17,7 @@
 void coco_config_default(coco_config_t *cfg) {
     cfg->ram_k = 64;
     cfg->tape_trap = true;
+    cfg->rsdos = false;
 }
 
 /* The chips for each size, as XRoar fits them: 4K x 1, 16K x 1, 32K x 1
@@ -508,7 +509,10 @@ static uint8_t io_read(coco_t *m, uint16_t a) {
     }
     if (off >= 0xE0u)   /* the vectors, from the BASIC ROM whatever the map */
         return m->rom_present[1] ? m->rom[COCO_ROM_SIZE - 0x20u + (off - 0xE0u)] : open_bus(m);
-    return open_bus(m);  /* M13: cartridge I/O at $FF40; the rest unused */
+    if (m->cfg.rsdos && rsdos_decodes(off)) return rsdos_read(m, a, open_bus(m), access_tick(m));
+    if (m->clock.fitted && (off & 0xF8u) == (SMARTWATCH_BASE & 0xF8u))
+        return smartwatch_read(&m->clock, a, open_bus(m));
+    return open_bus(m);  /* the rest unused */
 }
 
 static void io_write(coco_t *m, uint16_t a, uint8_t v) {
@@ -530,9 +534,13 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         else if (reg == 0u && !m->cas.fast)
             cassette_dac(m, mc6821_out(&m->pia1.a) & 0xFCu, access_tick(m));
         update_sound(m);
-        note_video(m, access_tick(m));
+        note_video(m, access_tick(m) + COCO_PIA_VIDEO_TICKS);
         update_irq(m);
         if (reg & 1u) mc6809_stop(&m->cpu);
+        return;
+    }
+    if (m->cfg.rsdos && rsdos_decodes(off)) {
+        rsdos_write(m, a, v, access_tick(m));
         return;
     }
     if (off >= 0xC0u && off < 0xE0u) {
@@ -591,6 +599,7 @@ void coco_init(coco_t *m, const coco_config_t *cfg) {
     m->cas.fast = true;
     joysticks_centre(m);
     mc6809_init(&m->cpu);
+    wd_init(&m->dk.fdc);
     pcm_init(&m->pcm, 0, COCO_SOUND_LEVEL_MAX, COCO_TICK_HZ, 0, 0);
     map(m);
 }
@@ -646,6 +655,11 @@ void coco_reset(coco_t *m) {
     update_irq(m);
     update_sound(m);   /* the bus holds what it had: nothing drives it */
     mc6809_reset(m);
+    if (m->cfg.rsdos) rsdos_reset(m);
+    else {
+        mc6809_set_halt(&m->cpu, false);
+        mc6809_set_nmi(&m->cpu, false);
+    }
 }
 
 void coco_power_on(coco_t *m) {
@@ -695,6 +709,15 @@ uint32_t COCO_HOT2(coco_run)(coco_t *m, uint32_t ticks) {
         }
         uint64_t due = next_due(m);
         if (due != UINT64_MAX && due + m->tpc < stop) stop = due + m->tpc;
+        /* The disk controller's next event: a byte ready, which ends a
+         * HALT, or INTRQ, which is the NMI (rsdos.h). */
+        if (m->cfg.rsdos) {
+            if (m->dk.fdc.due <= now) {
+                rsdos_run(m, now);
+                continue;
+            }
+            if (m->dk.fdc.due < stop) stop = m->dk.fdc.due;
+        }
         if (stop <= now) stop = now + 1u;
         uint32_t cycles = (uint32_t)((stop - now + m->tpc - 1u) / m->tpc);
         if (__builtin_expect(m->step_hook != NULL, 0)) {
@@ -704,6 +727,7 @@ uint32_t COCO_HOT2(coco_run)(coco_t *m, uint32_t ticks) {
             (void)mc6809_run(m, cycles);
         }
         hs_catch_up(m, coco_ticks(m));
+        if (m->cfg.rsdos && m->dk.fdc.due <= coco_ticks(m)) rsdos_run(m, coco_ticks(m));
     }
     return (uint32_t)(coco_ticks(m) - start);
 }
@@ -855,6 +879,7 @@ void coco_restored(coco_t *m) {
     map(m);
     m->cpu.irq = m->cpu.firq = 0;
     update_irq(m);
+    if (m->cfg.rsdos) rsdos_lines(m);
     uint32_t now = (uint32_t)coco_ticks(m);
     pcm_restart(&m->pcm, now);
     pcm_set_level(&m->pcm, now, m->sound_level);

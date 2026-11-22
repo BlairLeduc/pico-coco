@@ -107,6 +107,10 @@ void xr_lines(bool irq, bool firq, bool nmi) {
     cpu->nmi = nmi;
 }
 
+void xr_halt(bool asserted) {
+    cpu->halt = asserted;
+}
+
 void xr_reset(void) {
     cpu->reset(cpu);
 }

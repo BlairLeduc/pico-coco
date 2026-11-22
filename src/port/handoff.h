@@ -101,6 +101,7 @@ typedef struct {
     uint32_t late_refills;   /* late DMA refills since boot              */
     uint32_t tape_unsaved;   /* the deck holds a recording not on the card */
     uint32_t deck;           /* the signal: a STATUS_DECK_ state (status.h) */
+    int32_t  disk;           /* the drive whose head is loaded, -1 none (rsdos.h) */
 } core0_perf_t;
 
 extern volatile core0_perf_t g_c0;
@@ -145,6 +146,8 @@ typedef struct {
     rom_id_t basic;            /* the Color BASIC at $A000 (roms.h)     */
     bool     extended;         /* Extended Color BASIC at $8000         */
     bool     cart;             /* g_boot.cart at $C000                  */
+    bool     rsdos;            /* it is Disk BASIC, the RS-DOS cartridge's
+                                  ROM (rsdos.h), and the controller is in */
 } machine_t;
 
 /* The running machine's, written by core 0 at each power-on and read by
@@ -163,6 +166,10 @@ typedef struct {
      * and fast loading (cassette.h): core 0 takes both after every park. */
     const struct keylayout_s *volatile layout;
     volatile bool     fast_tape;
+    /* The MC6847T1 drawn (display.h): core 1's alone. */
+    volatile bool     vdg_t1;
+    /* A SmartWatch fitted (smartwatch.h): core 0 takes it each field. */
+    volatile bool     smartwatch;
     volatile bool     reset;       /* the menu's Reset: core 0 clears it  */
     /* The Machine page's Apply: power on as restart_cfg, with the ROMs
      * and the cartridge core 1 has left in g_boot. Core 0 clears it. */

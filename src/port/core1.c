@@ -19,6 +19,7 @@
 #include "board.h"
 #include "card.h"
 #include "display.h"
+#include "dskio.h"
 #include "handoff.h"
 #include "kbd.h"
 #include "keymapio.h"
@@ -27,6 +28,7 @@
 #include "menu.h"
 #include "park.h"
 #include "roms.h"
+#include "rtc.h"
 #include "sd.h"
 #include "settingsio.h"
 #include "southbridge.h"
@@ -64,7 +66,7 @@ void core1_note(const char *text) {
 }
 
 /* The status line at the foot (§9.6, §14), while it is on: the deck and
- * the cartridge (status.h); or a note, until it has been up for NOTE_US.
+ * the cartridge, or the drive at work (status.h); or a note, until it has been up for NOTE_US.
  * Drawn only when it changes. */
 static void draw_status(void) {
     if (s_note[0]) {
@@ -72,9 +74,12 @@ static void draw_status(void) {
         s_note[0] = 0;
     }
     char text[COCO_TEXT_COLS + 1] = "";
-    if (g_ui.status)
+    if (g_ui.status) {
+        int drive = g_machine.rsdos ? (int)g_c0.disk : -1;
         status_format(tapeio_inserted(), g_c0.tape_unsaved != 0, g_c0.deck,
-                      g_machine.cart ? g_boot.cart_path : "", text);
+                      g_machine.rsdos ? "RS-DOS" : g_machine.cart ? g_boot.cart_path : "", drive,
+                      drive >= 0 ? dskio_inserted((unsigned)drive) : "", text);
+    }
     display_status(text);
 }
 
@@ -102,6 +107,8 @@ static void apply_settings(const settings_t *st) {
     g_ui.perf_line = st->perf;
     g_ui.status = st->status;
     g_ui.fast_tape = st->fast_tape;
+    g_ui.vdg_t1 = st->vdg_t1;
+    g_ui.smartwatch = st->smartwatch;
     uint8_t r[2];
     if (st->backlight) {
         g_ui.backlight = st->backlight;
@@ -136,7 +143,17 @@ static void boot_rom(void) {
                 if (li >= 0) keymapio_choose(keymapio_get((unsigned)li));
                 else settingsio_fail("layout", "no such layout");
             }
-            if (st->cart[0]) {
+            if (st->cart[0] && card_is_rsdos(st->cart)) {
+                /* The RS-DOS cartridge: Disk BASIC's ROM by its SHA-1
+                 * (rsdos.h); main.c refuses it where it cannot run. */
+                uint32_t len = 0;
+                const char *err = card_disk_rom_load(&g_boot.job, g_boot.cart, &len);
+                if (err) settingsio_fail(st->cart, err);
+                else {
+                    g_boot.cart_len = len;
+                    snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s", CARD_RSDOS);
+                }
+            } else if (st->cart[0]) {
                 uint32_t len = 0;
                 const char *err = card_cart_load(st->cart, g_boot.cart, &len);
                 if (err) settingsio_fail(st->cart, err);
@@ -153,6 +170,10 @@ static void boot_rom(void) {
             if (st->boot_tape[0]) {
                 const char *err = tapeio_boot(st->boot_tape);
                 if (err) settingsio_fail(st->boot_tape, err);
+            }
+            if (st->boot_disk[0]) {
+                const char *err = dskio_insert(NULL, 0, st->boot_disk);
+                if (err) settingsio_fail(st->boot_disk, err);
             }
             storage_unmount();
         } else {
@@ -197,6 +218,19 @@ void core1_main(void) {
     uint32_t t0 = time_us_32();
     if (sb_read(SB_REG_VER, r) == SB_OK) g_c1.sb_version = r[1];
     g_bringup.i2c_us = time_us_32() - t0;
+    /* The board's clock, for the SmartWatch (rtc.h). */
+    t0 = time_us_32();
+    rtc_source_t src = rtc_init();
+    {
+        smartwatch_time_t t;
+        smartwatch_civil(g_clock.secs, &t);
+        int off = g_clock.offset_min, a = off < 0 ? -off : off;
+        log_core1("  clock        : %s, local %04u-%02u-%02u %02u:%02u:%02u, UTC%c%02d:%02d, %lu us\n",
+                  src == RTC_SHELL ? "the shell's" : src == RTC_DS3231 ? "the DS3231's, as UTC"
+                  : PICO_COCO_DS3231 ? "none, from 2000" : "none, from 2000 (GP4/GP5 the UART's)",
+                  t.year, t.month, t.day, t.hour, t.minute, t.second, off < 0 ? '-' : '+',
+                  a / 60, a % 60, (unsigned long)(time_us_32() - t0));
+    }
 
     /* 2. The LCD. lcd_init sleeps through the panel's reset, which sets
      *    alarms whose IRQ is core 0's (hardware-notes.md §9.7); harmless
@@ -228,6 +262,7 @@ void core1_main(void) {
         int i = pool_take();
         if (i >= 0) {
             display_stats_t st;
+            display_set_t1(g_ui.vdg_t1);
             display_present(&g_pool.buf[i], &st);
             pool_release(i);
             g_c1.presents++;
@@ -238,6 +273,7 @@ void core1_main(void) {
         }
 
         log_pump();
+        rtc_poll();
 
         /* The guest parked: its job. Until core 0 claims the ROMs, a card
          * that goes in is read at once; once the guest runs, a change is

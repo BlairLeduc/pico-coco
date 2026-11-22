@@ -630,11 +630,17 @@ static uint32_t COCO_HOT1(attention)(coco_t *m, uint32_t remaining) {
     uint8_t now = lines(c);
     uint32_t all = remaining ? remaining : 1u;
 
-    /* HALT: the CPU stands while the lines are latched each cycle. On
-     * release the boundary takes what is asserted then. */
+    /* HALT: the CPU stands, and what it acts on stays as it was when it
+     * stopped: on release the boundary decides on the lines as they
+     * stood before the halt, so a line raised during it is taken only
+     * after one instruction more. XRoar's model, held by the oracle
+     * (§7.1); the RS-DOS cartridge's read loop stores its last byte only
+     * so, as INTRQ releases HALT and raises NMI together (rsdos.h). */
     if (c->halt) {
-        if (all > 1u) c->active = now;
-        else          c->active = c->latch;
+        if (!c->stale) {
+            c->active = now;
+            c->stale = true;
+        }
         c->latch = now;
         c->cycles += all;
         return all;

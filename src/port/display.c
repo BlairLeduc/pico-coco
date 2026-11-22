@@ -90,11 +90,17 @@ void display_invalidate(void) {
     present_invalidate(&s_present);
 }
 
+void display_set_t1(bool t1) {
+    if (t1 == mc6847_is_t1(&s_vdg)) return;
+    for (unsigned i = 0; i < VDGS; i++) mc6847_set_t1(&s_vdgs[i], t1 ? font_6847t1 : NULL);
+    present_invalidate(&s_present);
+}
+
 /* A frame COCO_BORDER_X wide and COCO_BORDER_Y tall around the picture,
  * in four fills, sent only when its colour changes (EL §5.4): between
  * alphanumeric and graphics, or of CSS in graphics. */
 static bool fill_border(uint8_t mode) {
-    uint16_t rgb = s_vdg.col[mc6847_border(mode)];
+    uint16_t rgb = s_vdg.col[mc6847_border(mode, mc6847_is_t1(&s_vdg))];
     if (rgb == s_border_rgb) return false;
     const unsigned bx = COCO_BORDER_X, by = COCO_BORDER_Y;
     const unsigned x0 = COCO_PIC_X - bx, w = PIC_W + 2u * bx;
@@ -121,7 +127,8 @@ void display_present(const coco_frame_t *f, display_stats_t *st) {
      * superseded a snapshot (§17 M11's soak). A full repaint leaves the
      * border to the next present, once, so it lags by a field at most. */
     static bool s_border_deferred;
-    if (s.full && !s_border_deferred && s_vdg.col[mc6847_border(border)] != s_border_rgb) {
+    vdg_colour_t edge = mc6847_border(border, mc6847_is_t1(&s_vdg));
+    if (s.full && !s_border_deferred && s_vdg.col[edge] != s_border_rgb) {
         s_border_deferred = true;
     } else {
         s.border = fill_border(border);

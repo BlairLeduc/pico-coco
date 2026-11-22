@@ -60,7 +60,8 @@ core on the host, held to XRoar's (`milestones.md`). No machine yet.
 17. [Milestones](#17-milestones) ·
 18. [Constants to confirm](#18-constants-to-confirm) ·
 19. [Risks](#19-risks) ·
-20. [Dropped and deferred](#20-dropped-and-deferred)
+20. [Dropped and deferred](#20-dropped-and-deferred) ·
+21. [Proposal: the MOOH's 512 KB](#21-proposal-the-moohs-512-kb)
 
 ---
 
@@ -124,6 +125,7 @@ word before the milestone that depends on them.
 | D12 | 2026-11-14 | 6809 undocumented opcodes are **trapped and counted** first; the archive run decides whether any is implemented (EL §3.1, §11.6). **Decided 2026-11-16 from M11's archive run**: every undocumented opcode is executed as the NMOS chip executes it, XRoar's model held by the oracle, and still counted (§7.1, §15.4). | Settled by the owner |
 | D13 | 2026-11-14 | The project is named **pico-coco**, after its first machine as the siblings are, with the card folder `/coco/`. The owner renamed the repository directory from `picocalc-xroar` when its GitHub origin was set up. | Settled by the owner |
 | D14 | 2026-11-14 | PicoCalc findings go into `hardware-notes.md`, and what generalises into `emulator-lessons.md`, as learned, each written to stand alone (EL §14.1). One branch and pull request per milestone, CI green on both builds. | Settled by the owner |
+| D15 | 2026-11-21 | **The MOOH** (512 KB and its MMU, a CoCo 1/2 cartridge), its memory in the Plus 2 W's PSRAM, revising D3's *no PSRAM*; other boards run without it. Not before PSRAM's cost is measured against SRAM (§21). A 4 KB-page variant after the 8 KB is held (§21.6). | Proposed |
 
 ---
 
@@ -660,7 +662,7 @@ The text generator gains the CoCo's wiring (§3.4): semigraphics 4 as
 well as 6, chosen by GM0; inverse on bit 6; the character set from the
 Atom's verified table, with its layout asserted against the data
 (EL §5.5). The MC6847T1's lower case, for later CoCo 2s, is a variant
-table and a machine option (§20).
+table and an option, built in M13 (below).
 
 **As built in M4** (2026-11-15). A row source of "bytes a row, and lines
 before it advances" cannot describe the mismatched pairs exactly, so the
@@ -685,6 +687,35 @@ INT/EXT from GM0. With INT/EXT high and A/S low there is no external
 character ROM on these machines, and the VDG shows the byte's own bits
 as the row, as XRoar has it. The alphanumeric ink with CSS high is the
 datasheet's "bright orange", a twelfth colour index; drawn as orange.
+
+**The MC6847T1, as built in M13** (2026-11-17). The CoCo 2B's VDG, for
+OS-9's lower case, which the owner asked for. It is a setting, not a
+machine: `vdg = 6847 | 6847t1` in `coco.ini` and the Setup page's VDG
+row, applied by the display at once, the MC6847 by default; the core
+does not know which is fitted, as nothing but the picture differs. Its
+character ROM is XRoar's `font-6847t1.c`, taken verbatim as the
+MC6847's was (`mc6847_font_t1.c`, THIRD-PARTY.md; the owner's choice),
+128 glyphs with lower case at $00–$1F and the glyphs a cell higher than
+the MC6847's. What a byte shows is XRoar 1.13's model (§18): in the
+alphanumeric modes GM0 high picks the glyph by seven bits and inverts
+every cell, so $01–$1A, the MC6847's inverse capitals that Color BASIC
+and OS-9 write for lower case, become lower case, dark on green; GM1
+inverts every cell; GM2 with GM1 low draws the border in the ink's
+colour; there is no SG6; the ink with CSS high is orange. The graphics
+modes are the MC6847's. `test_vdg_oracle t1` holds every alphanumeric
+mode, GM2–GM0 all eight, and the graphics modes pixel for pixel to
+XRoar's MC6847T1, and `test_mc6847` the border, which the oracle does
+not see.
+
+Tandy's OS-9 Level One 2.00 (CCIO) and NitrOS-9 3.3.0's Level 1 (VTIO)
+set GM0 as their console starts when bit 0 of the TERM descriptor's PAR
+is set, and at no other time: their TMODE changes PAR but does not make
+the SS.ComSt call that reaches the bit (both drivers read on the host,
+2026-11-17). As shipped, PAR is $00 and $02, so neither shows lower
+case; `tools/os9-lowercase.py` writes a copy of a boot disk with the
+bit set in the boot file's TERM, and `test_os9` boots both systems so
+(the control: as shipped, GM0 stays low), with NitrOS-9's `DIR` heading
+drawn from the T1's lower case.
 
 ### 9.3 The snapshot
 
@@ -766,16 +797,18 @@ before the line's 256 pixels (254 ticks after HS falls, XRoar's MC6847
 figures, §18) it is the line's from its first pixel; among them, from
 its pixel, two ticks a pixel; after them, the next line's. A change of
 the display offset alone is counted as before but not kept: the SAM
-loads F only as the field begins. Up to two changes a line are kept for
-a field (`COCO_SPLIT_MAX`), more dropped and counted; Dragon Fire makes
-284.
+loads F only as the field begins. Up to eight changes a line are kept
+for a field (`COCO_SPLIT_MAX`), more dropped and counted; Dragon Fire
+makes 284.
 
 The snapshot is taken where the next active line begins, before the
 changes of the field it shows, so it is drawn by **the last whole
 field's**: a title that splits the screen does so every field at the
 same places. `coco_frame_t.how` says, for each line, the mode it begins
-in and up to two changes along it; a third on a line folds into the
-second. A line is fetched by the mode it begins in, with the SAM's
+in and up to eight changes along it (two until 2026-11-22: Dragonfire
+makes up to six, on its moat's lower edge); a line's pixels last 32 E
+cycles and the quickest store to the PIA takes 4, so a ninth is not
+expected, and folds into the eighth. A line is fetched by the mode it begins in, with the SAM's
 dividers chosen by V as it then was and the counter carried on from
 the line before; a change along a line is drawn from its pixel in the
 new mode from the bytes the line fetched, and its V is the next
@@ -796,6 +829,35 @@ part-way along a line, which is the next line's; the glitches XRoar
 models when V changes; a field's own changes in that field, which show
 a field late; and the regions after a state is loaded, which a field
 brings back (§12.5).
+
+**A PIA write reaches the picture 1 µs late** (2026-11-22): 14 ticks,
+7 pixels after the write's cycle ends (`COCO_PIA_VIDEO_TICKS`), the
+MC6821's output delay (tPDW, up to 1 µs from E), as `TRS3_TICKS`
+(`coco.c`) is its interrupt's. Settled from two pictures of
+Dragonfire's title the owner found. The first, a photograph of a real
+CoCo off a video, showed the real machine changing colour set along a
+line about 8 pixels later than this model did, which had drawn a strip
+of yellow inside the left wall and of magenta inside the right; with an
+E cycle added (16 ticks) the walls ran clean to blue edges. The second,
+sharper, of a slightly later build, put every edge on a byte's
+boundary: the blue edges at pixels 24–32 and 224–232, the bridge,
+pillar and moat at 32, 112, 144 and 224. At 16 ticks every change fell
+a pixel late, leaving a pixel of the other colour set at each edge; at
+14 they fall on those boundaries exactly. Dark Star's and Rommel's
+Revenge's heading bars, at pixels 1–240 before, are at 8–247, centred
+on the screen. The SAM's writes are unchanged: nothing has shown their
+delay. `test_video`'s change along a line includes the delay, and
+planted delays of 0 and of 16 fail it. Dragonfire's moat, blue both sides of the pillar in the photograph and
+magenta on the right here, was the limit of two changes a line, not
+timing: the game sets the green set again after the pillar and the
+buff one at the right wall, and those folded into its change at the
+pillar; and on the moat's lower edge, lines 144–146, it makes six,
+the last two of which folded into the fourth with room for four. With
+eight a line, as above, the moat and the strip under the bridge are
+drawn alike on both sides, the moat's lower edge as the sharper
+picture has it, and every one of the field's 284 changes is drawn;
+`test_video` makes six changes on a line, and a planted limit of four
+fails it.
 
 ### 9.5 Colour, artefacts and the border
 
@@ -986,7 +1048,8 @@ M5 (`keymap_picocalc.c` holds the table and its reasons):
   "lower case" is toggled (SHIFT+0). PicoCalc letters type the guest's
   letters whatever their case.
 - **BREAK** is Esc, and **CLEAR** is Tab, plain keys that no swallowed
-  Shift chord can take (HW §6.3). Backspace and Del are ←.
+  Shift chord can take (HW §6.3), and Ctrl, held as Shift is SHIFT
+  (M13). Backspace and Del are ←.
 - **The guest's arrows** are the PicoCalc's. The guest's shifted arrows
   (SHIFT+← erases a line on the CoCo) cannot come from Shift+arrow, which
   sends nothing for Left and Right, so **Alt with an arrow** is SHIFT
@@ -994,8 +1057,7 @@ M5 (`keymap_picocalc.c` holds the table and its reasons):
   listing). The keys the PicoCalc sends only with Shift are their base
   key's cell with SHIFT: End is SHIFT+←, PgUp and PgDn SHIFT+↑ and ↓,
   Home SHIFT+CLEAR, Insert SHIFT+ENTER, Break SHIFT+BREAK. Either Shift
-  alone is SHIFT, for games. Ctrl reaches nothing, and a key pressed
-  with it types nothing: the CoCo 1 and 2 have no CTRL. That Alt+0
+  alone is SHIFT, for games. Ctrl is CLEAR (M13). That Alt+0
   arrives as `0` with Alt held is read from the MCU's source, not yet
   seen on a device (M7).
 - **The emulator's keys** are on Alt and the function keys, which the
@@ -1026,6 +1088,26 @@ archive's names have spaces. Putting a tape in the deck or a cartridge
 in the slot that a layout names chooses it, and the menu says so. The
 Setup page's Keys row goes round them, and `layout =` in the settings
 file names the one a save keeps.
+
+**M13** (2026-11-17): a capital is its letter with the PicoCalc's Shift
+as the CoCo's SHIFT. Until then the capitals took SHIFT away, so that a
+PicoCalc letter typed the CoCo's whatever its case; in upper case the
+ROMs decode a letter the same either way, but in lower case (BASIC
+after SHIFT+0, OS-9 after CLEAR+0) no capital could be typed. A capital
+sent without Shift, under the PicoCalc's Caps Lock, has no SHIFT, and
+in lower case types the small letter. `test_keyboard` types a, then
+Shift+A, in lower case and reads back $61 and $41.
+
+**M13** (2026-11-17): **Ctrl is CLEAR.** The CoCo 1 and 2 have no CTRL,
+and OS-9 takes CLEAR as its control key: CLEAR+0 turns the upper-case
+lock on and off, and CLEAR with a letter is that control character.
+Ctrl had reached nothing, and a key pressed with it typed nothing; now
+it holds CLEAR while it is down, at least `COCO_KEY_MIN_FIELDS`, and a
+key pressed with it waits a field behind it, as Shift holds SHIFT
+(EL §7.1). The PicoCalc sends a key with Ctrl unchanged (HW §6.3), so
+any key will do. Tab stays CLEAR too. In BASIC, Ctrl alone is CLEAR and
+clears the screen. `test_os9` types Ctrl+0 at NitrOS-9 and finds `ECHO`'s
+letters in lower case after it, and in capitals before it.
 
 ### 11.4 Joysticks
 
@@ -1271,6 +1353,26 @@ surveyed before any check the chip makes is trusted, and the whole
 archive is held to XRoar by screen, since XRoar's disc timing differs
 (EL §8.4).
 
+**Stepping out stops at track 0** (2026-11-21). The type I commands run
+the datasheet's flow as XRoar's `wd279x.c` does: before each pulse out,
+TR00 is looked at, and a head already at track 0 ends the command with
+the track register 0, a step's time later, the extra step being XRoar's
+("real code fails without it"). A Restore is a Seek from `$FF` to 0. The
+chip had taken a Seek's steps from the registers alone, so Tandy OS-9's
+driver, which homes the head by a Seek out from a track register of
+`$FF`, pulsed on for 255 steps, 7.65 s at 30 ms, every time it did so.
+Found by the disk archive run (M13): every Tandy OS-9 title reached
+XRoar's picture 5 to 20 s late. `test_disk` holds the Seek and the Step
+out at TR00, each shown to bite by a planted bug. The whole archive run
+again with the fix (2,244 titles, `out/m13/archive-all-tr00`): the
+pictures identical to XRoar's at the capture rose from 1,004 to 1,031,
+every Tandy OS-9 title started now matches XRoar's picture at the
+capture or within half a second of it, and no title that matched before
+stopped matching. On the board (the owner, 2026-11-22, the UART0 build):
+The Interbank Incident reached its speech cartridge question about 30 s
+after `DOS`, as under XRoar, where the build before the fix took about
+45 s.
+
 ### 12.5 Snapshots
 
 The Oric's container and rules (EL §8.5): fields written explicitly,
@@ -1339,7 +1441,63 @@ settings, the ROMs, the cartridge and the boot tape. `machine` is
 unknown (D6). **M12** (2026-11-16) adds `layout`, `standard` or a
 layout's name, and `fast_tape`, on by default; a layout the card does
 not have is said on the status row and the standard keys kept. Files are written with FatFs's fixed date
-(`FF_FS_NORTC`); the DS3231's time is not yet used.
+(`FF_FS_NORTC`); the DS3231's time is used only by the SmartWatch
+(§12.7). **M13** adds `vdg` (§9.2) and `smartwatch` (§12.7).
+
+### 12.7 The SmartWatch
+
+**As built in M13** (2026-11-17), at the owner's request. Tandy's OS-9
+Level One 2.01 has three clock modules on its second disk's /MODULES:
+`clock.60hz`, the one its boot disk carries, which counts the field
+interrupt from the time typed at `TIME ?`, and `clock_tc3` and
+`clock_bb`, which also read the date at boot from a Dallas DS1216
+SmartWatch. Both hold the chip's 64-bit key, $C5 $3A $A3 $5C twice;
+`clock_tc3` finds it at $FF7C, and `clock_bb` at $FF5C, selecting a
+Multi-Pak slot through $FF7F first, which RS-DOS's decode at
+$FF40–$FF5F rules out here. What "tc3" and "bb" were is not known.
+
+`smartwatch.c` is a DS1216 at $FF78–$FF7F, as `clock_tc3` drives it
+(the module read, 2026-11-17): a bit written is a read with A2 low, A0
+its value; a bit read is a read with A2 high, on D0. Shut, a read with
+A2 high starts the key again, and a wrong bit does too; matched, it is
+open for 64 bits of registers, read or written. The registers are the
+time the key matched: hundredths, seconds, minutes, hours, day of week,
+date, month and year, in BCD. **The year** is the years since 1900, its
+tens digit up to 15, so 2026 is $C6: OS-9 Level One keeps the year so,
+its 2.01 SETIME takes four digits (`SETIME 2026/11/17 13:45:00`; given
+two, it reads "99/12" as 9912), and `clock_tc3` writes 126 as $C6 by
+its own sum and reads it back as 126. The chip keeps no century; a
+register of 26 shows 1926. A set is kept as an offset from the host's
+time until power-off, and never written to the board's clock.
+
+The host's time is local time, from the shell first (`rtc.c`): the
+PicoCalc shell keeps UTC in the RP2350's always-on timer, which runs on
+through the reboot into this program, and leaves the local offset it had
+in POWMAN's scratch registers (`picocalc_shell_time`,
+`third_party/picocalc-shell`); read whenever wanted, with no bus
+traffic, and never set here. Without it (the loader's menu after a power-on), the DS3231 on `i2c0` at GP4/GP5 (HW §1.1),
+which holds UTC as the shell writes it, read at bring-up and once a
+minute in the builds that leave those pins free, the release build and
+the UART0 one (`PICO_COCO_DS3231`), and taken as UTC, no offset being
+known; with neither, 2000-01-01 at boot. The boot log names the source
+and the offset, and so does the Setup page when the SmartWatch is turned
+on. Core 0 gives the time, and `smartwatch` from the settings or the
+Setup page, to the machine before each field. Fitted or not, nothing
+else in the CoCo answers at $FF78–$FF7F.
+
+`tools/os9-clock.py` makes the boot disk: OS9Boot's `Clock` replaced by
+`clock_tc3`, and startup's `SETIME` a comment. `clock_tc3` is 85 bytes
+longer, the 2.01 system disk's OS9Boot has 31 spare and only 49 sectors
+are free, so `--drop T1,RS232` leaves out the bit-banger port's
+descriptor and driver (§20); the tool moves OS9Boot to a free run where
+there is one. `test_smartwatch` holds the protocol and the calendar,
+with the controls of a wrong bit, a read in the key and no chip fitted;
+`test_os9` boots the disk `fetch-os9.sh` makes so: `DATE T` gives the
+host's date, 2026, and `SETIME` sets the chip and `DATE T` reads it
+back; with no SmartWatch the same disk reads nonsense. On the board (the
+owner): `DATE T` right from the shell's time, 2026-11-17, and from the
+DS3231's after the loader's menu, as UTC, 2026-11-22. No DS1216 or
+DS3231 read here was compared with a real one.
 
 ---
 
@@ -1644,6 +1802,7 @@ configuration; once settled, it is a constant.
 | Tape bit timing as each ROM reads and writes it | Two tones, about 1200 and 2400 Hz. **Settled 2026-11-16** (M12) for Color BASIC 1.1 and 1.3, whose writer and reader are the same bytes: the writer's half-cycles counted off its own save run on the host, 207 and 396 cycles high and 227 and 417 low for a 1 and a 0, about 2,060 and 1,100 Hz at 0.895 MHz, with each caller's cycles between bytes and blocks (`cassette.h`); the reader's threshold 18 passes of a 28-cycle loop a cycle. `test_cassette` holds the player to the ROM's save edge for edge | High | — |
 | The joysticks: the comparator's sense, which select line is the stick and which the axis, the buttons' row lines (§11.4) | **M12**: XRoar's wiring; BASIC's `JOYSTK` reads 0, 31 and 63 through it in each ROM, and the buttons PA0 and PA1 low (`test_keyboard`). Which stick is the right one, and the comparator's level at the DAC's own value, are XRoar's | Medium | Schematics; a real stick |
 | Where a line's pixels begin after HS falls, for a change of mode along a line (§9.4) | **M12**: 254 ticks, XRoar's MC6847 figures (tWHS 64, tBP 70, tLB 120), and 2 ticks a pixel; a write falls at the end of its cycle. Dark Star's heading bar runs from pixel 1 to 240 by it; no real machine compared | Low | MC6847 datasheet; a photograph of Dark Star or Dragon Fire on a real set |
+| A PIA1 write's delay to the picture, for a change of mode along a line (§9.4) | **2026-11-22**: 1 µs, 14 ticks, from two pictures of Dragonfire: a low-resolution photograph of a real CoCo, whose wall edges match with about a cycle's delay and not without, and a sharper picture of a later build, whose every edge falls on a byte's boundary at 14 ticks and a pixel late at 16. Dark Star's and Rommel's Revenge's bars come out centred. The MC6821's tPDW, up to 1 µs, is that size. Where the second picture was taken, and whether the delay is the PIA's, the VDG's, or both, is not known | Medium | MC6821 and MC6847 datasheets; a sharper photograph of Dragonfire, or a scope on PB3 and the video |
 | ROM file names, sizes and SHA-1s (§12.1) | **Settled** 2026-11-14 (M3) for `bas13.rom`, `extbas11.rom`, `disk11.rom` and `bas11.rom`, the owner's images, each matching XRoar 1.13's CRC-32 (`roms/README.md`); `d32.rom` was in the table until the Dragon was removed (D6, 2026-11-16); other CoCo versions to come | High | The owner's images; XRoar's ROM list |
 | Disc controller registers, latch bits, interrupt and HALT wiring (§12.4) | As the table, from XRoar's decodes | Medium | Each DOS ROM read; controller schematics |
 | WD2797 against WD1793: which differences each DOS sees | Side select, some status bits | Low | Datasheets |
@@ -1653,6 +1812,8 @@ configuration; once settled, it is a constant.
 | The VDG's fetches on a line (§9.2) | **M4**: 42 bytes in the 32-byte modes and 22 in the 16-byte ones, on to the right border, each counted by the SAM; XRoar's VDG | Medium | MC6847 datasheet's timing; a mismatched pair on a real machine |
 | The VDG's address through the multiplexer (§9.2) | **M4**: no page bit P, and the first bank, as XRoar's fetch; only a machine with two banks or P set could tell | Low | MC6883 datasheet |
 | The VDG's mode pins while PIA1 port B is an input (§9.3) | **M4**: low, as XRoar's PIA has an undriven pin; seen only before BASIC sets the port's direction | Low | Schematics |
+| The DS1216 SmartWatch's protocol at $FF78–$FF7F, and its year as the years since 1900 (§12.7) | **M13** (2026-11-17): as Tandy's `clock_tc3` drives it, read off the module, and the datasheet's key and register order as remembered; held by `test_os9` booting it. The address and what "tc3" was are the module's alone | Medium | The DS1216 datasheet; the card `clock_tc3` was written for |
+| The MC6847T1: its glyphs, and GM0 as lower case, GM1 as inverse, GM2 as the border, no SG6, orange for bright orange (§9.2) | **M13** (2026-11-17): XRoar 1.13's model and its ROM, held pixel for pixel by `test_vdg_oracle t1`; OS-9's use of GM0 executed on the host. No CoCo 2B compared, and no T1 datasheet read | Medium | The MC6847T1 datasheet; a photograph of a CoCo 2B's lower case |
 
 **Settled in M1**, 2026-11-14:
 
@@ -1723,11 +1884,11 @@ configuration; once settled, it is a constant.
 
 - **CoCo 3** (GIME, 512 KB, 640-sample modes) and **MC-10** (a 6803):
   machines of their own, after release.
-- **RAM expansions**.
+- **RAM expansions**: the MOOH is proposed in §21 (D15).
 - **The Dragon 32, 64, 200-E, Alpha and Professional, and PAL machines**:
   removed by the owner on 2026-11-16 (D6). Not deferred; out of scope.
-- **The MC6847T1** and its lower case, for later CoCo 2s: a variant
-  table, when a ROM set that expects it is supported.
+- ~~**The MC6847T1** and its lower case, for later CoCo 2s~~: built in
+  M13 for OS-9 (§9.2).
 - **DMK disc images; double-sided and 80-track drive types** beyond what
   the first DOS tests need.
 - **Sound and other active cartridges** (Orchestra 90, the Games Master
@@ -1737,3 +1898,153 @@ configuration; once settled, it is a constant.
 - **Split-field rendering** (§9.4): decided by the archive run, and
   built in M12 (the owner, 2026-11-16).
 - **300 MHz**: if the gate asks, or as a user's opt-in later (EL §9.4).
+
+---
+
+## 21. Proposal: the MOOH's 512 KB
+
+**Proposed, 2026-11-21; nothing is built.** The owner asked whether the
+emulated CoCo could have extra memory, as a CoCo 3 or a MOOH does, and
+whether 256 KB fits. This section answers from a measurement and from
+XRoar 1.13's `mooh.c`, and asks for one decision (D15). It reopens D3,
+which is the owner's to reopen.
+
+### 21.1 What the MOOH is
+
+Tormod Volden's MOOH is a cartridge for the CoCo 1/2, so it stays inside
+D6; the CoCo 3, whose memory sits behind the GIME in place of the SAM and
+the VDG, is another machine and stays deferred (§20). As XRoar 1.13
+models it (`src/mooh.c`, read 2026-11-21; secondary, §18):
+
+- **512 KB**: 64 pages of 8 KB. Not 256 KB: a 256 KB machine would be one
+  no hardware matches, which is a reason against it in itself.
+- **A CoCo 3-style MMU**: two tasks of eight task registers, 6 bits each,
+  at `$FFA0`–`$FFAF` (readable); the enable bits for the MMU and constant
+  RAM at `$FF90` and the task at `$FF91` (write-only in firmware 1). Each
+  register maps one 8 KB segment of `$0000`–`$FEFF`. Page `$3F` in
+  segments 0–6 means *not mapped*: the machine's own RAM or ROM answers.
+  Segment 7 is always the cartridge's. Constant RAM puts `$FE00`–`$FEFF`
+  and the vectors at `$FFF0`–`$FFFF` in page `$3F`. A reset sets every
+  register to `$3F`, so a MOOH at power-on is a plain CoCo.
+- **The cartridge overrides the machine's decode** while it answers
+  (XRoar's `EXTMEM`; on the real port presumably SLENB, to confirm, §18).
+- **An SD card over a 65SPI-B** at `$FF6C`–`$FF6F`, and a banked ROM of up
+  to 64 KB, its bank chosen at `$FF64` until bit 4 locks it. XRoar knows
+  two images of the SDBBOOT ROM V1, by CRC; neither would be shipped (D10).
+- Hard power-on fills the SRAM with a random pattern.
+
+The VDG reads only the motherboard's RAM through the SAM, so the picture
+never touches the cartridge's memory (§9.2).
+
+### 21.2 What SRAM has left
+
+**Measured 2026-11-21**, the M13 working tree at tier 2 with the UART on
+port 0: 214,840 bytes of text and 348,888 of bss; static RAM ends at
+`0x200631C8`, leaving **118,328 bytes** below the scratch banks (the
+release build, 120,400). `malloc` is not linked, so all of it is free.
+
+| Expansion | Extra SRAM | Fits? |
+|---|---:|---|
+| 512 KB (the MOOH) | 448 KB | No |
+| 256 KB (no such board) | 192 KB | Only by freeing about 97 KB first: the tape image's 64 KB (`tapeio.c`), the boot's second copy of the ROMs in `g_boot` (24 KB), and the tape list held twice (9 KB). About 20 KB would remain for everything after M13 |
+
+So SRAM can hold a machine that does not exist, at the cost of the last
+of the headroom, and cannot hold the one that does.
+
+### 21.3 The proposal
+
+**D15 (proposed): the MOOH, with its 512 KB in the Plus 2 W's PSRAM.**
+This revises D3's *no PSRAM*. D3's reason, one image for every RP2350
+board, has weakened since the owner's Plus 2 W became the only board
+(M6); the other boards would run without the MOOH, as a 4 KB CoCo runs
+without Disk BASIC (§12.4).
+
+- **The bus.** The page table (§8.1) already reaches memory through
+  pointers, so a task register's write repoints the 32 pages of its
+  segment and nothing is added to an access. `$FF90`, `$FF91` and
+  `$FFA0`–`$FFAF` join the slow I/O page; constant RAM's vectors become
+  the slow path's concern while it is on. Each page's flags say which
+  array it points into, as now, so `coco_copy` and a snapshot's load
+  still rebuild the table.
+- **The memory.** 512 KB at the PSRAM's cached window, verified at boot
+  as HW §2.4 prescribes; a board whose check fails refuses the MOOH on
+  the Machine page.
+- **Storage.** A CoCo has one cartridge slot and the multi-pak is
+  deferred (§20), so **a MOOH machine has no RS-DOS controller**: no
+  Disk BASIC, no floppy images, and OS-9 from a floppy (the owner's
+  requirement, M13) only on the machine without it. The MOOH's own
+  storage is its SD card, which is a new device: the 65SPI-B and the SD
+  card's SPI protocol, serving an image file on the PicoCalc's card a
+  sector at a time with the guest parked, as tracks are (§12.4).
+  Whether a NitrOS-9 build for the MOOH exists, and what it boots from,
+  is to be confirmed before this is planned (§18).
+- **Snapshots.** "COCOSNAP" version 2, with the task registers and the
+  512 KB. A slot grows to about 580 KB, and four of them to 2.3 MB; the
+  save's time is measured, not assumed.
+- **The oracle.** XRoar runs a MOOH, so the trace diff (§15.2) extends to
+  the MMU through boot of the SDBBOOT ROM, found on the card by SHA-1.
+
+### 21.4 The risk, and the measurement that settles it
+
+The PSRAM shares the 16 KB XIP cache with every instruction fetched from
+flash (HW §2.4). The interpreter is in SRAM at tier 2 (§7.5), but much
+else is not, and a guest whose working set is spread over 512 KB (OS-9's
+does, by design) misses. The 6809 makes about a million accesses a
+second; whether that costs anything is unknown.
+
+Before any milestone is planned: **M2's bench with the guest's RAM in
+PSRAM**, against the same image with it in SRAM in the same sitting, the
+board at 150 MHz, results to a file. Three workloads: BASIC's boot; a
+loop over 64 KB; and, as the control that must show the cost, pseudo-random
+accesses over the whole 512 KB. The gate is M2's: core 0's projected
+share stays under 60 % on the realistic workloads. If it fails, the
+levers are the XIP cache's use by flash code (more into SRAM, which the
+freed buffers of §21.2 could pay for) and 300 MHz (§20).
+
+### 21.5 What is not proposed
+
+- **256 KB in SRAM** (§21.2): no hardware to hold it to, and the cost is
+  the project's last headroom.
+- **A CoCo 3**: the GIME is a machine of its own (§20, D6).
+- **A multi-pak** to put the MOOH and the RS-DOS controller side by
+  side: deferred as it was (§20), and a separate decision.
+
+### 21.6 A 4 KB variant, after the 8 KB is held
+
+**Proposed by the owner, 2026-11-21**: a map of 4 KB pages in place of the
+MOOH's 8 KB, built only once the 8 KB machine is held to XRoar and its
+tests pass. It is a variant of this emulator's own, not hardware:
+
+- **No board and no software has it.** NitrOS-9 Level 2 and the SDBBOOT
+  ROM program 8 KB pages, so a 4 KB map serves only software written
+  for it, and the 8 KB map stays the default.
+- **No oracle.** XRoar cannot run it, so it is held behaviourally: with
+  each pair of 4 KB registers set to an 8 KB page's two halves it must
+  behave exactly as the 8 KB machine, run in the same test; then by tests
+  of its own, each shown to fail on a planted bug.
+- **The emulator's cost is small.** The page table's pages are 256 bytes
+  (§8.1), so a 4 KB segment is 16 entries, and a register's write
+  repoints half as many as an 8 KB one.
+- **The registers have to grow.** 16 segments a task, two tasks: 32
+  registers, and 128 pages need 7 bits. `$FFA0`–`$FFBF` is the obvious
+  place, if the CoCo 1/2 leaves `$FFB0`–`$FFBF` free (to confirm from the
+  schematic, §18); the page that means *not mapped* becomes `$7F`.
+- **What it is for** (the owner, 2026-11-21): **a custom OS-9 kernel**.
+  No CoCo 2 program knows the map exists, and none needs to: under
+  OS-9 Level 2 only the kernel and the few modules that handle a
+  process's DAT image know the block size, and applications see address
+  space and memory requests, not blocks. A kernel built for 4 KB blocks
+  gives each process memory in half the steps, so less of the 512 KB is
+  lost to rounding, and every application runs on it unchanged. That
+  NitrOS-9 Level 2's block size is a build-time constant, and which
+  modules depend on it, is to be checked against its source before the
+  kernel is planned; whether NitrOS-9 Level 2 runs on a MOOH at all is
+  still §21.3's open question.
+- **The kernel chooses it, not a setting** (proposed): a bit at `$FF90`,
+  clear at reset, so that the machine powers on as a MOOH, the SDBBOOT
+  ROM and a stock 8 KB kernel run on it unchanged, and only the custom
+  kernel switches to 4 KB. Which bit is free is read from XRoar's
+  `mooh.c` and the MOOH's documentation first. The snapshot records the
+  bit with the registers.
+- **Done when** the custom kernel boots OS-9 with 4 KB blocks on the host
+  and the device, and an unmodified application runs under it.

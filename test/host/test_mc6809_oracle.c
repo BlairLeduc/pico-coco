@@ -549,11 +549,12 @@ typedef struct { xr_regs_t r; unsigned long cyc; } event_t;
 static event_t xr_events[MAX_EVENTS], our_events[MAX_EVENTS];
 static int n_xr_events, n_our_events;
 
-static unsigned long change_at;
-static bool change_irq, change_firq, change_nmi, change_armed_now;
+static unsigned long change_at, release_at;
+static bool change_irq, change_firq, change_nmi, change_armed_now, release_armed;
 
 static void xr_cycle_hook(unsigned long n) {
     if (change_armed_now && n == change_at) xr_lines(change_irq, change_firq, change_nmi);
+    if (release_armed && n == release_at) xr_halt(false);
 }
 
 static void xr_boundary_hook(unsigned long n) {
@@ -582,7 +583,9 @@ static void ours_step_recording(unsigned long *cyc) {
     uint8_t open = (uint8_t)(4 | ((c->cc & MC6809_CC_F) ? 0 : 2) | ((c->cc & MC6809_CC_I) ? 0 : 1));
     uint8_t avail = c->stale ? c->active : lines;     /* as the core decides */
     bool entry = wait == MC6809_RUNNING && !c->halt && (avail & open);
+    bool halted = c->halt;
     *cyc += mc6809_step(&ours);
+    if (halted) return;   /* a cycle of HALT: no boundary */
     if (wait == MC6809_SYNC && c->wait == MC6809_RUNNING) our_event(*cyc);
     else if (wait == MC6809_RUNNING && !entry && c->wait != MC6809_SYNC) our_event(*cyc);
 }
@@ -664,6 +667,80 @@ static void test_waits(uint16_t op) {
            op == 0x13 ? "SYNC" : "CWAI", n, changed);
 }
 
+/* ---- HALT ------------------------------------------------------------ */
+
+/* HALT asserted at a boundary, the lines changed at a cycle of it, and
+ * HALT released then or later: the boundaries after, with the
+ * instructions and any entry they make, held to XRoar's (§7.1). The
+ * RS-DOS cartridge's read loop ends on exactly this: INTRQ releases HALT
+ * and raises NMI together (rsdos.h). */
+#define HALT_HORIZON 120u
+
+static void test_halts(void) {
+    int n = 0;
+    for (int t = 0; t < 30000; t++) {
+        xr_regs_t start;
+        random_regs(&start);
+        both_start(rnd());
+        /* NOPs from the PC and at each handler. */
+        if (!nops_at_handlers(&start, 0, 2u * HALT_HORIZON)) continue;
+
+        bool irq = (rnd() & 3u) == 0, firq = (rnd() & 3u) == 0, nmi = (rnd() & 7u) == 0;
+        change_irq = rnd() & 1u;
+        change_firq = rnd() & 1u;
+        change_nmi = nmi || (rnd() & 1u);
+        change_at = 1u + rnd() % 20u;
+        release_at = change_at + rnd() % 4u;
+
+        ours_load(&start, irq, firq, nmi);
+        mc6809_set_halt(&ours.cpu, true);
+        clear_logs();
+        n_our_events = 0;
+        unsigned long cyc = 0;
+        while (cyc < HALT_HORIZON) {
+            if (cyc == change_at) {
+                mc6809_set_irq(&ours.cpu, 1, change_irq);
+                mc6809_set_firq(&ours.cpu, 1, change_firq);
+                mc6809_set_nmi(&ours.cpu, change_nmi);
+            }
+            if (cyc == release_at) mc6809_set_halt(&ours.cpu, false);
+            ours_step_recording(&cyc);
+        }
+
+        n_xr_events = 0;
+        xr_load(&start, irq, firq, nmi);
+        xr_halt(true);
+        change_armed_now = release_armed = true;
+        xr_run(HALT_HORIZON, false);
+        change_armed_now = release_armed = false;
+
+        int m = 0;
+        while (m < n_our_events && our_events[m].cyc <= HALT_HORIZON) m++;
+        int k = 0;
+        while (k < n_xr_events && xr_events[k].cyc <= HALT_HORIZON) k++;
+        bool ok = true;
+        char what[112];
+        snprintf(what, sizeof what, "HALT irq=%d firq=%d nmi=%d -> %d%d%d at %lu, released at %lu, trial %d",
+                 irq, firq, nmi, change_irq, change_firq, change_nmi, change_at, release_at, t);
+        for (int i = 0; i < m && i < k && ok; i++)
+            ok = compare(what, &start, &our_events[i].r, our_events[i].cyc,
+                         &xr_events[i].r, xr_events[i].cyc, false);
+        if (ok && m != k) {
+            ok = false;
+            if (++failures <= 12) {
+                fprintf(stderr, "FAIL %s: %d boundaries ours, %d xroar\n", what, m, k);
+                if (m > k) print_regs("ours", &our_events[k].r, our_events[k].cyc);
+                else       print_regs("xroar", &xr_events[m].r, xr_events[m].cyc);
+            }
+        }
+        if (ok && !writes_equal(&ours_mem, &theirs_mem)) {
+            if (++failures <= 12) fprintf(stderr, "FAIL %s: writes differ\n", what);
+        }
+        n++;
+    }
+    printf("HALT: %d trials\n", n);
+}
+
 /* ---- reset ----------------------------------------------------------- */
 
 static void test_reset(void) {
@@ -707,6 +784,7 @@ int main(void) {
     test_interrupts();
     test_waits(0x13);
     test_waits(0x3C);
+    test_halts();
     test_reset();
 
     printf("%lu comparisons\n", compared);

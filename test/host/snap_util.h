@@ -167,6 +167,31 @@ static inline bool snap_same(const coco_t *a, const coco_t *b, const char *what)
     SNAP_DIFF(a->tape.hot != b->tape.hot || a->tape.op != b->tape.op || a->tape.rom_ok != b->tape.rom_ok,
               "tape trap hot %04X/%04X", a->tape.hot, b->tape.hot);
 
+    /* The RS-DOS cartridge, and the chip's track in hand, which is not
+     * state but is fetched again (wd_restored) and must be the same. */
+    SNAP_DIFF(a->cfg.rsdos != b->cfg.rsdos, "the cartridge");
+    if (a->cfg.rsdos) {
+        const rsdos_t *p = &a->dk, *q = &b->dk;
+        const wd1793_t *f = &p->fdc, *h = &q->fdc;
+        SNAP_DIFF(p->latch != q->latch || p->halt_enable != q->halt_enable || p->intrq != q->intrq ||
+                  p->nmi != q->nmi, "the latch %02X/%02X", p->latch, q->latch);
+        SNAP_DIFF(f->status != h->status || f->track != h->track || f->sector != h->sector ||
+                  f->data != h->data || f->cmd != h->cmd || f->intrq != h->intrq || f->drq != h->drq,
+                  "the WD1793's registers: status %02X/%02X", f->status, h->status);
+        SNAP_DIFF(f->type1 != h->type1 || f->hold_intrq != h->hold_intrq ||
+                  f->index_intrq != h->index_intrq || f->step_in != h->step_in ||
+                  f->head_until != h->head_until || f->phase != h->phase || f->due != h->due,
+                  "the WD1793's command state: phase %u/%u", f->phase, h->phase);
+        SNAP_DIFF(f->drive != h->drive || f->side != h->side, "the drive selected");
+        for (unsigned i = 0; i < COCO_DISK_DRIVES; i++)
+            SNAP_DIFF(f->drv[i].cyl != h->drv[i].cyl || f->drv[i].loaded != h->drv[i].loaded ||
+                      f->drv[i].protect != h->drv[i].protect, "drive %u", i);
+        SNAP_DIFF(f->buf_ok != h->buf_ok || f->buf_drive != h->buf_drive || f->buf_side != h->buf_side ||
+                  f->buf_cyl != h->buf_cyl || f->nsec != h->nsec ||
+                  (f->buf_ok && memcmp(f->buf, h->buf, sizeof f->buf) != 0) ||
+                  f->req.get != h->req.get || f->req.put != h->req.put, "the track in hand");
+    }
+
     /* The page table, each pointer as an offset into its own machine. */
     for (unsigned p = 0; p < COCO_PAGE_COUNT; p++) {
         const uint8_t *ra = a->page[p].read, *rb = b->page[p].read;

@@ -125,10 +125,17 @@ static void render(void *sptr, unsigned burst, unsigned npixels, const uint8_t *
     line++;
 }
 
+static char *g_variant;   /* NULL, or "6847T1" (dragon.c's option) */
+
+void xv_use_t1(void) {
+    static char t1[] = "6847T1";
+    g_variant = t1;
+}
+
 static void open_parts(void) {
     xroar.machine_events = event_list_new();
     vdg = (struct MC6847 *)mc6847_part.funcs->allocate();
-    mc6847_part.funcs->initialise(&vdg->part, NULL);
+    mc6847_part.funcs->initialise(&vdg->part, g_variant);
     sam = (struct MC6883 *)mc6883_part.funcs->allocate();
     mc6883_part.funcs->finish(&sam->part);
     vdg->signal_hs = DELEGATE_AS1(void, bool, hs, NULL);

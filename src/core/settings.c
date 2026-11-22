@@ -18,6 +18,7 @@ void settings_default(settings_t *s) {
     s->status    = true;
     s->backlight = 0u;
     s->fast_tape = true;
+    s->vdg_t1    = false;       /* the MC6847 of the CoCo 1 and 2 (§9.2) */
 }
 
 /* strcasecmp is POSIX, not C11. */
@@ -38,6 +39,12 @@ static char *trim(char *s) {
 static settings_status_t on_off(const char *v, bool *out) {
     if (same_name(v, "on"))  { *out = true;  return SET_OK; }
     if (same_name(v, "off")) { *out = false; return SET_OK; }
+    return SET_BAD_VALUE;
+}
+
+static settings_status_t vdg(const char *v, bool *t1) {
+    if (same_name(v, "6847"))   { *t1 = false; return SET_OK; }
+    if (same_name(v, "6847t1")) { *t1 = true;  return SET_OK; }
     return SET_BAD_VALUE;
 }
 
@@ -96,17 +103,18 @@ static settings_status_t layout(settings_t *s, const char *v) {
 }
 
 /* Every setting the file may give, in settings.h's order. Only the
- * cartridge and the boot tape may be left empty, meaning none. */
+ * cartridge, the boot tape and the boot disk may be left empty, meaning
+ * none. */
 enum { K_BASIC, K_RAM, K_CART, K_VOLUME, K_PERF, K_STATUS, K_BACKLIGHT, K_LAYOUT, K_FAST_TAPE,
-       K_BOOT_TAPE, K_COUNT };
+       K_VDG, K_SMARTWATCH, K_BOOT_TAPE, K_BOOT_DISK, K_COUNT };
 
 static const char *const k_names[K_COUNT] = {
     "basic", "ram", "cart", "volume", "perf", "status", "backlight", "layout", "fast_tape",
-    "boot_tape",
+    "vdg", "smartwatch", "boot_tape", "boot_disk",
 };
 
 static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
-    if (!*v && k != K_CART && k != K_BOOT_TAPE) return SET_SYNTAX;
+    if (!*v && k != K_CART && k != K_BOOT_TAPE && k != K_BOOT_DISK) return SET_SYNTAX;
     switch (k) {
     case K_BASIC:     return basic(s, v);
     case K_RAM:       return ram(s, v);
@@ -117,7 +125,10 @@ static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
     case K_BACKLIGHT: return number(v, 1u, 15u, &s->backlight);
     case K_LAYOUT:    return layout(s, v);
     case K_FAST_TAPE: return on_off(v, &s->fast_tape);
+    case K_VDG:       return vdg(v, &s->vdg_t1);
+    case K_SMARTWATCH: return on_off(v, &s->smartwatch);
     case K_BOOT_TAPE: return path(v, s->boot_tape);
+    case K_BOOT_DISK: return path(v, s->boot_disk);
     }
     return SET_UNKNOWN;
 }
@@ -242,7 +253,10 @@ static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
     case K_BACKLIGHT: return b->backlight == 0 || a->backlight == b->backlight;
     case K_LAYOUT:    return strcmp(a->layout, b->layout) == 0;
     case K_FAST_TAPE: return a->fast_tape == b->fast_tape;
+    case K_VDG:       return a->vdg_t1 == b->vdg_t1;
+    case K_SMARTWATCH: return a->smartwatch == b->smartwatch;
     case K_BOOT_TAPE: return same_path(SETTINGS_TAPE_DIR, a->boot_tape, b->boot_tape);
+    case K_BOOT_DISK: return same_path(SETTINGS_DISK_DIR, a->boot_disk, b->boot_disk);
     }
     return true;
 }
@@ -265,7 +279,10 @@ static const char *value_of(unsigned k, const settings_t *s, char num[4]) {
     case K_STATUS:    return s->status ? "on" : "off";
     case K_LAYOUT:    return s->layout[0] ? s->layout : "standard";
     case K_FAST_TAPE: return s->fast_tape ? "on" : "off";
+    case K_VDG:       return s->vdg_t1 ? "6847t1" : "6847";
+    case K_SMARTWATCH: return s->smartwatch ? "on" : "off";
     case K_BOOT_TAPE: return s->boot_tape;
+    case K_BOOT_DISK: return s->boot_disk;
     }
     return "";
 }

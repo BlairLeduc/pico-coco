@@ -67,28 +67,37 @@ int main(void) {
           "before the first second: [%s]", line);
 
     /* ---- the status line (§9.6, §14) ------------------------------- */
-    status_format("", false, STATUS_DECK_IDLE, "", line);
+    status_format("", false, STATUS_DECK_IDLE, "", -1, "", line);
     CHECK(strlen(line) == COCO_TEXT_COLS && trimmed()[0] == 0, "nothing: [%s]", line);
-    status_format("/coco/tapes/PIPES.CAS", false, STATUS_DECK_IDLE, "", line);
+    status_format("/coco/tapes/PIPES.CAS", false, STATUS_DECK_IDLE, "", -1, "", line);
     CHECK(strcmp(trimmed(), "TAPE: PIPES.CAS") == 0, "a tape: [%s]", line);
-    status_format("/coco/tapes/PIPES.CAS", true, STATUS_DECK_IDLE, "", line);
+    status_format("/coco/tapes/PIPES.CAS", true, STATUS_DECK_IDLE, "", -1, "", line);
     CHECK(strcmp(trimmed(), "TAPE: PIPES.CAS, NEW") == 0, "a recording: [%s]", line);
-    status_format("", true, STATUS_DECK_IDLE, "", line);
+    status_format("", true, STATUS_DECK_IDLE, "", -1, "", line);
     CHECK(strcmp(trimmed(), "TAPE: NEW TAPE, NEW") == 0, "a new tape, unnamed: [%s]", line);
-    status_format("", false, STATUS_DECK_IDLE, "/coco/carts/EDTASM.CCC", line);
+    status_format("", false, STATUS_DECK_IDLE, "/coco/carts/EDTASM.CCC", -1, "", line);
     CHECK(strcmp(line + COCO_TEXT_COLS - 16, "CART: EDTASM.CCC") == 0 && line[0] == ' ',
           "a cartridge on the right: [%s]", line);
-    status_format("/coco/tapes/PIPES.CAS", false, STATUS_DECK_PLAYING, "", line);
+    status_format("/coco/tapes/PIPES.CAS", false, STATUS_DECK_PLAYING, "", -1, "", line);
     CHECK(strcmp(trimmed(), "TAPE: PIPES.CAS, PLAY") == 0, "the signal playing: [%s]", line);
-    status_format("/coco/tapes/PIPES.CAS", true, STATUS_DECK_RECORDING, "", line);
+    status_format("/coco/tapes/PIPES.CAS", true, STATUS_DECK_RECORDING, "", -1, "", line);
     CHECK(strcmp(trimmed(), "TAPE: PIPES.CAS, REC") == 0, "the ROM writing: [%s]", line);
-    status_format("", false, STATUS_DECK_RECORDING, "", line);
+    status_format("", false, STATUS_DECK_RECORDING, "", -1, "", line);
     CHECK(strcmp(trimmed(), "TAPE: NEW TAPE, REC") == 0, "writing a tape not yet made: [%s]", line);
     status_format("/coco/tapes/A VERY LONG TAPE NAME INDEED.CAS", true, STATUS_DECK_IDLE,
-                  "/coco/carts/Dungeons of Daggorath (1982).ccc", line);
+                  "/coco/carts/Dungeons of Daggorath (1982).ccc", -1, "", line);
     CHECK(strlen(line) == COCO_TEXT_COLS, "both, long: one line [%s]", line);
     CHECK(strncmp(line, "TAPE: ", 6) == 0 && strstr(line, "CART: Dungeons of Da") &&
           line[COCO_TEXT_COLS - 21] == ' ', "both, long: each in its place [%s]", line);
+    /* The drive at work in the cartridge's place (rsdos.h). */
+    status_format("/coco/tapes/PIPES.CAS", false, STATUS_DECK_IDLE, "rsdos", 1,
+                  "/coco/disks/GAMES.DSK", line);
+    CHECK(strncmp(line, "TAPE: PIPES.CAS", 15) == 0 && line[COCO_TEXT_COLS - 18] == ' ' &&
+          strcmp(line + COCO_TEXT_COLS - 17, "DISK 1: GAMES.DSK") == 0, "a drive at work: [%s]", line);
+    status_format("", false, STATUS_DECK_IDLE, "rsdos", 2, "", line);
+    CHECK(strcmp(trimmed() + strlen(trimmed()) - 13, "DISK 2: EMPTY") == 0, "an empty drive: [%s]", line);
+    status_format("", false, STATUS_DECK_IDLE, "rsdos", -1, "/coco/disks/GAMES.DSK", line);
+    CHECK(strstr(line, "CART: rsdos") != NULL, "no drive at work: the cartridge [%s]", line);
     status_paused_format(line);
     CHECK(strcmp(trimmed(), "PAUSED: ANY KEY RESUMES") == 0, "paused: [%s]", line);
 

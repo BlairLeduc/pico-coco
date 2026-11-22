@@ -11,7 +11,7 @@
  * is not, the CoCo's 40 cells having no room for both, and on the
  * audio's pacing a guest behind real time shows as underruns (§9.6,
  * M8). The status line's own text is the tape and the cartridge from
- * M9, the disc's to come in M13. It is drawn in the VDG's character set, which has no lower
+ * M9, and the drive at work from M13. It is drawn in the VDG's character set, which has no lower
  * case (§9.6), so the line reads in capitals on the panel.
  */
 #ifndef PICO_COCO_STATUS_H
@@ -46,11 +46,13 @@ enum { STATUS_DECK_IDLE = 0, STATUS_DECK_PLAYING, STATUS_DECK_RECORDING };
  * space-padded and a NUL: the deck on the left, `TAPE: NAME.CAS`, with
  * `, NEW` while it holds a recording not yet on the card, or `, PLAY`
  * or `, REC` while its signal runs (`deck`), and the
- * cartridge on the right, `CART: NAME.CCC`. `tape` and `cart` are paths,
- * "" for none, each shown without its folder; the cartridge's name is
+ * cartridge on the right, `CART: NAME.CCC`, or while a drive's head is
+ * loaded, the drive and its disk, `DISK 0: NAME.DSK`, `drive` 0 to 3 or
+ * -1 for none (rsdos.h). `tape`, `cart` and `disk` are paths, "" for
+ * none, each shown without its folder; the cartridge's or disk's name is
  * capped and the tape's shortened to fit what is left. */
-void status_format(const char *tape, bool unsaved, unsigned deck, const char *cart,
-                   char out[COCO_TEXT_COLS + 1]);
+void status_format(const char *tape, bool unsaved, unsigned deck, const char *cart, int drive,
+                   const char *disk, char out[COCO_TEXT_COLS + 1]);
 
 /* The status line while the guest is paused, whether or not the line
  * is on (§14). */

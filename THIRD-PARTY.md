@@ -36,6 +36,17 @@ the same licence as this project, so the data can travel with the repository.
 data: 5 px wide in bits 5..1, glyph rows at 3..9 of the 12-row cell, and the
 MC6847's own glyph order.
 
+## MC6847T1 character ROM — XRoar
+
+`src/core/mc6847_font_t1.c` holds the MC6847T1's internal 128-glyph
+character generator, lower case among them (`docs/design.md` §9.2). The
+table is taken **verbatim** from XRoar's `src/mc6847/font-6847t1.c` and is
+byte-identical to it (checked against the pinned checkout, 2026-11-17);
+only the comment header differs. The owner chose this, as for the MC6847's
+(2026-11-17). Copyright and licence as the entry above: XRoar, Ciaran
+Anscomb, GPL-3.0 or later. `test/host/test_vdg_oracle.c`, run with `t1`,
+holds the renderer and this table to XRoar's MC6847T1 pixel for pixel.
+
 ## The sound bus's voltages — XRoar
 
 `src/core/coco.c`'s `sound_gain` and `sound_offset` tables, and the same

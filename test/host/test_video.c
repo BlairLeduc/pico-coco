@@ -249,8 +249,9 @@ int main(void) {
     /* ---- §9.4: a change along a line -------------------------------- */
     {
         /* Dark Star's (docs/milestones.md, M12): in RG6, wait for FS's
-         * fall, delay to a line of the next picture, set CSS, wait 30
-         * cycles and clear it: 480 ticks, 240 pixels. */
+         * fall, delay to a line of the next picture, set CSS, wait and
+         * clear it, 29 cycles later here, 464 ticks, 232 pixels, so that
+         * both fall on one line (Dark Star's are 30 cycles apart). */
         static const uint8_t code[] = {
             0x86, 0xF8, 0xB7, 0xFF, 0x22,   /* $A000 LDA #$F8, STA $FF22   */
             0x86, 0x04, 0xB7, 0xFF, 0x23,   /* $A005 LDA #$04, STA $FF23   */
@@ -262,14 +263,17 @@ int main(void) {
             0xB6, 0xFF, 0x02,               /* $A01D LDA $FF02             */
             0x8E, 0x04, 0xC1,               /* $A020 LDX #1217             */
             0x30, 0x1F, 0x26, 0xFC,         /* $A023 LEAX -1,X, BNE $A023  */
-            0x21, 0x00, 0x12, 0x12,         /* $A027 BRN, NOP, NOP: 7 cycles,
-                                             * which put the write early
-                                             * on a line                   */
+            0x21, 0x00, 0x21, 0x00,         /* $A027 BRN, BRN: 6 cycles,
+                                             * which put the change at a
+                                             * line's eighth pixel, the
+                                             * PIA's 7 included
+                                             * (COCO_PIA_VIDEO_TICKS)      */
             0x86, 0xF8, 0xB7, 0xFF, 0x22,   /* $A02B LDA #$F8, STA $FF22   */
             0x8E, 0x00, 0x00,               /* $A030 LDX #0        3       */
-            0x30, 0x1F, 0x30, 0x1F,         /* $A033 LEAX -1,X x 4 20      */
-            0x30, 0x1F, 0x30, 0x1F,
-            0x12,                           /* $A03B NOP           2       */
+            0x30, 0x1F, 0x30, 0x1F,         /* $A033 LEAX -1,X x 3 15      */
+            0x30, 0x1F,
+            0x21, 0x00,                     /* $A039 BRN           3       */
+            0x3A,                           /* $A03B ABX           3       */
             0xF7, 0xFF, 0x22,               /* $A03C STB $FF22     5       */
             0x20, 0xD7,                     /* $A03F BRA $A018             */
         };
@@ -286,7 +290,7 @@ int main(void) {
             unsigned at = 0;
             while (at < COCO_PIC_H - 2u && !f.how[at].x[0]) at++;
             const coco_line_t *h = &f.how[at];
-            CHECK(f.splits == 2 && h->mode == 0xF0u && h->x[0] == 73 && h->m[0] == 0xF8u &&
+            CHECK(f.splits == 2 && h->mode == 0xF0u && h->x[0] == 72 && h->m[0] == 0xF8u &&
                       !h->x[1] && h[1].mode == 0xF0u && !h[1].x[0] && h[-1].mode == 0xF0u,
                   "a change past the pixels: line %u %02X, %02X from %u, then %u; the next "
                   "line %02X, then %u", at, h->mode, h->m[0], h->x[0], h->x[1], h[1].mode,
@@ -299,7 +303,7 @@ int main(void) {
         machine();
         for (int i = 0; i < 6; i++) coco_run_field(&m);
         coco_video_snapshot(&m, &f);
-        /* One line with two changes, 240 pixels apart: the first to CSS,
+        /* One line with two changes, 232 pixels apart: the first to CSS,
          * the second back. */
         unsigned n = 0, at = 0;
         for (unsigned y = 0; y < COCO_PIC_H; y++)
@@ -309,7 +313,7 @@ int main(void) {
               "mode %02X, %u changes, on %u line(s)", f.mode, f.splits, n);
         if (n == 1 && how->x[1]) {
             CHECK(how->mode == 0xF0u && how->m[0] == 0xF8u && how->m[1] == 0xF0u &&
-                      how->x[1] - how->x[0] == 240,
+                      how->x[1] - how->x[0] == 232,
                   "line %u: %02X, %02X from pixel %u, %02X from %u", at, how->mode, how->m[0],
                   how->x[0], how->m[1], how->x[1]);
             /* Drawn: buff where CSS was set and the byte's bits are, the
@@ -336,6 +340,56 @@ int main(void) {
                   at, how->mode, how->m[0], how->x[0], how->m[1], how->x[1], at + 1u,
                   f.how[at + 1u].mode);
         }
+    }
+
+    /* ---- §9.4: six changes along a line ----------------------------- */
+    {
+        /* Dragonfire's moat (docs/milestones.md, M13): CSS set and
+         * cleared three times along one line, as the game does on the
+         * moat's lower edge. Six stores, 5 cycles, 40 pixels apart. */
+        static const uint8_t code[] = {
+            0x86, 0xF8, 0xB7, 0xFF, 0x22,   /* $A000 LDA #$F8, STA $FF22   */
+            0x86, 0x04, 0xB7, 0xFF, 0x23,   /* $A005 LDA #$04, STA $FF23   */
+            0xB7, 0xFF, 0x03,               /* $A00A STA $FF03             */
+            0xB7, 0xFF, 0xC3,               /* $A00D STA $FFC3  V1 set     */
+            0xB7, 0xFF, 0xC5,               /* $A010 STA $FFC5  V2 set     */
+            0xC6, 0xF0, 0xF7, 0xFF, 0x22,   /* $A013 LDB #$F0, STB $FF22   */
+            0xB6, 0xFF, 0x03, 0x2A, 0xFB,   /* $A018 LDA $FF03, BPL $A018  */
+            0xB6, 0xFF, 0x02,               /* $A01D LDA $FF02             */
+            0x8E, 0x04, 0xC1,               /* $A020 LDX #1217             */
+            0x30, 0x1F, 0x26, 0xFC,         /* $A023 LEAX -1,X, BNE $A023  */
+            0x20, 0x01, 0x12, 0x12,         /* $A027 BRA over a NOP, NOP   */
+            0x86, 0xF8, 0xB7, 0xFF, 0x22,   /* $A02B LDA #$F8, STA $FF22   */
+            0xF7, 0xFF, 0x22,               /* $A030 STB $FF22             */
+            0xB7, 0xFF, 0x22,               /* $A033 STA $FF22             */
+            0xF7, 0xFF, 0x22,               /* $A036 STB $FF22             */
+            0xB7, 0xFF, 0x22,               /* $A039 STA $FF22             */
+            0xF7, 0xFF, 0x22,               /* $A03C STB $FF22             */
+            0x20, 0xD7,                     /* $A03F BRA $A018             */
+        };
+        memset(rom, 0x12, sizeof rom);
+        memcpy(rom, code, sizeof code);
+        rom[0x1FFE] = 0xA0; rom[0x1FFF] = 0x00;
+        machine();
+        for (int i = 0; i < 6; i++) coco_run_field(&m);
+        coco_video_snapshot(&m, &f);
+        unsigned at = 0;
+        while (at < COCO_PIC_H - 1u && !f.how[at].x[0]) at++;
+        const coco_line_t *how = &f.how[at];
+        unsigned k = 0;
+        bool apart = true;
+        while (k < COCO_LINE_SPLITS && how->x[k]) {
+            if (k && (how->x[k] - how->x[k - 1u] != 40 ||
+                      how->m[k] != ((k & 1u) ? 0xF0u : 0xF8u)))
+                apart = false;
+            k++;
+        }
+        CHECK(f.splits == 6 && k == 6 && apart && how->mode == 0xF0u,
+              "six changes on line %u: %u kept of %u, 40 pixels apart in turn %d", at, k,
+              f.splits, apart);
+        printf("six along a line: line %u, changes at", at);
+        for (unsigned i = 0; i < k; i++) printf(" %u", how->x[i]);
+        printf("\n");
     }
 
     /* ---- EL §5.6: the field's shape --------------------------------- */

@@ -48,6 +48,7 @@
  */
 
 #include <dirent.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -57,6 +58,7 @@
 #include <sys/stat.h>
 
 #include "cas.h"
+#include "disk_util.h"
 #include "frame_ppm.h"
 #include "guest.h"
 #include "keymatrix.h"
@@ -64,7 +66,7 @@
 
 #define DECK_MAX (1u << 20)
 
-static guest_t s_booted, g;
+static guest_t s_booted, s_booted_disk, g;
 static coco_t  s_field_start, s_replay;
 static uint8_t s_deck[DECK_MAX];
 static uint8_t s_cart[COCO_CART_SIZE + 1];
@@ -211,6 +213,11 @@ static void serve(coco_t *m) {
     coco_tape_give_up(m);
 }
 
+/* The drives of a disk run (disk_util.h), served after each field. */
+static bool         s_disk_mode;
+static host_disk_t  s_dd[COCO_DISK_DRIVES];
+static host_disk_t *s_drv[COCO_DISK_DRIVES];
+
 static void field(void) {
     keymatrix_field(&g.k, &g.m);
     coco_copy(&s_field_start, &g.m);
@@ -226,6 +233,7 @@ static void field(void) {
         s_tl.last_field = s_field;
     }
     serve(&g.m);
+    if (s_disk_mode) host_disk_serve(&g.m, s_drv);
     s_field++;
 }
 
@@ -357,18 +365,24 @@ static const char *base_name(const char *path) {
 
 /* ---- the report ----------------------------------------------------------- */
 
-static void shot(const char *dir, const char *name) {
-    static coco_frame_t fr;
+static coco_frame_t s_fr;
+
+/* m's last frame as RGB, through s_fr. */
+static void render(const coco_t *m, uint8_t *rgb) {
     static mc6847_t vdg;
     static bool vdg_ready;
-    static uint8_t rgb[FRAME_RGB_BYTES];
     if (!vdg_ready) {
         mc6847_init(&vdg);
         vdg_ready = true;
     }
+    coco_video_snapshot(m, &s_fr);
+    frame_rgb(&vdg, &s_fr, rgb);
+}
+
+static void shot(const char *dir, const char *name) {
+    static uint8_t rgb[FRAME_RGB_BYTES];
     char path[2048];
-    coco_video_snapshot(&g.m, &fr);
-    frame_rgb(&vdg, &fr, rgb);
+    render(&g.m, rgb);
     snprintf(path, sizeof path, "%s/%s.ppm", dir, name);
     frame_write_ppm(path, rgb);
     snprintf(path, sizeof path, "%s/%s.txt", dir, name);
@@ -377,10 +391,10 @@ static void shot(const char *dir, const char *name) {
     guest_dump(&g.m, f);
     fprintf(f, "\nPC $%04X at field %ld\n", g.m.cpu.pc, s_field);
     fprintf(f, "\nThe frame: VDG mode $%02X, SAM V%u, from $%04X, drawn by %u change(s) of the "
-               "last field's (§9.4)\n", fr.mode, fr.sam_v, fr.base, fr.splits);
+               "last field's (§9.4)\n", s_fr.mode, s_fr.sam_v, s_fr.base, s_fr.splits);
     for (unsigned y = 0; y < COCO_PIC_H; y++) {
-        const coco_line_t *h = &fr.how[y];
-        if (y && !h->x[0] && h->mode == fr.how[y - 1u].mode && !fr.how[y - 1u].x[0]) continue;
+        const coco_line_t *h = &s_fr.how[y];
+        if (y && !h->x[0] && h->mode == s_fr.how[y - 1u].mode && !s_fr.how[y - 1u].x[0]) continue;
         fprintf(f, "  line %3u: $%02X", y, h->mode);
         for (unsigned k = 0; k < COCO_LINE_SPLITS && h->x[k]; k++)
             fprintf(f, ", $%02X from pixel %u", h->m[k], h->x[k]);
@@ -424,11 +438,22 @@ static void ops_str(char *out, size_t cap) {
     if (!out[0]) snprintf(out, cap, "-");
 }
 
+static bool s_have_disk;
+static bool is_disk(const char *path, const struct stat *st);
+static int  run_disk(const char *path, const struct stat *st, long fields, const char *shots);
+
 static int run_one(const char *path, long fields, const char *shots) {
     struct stat st;
     if (stat(path, &st) != 0) {
         fprintf(stderr, "%s: cannot open\n", path);
         return 1;
+    }
+    if (is_disk(path, &st)) {
+        if (!s_have_disk) {
+            fprintf(stderr, "%s: no Disk BASIC ROM\n", path);
+            return 1;
+        }
+        return run_disk(path, &st, fields, shots);
     }
     size_t pl = strlen(path);
     bool cart = !S_ISDIR(st.st_mode) && pl > 4 &&
@@ -534,23 +559,393 @@ static int run_one(const char *path, long fields, const char *shots) {
     return 0;
 }
 
+/* ---- disks (M13) ---------------------------------------------------------- */
+
+/* E cycles in a field: the capture's time, which XRoar's snapshot is
+ * taken at too, by a watchpoint over the whole map counting cycles
+ * (tools/archive-disks.sh). */
+#define FIELD_CYCLES (COCO_FIELD_TICKS / 16u)
+
+/* With -ref, our picture is compared with XRoar's at every field within
+ * this many of the capture, 10 s either side. */
+#define MATCH_FIELDS 600L
+
+static const char *s_ref_dir;     /* -ref: XRoar's snapshots, <title>.sna  */
+static bool        s_entry_only;  /* -entry: print the command, run nothing */
+static const char *read_sna(const char *path, coco_t *m);
+
+/* A directory's disks in name order, up to the four drives; the count. */
+static unsigned disk_names(const char *path, char names[][1024]) {
+    DIR *d = opendir(path);
+    if (!d) return 0;
+    char *list[64];
+    unsigned n = 0;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL && n < 64) {
+        size_t l = strlen(e->d_name);
+        if (l > 4 && strcasecmp(e->d_name + l - 4, ".dsk") == 0) list[n++] = dup_str(e->d_name);
+    }
+    closedir(d);
+    qsort(list, n, sizeof list[0], cmp_str);
+    unsigned k = 0;
+    for (unsigned i = 0; i < n; i++) {
+        if (k < COCO_DISK_DRIVES) snprintf(names[k++], 1024, "%s/%s", path, list[i]);
+        free(list[i]);
+    }
+    return k;
+}
+
+static bool is_disk(const char *path, const struct stat *st) {
+    size_t l = strlen(path);
+    if (!S_ISDIR(st->st_mode)) return l > 4 && !strcasecmp(path + l - 4, ".dsk");
+    char names[COCO_DISK_DRIVES][1024];
+    return disk_names(path, names) > 0;
+}
+
+/* Sector r (numbered from the layout's first) of side 0 of track c, if the
+ * image holds it whole and its sectors are RS-DOS's 256 bytes. */
+static const uint8_t *dsk_sector(const host_disk_t *d, unsigned c, unsigned r) {
+    const mfm_layout_t *lay = &d->g.lay;
+    if (c >= d->g.tracks || mfm_size(lay->n) != 256u || r < lay->first ||
+        r - lay->first >= lay->count)
+        return NULL;
+    uint32_t at = jvc_offset(&d->g, c, 0) + (r - lay->first) * 256u;
+    return at + 256u <= d->len ? d->img + at : NULL;
+}
+
+/* How the disk is started, read from drive 0: DOS if track 34 starts
+ * "OS", as Disk BASIC's DOS asks; otherwise from the RS-DOS directory,
+ * the one BASIC program by RUN, or one of a starter's name among several,
+ * or the one machine-code file by LOADM and EXEC. Anything else is not
+ * guessed at: cmd is left empty and why says what the directory holds. */
+static const char *const k_starters[] = { "AUTOEXEC", "BOOT", "MENU", "START", "LOADER" };
+
+static void disk_entry(const host_disk_t *d, char *cmd, size_t cap, char *why, size_t wcap) {
+    cmd[0] = 0;
+    const uint8_t *t34 = dsk_sector(d, 34, 1);
+    if (t34 && t34[0] == 'O' && t34[1] == 'S') {
+        snprintf(cmd, cap, "DOS");
+        snprintf(why, wcap, "dos");
+        return;
+    }
+    const uint8_t *fat = dsk_sector(d, 17, 2);
+    bool fat_ok = fat != NULL;
+    for (unsigned i = 0; fat_ok && i < 68u; i++)
+        fat_ok = fat[i] < 68u || (fat[i] >= 0xC0u && fat[i] <= 0xC9u) || fat[i] == 0xFFu;
+    if (!fat_ok) {
+        snprintf(why, wcap, "not RS-DOS: no FAT on track 17");
+        return;
+    }
+    char bas[16][13], bin[16][13];
+    unsigned nbas = 0, nbin = 0, other = 0, bad = 0;
+    bool end = false;
+    for (unsigned r = 3; r <= 11 && !end; r++) {
+        const uint8_t *s = dsk_sector(d, 17, r);
+        if (!s) break;
+        for (unsigned e = 0; e < 8u && !end; e++) {
+            const uint8_t *de = s + e * 32u;
+            if (de[0] == 0xFFu) { end = true; break; }
+            if (de[0] == 0x00u) continue;
+            bool name_ok = de[11] <= 3u;
+            for (unsigned k = 0; k < 11u; k++) name_ok = name_ok && de[k] >= 0x20u && de[k] < 0x7Fu;
+            if (!name_ok) { bad++; continue; }
+            char name[9], ext[4], full[13];
+            memcpy(name, de, 8); name[8] = 0;
+            memcpy(ext, de + 8, 3); ext[3] = 0;
+            for (int k = 7; k >= 0 && name[k] == ' '; k--) name[k] = 0;
+            for (int k = 2; k >= 0 && ext[k] == ' '; k--) ext[k] = 0;
+            /* RUN and LOADM supply BAS and BIN; any other extension is named. */
+            bool dflt = (de[11] == 0 && !strcmp(ext, "BAS")) || (de[11] == 2 && !strcmp(ext, "BIN"));
+            snprintf(full, sizeof full, dflt ? "%s" : "%s.%s", name, ext);
+            if (de[11] == 0 && nbas < 16) snprintf(bas[nbas++], 13, "%s", full);
+            else if (de[11] == 2 && nbin < 16) snprintf(bin[nbin++], 13, "%s", full);
+            else other++;
+        }
+    }
+    if (bad > 2) {
+        snprintf(why, wcap, "not RS-DOS: %u unreadable directory entries", bad);
+        return;
+    }
+    if (nbas == 1) {
+        snprintf(cmd, cap, "RUN\"%.12s\"", bas[0]);
+        snprintf(why, wcap, "one-bas");
+        return;
+    }
+    for (unsigned s = 0; nbas > 1 && s < sizeof k_starters / sizeof k_starters[0]; s++)
+        for (unsigned i = 0; i < nbas; i++)
+            if (!strcmp(bas[i], k_starters[s])) {
+                snprintf(cmd, cap, "RUN\"%.12s\"", bas[i]);
+                snprintf(why, wcap, "starter");
+                return;
+            }
+    if (nbas == 0 && nbin == 1) {
+        snprintf(cmd, cap, "LOADM\"%.12s\":EXEC", bin[0]);
+        snprintf(why, wcap, "one-bin");
+        return;
+    }
+    snprintf(why, wcap, "no entry: %u BASIC, %u machine code, %u other", nbas, nbin, other);
+}
+
+static int run_disk(const char *path, const struct stat *st, long fields, const char *shots) {
+    char names[COCO_DISK_DRIVES][1024];
+    unsigned n = 1;
+    if (S_ISDIR(st->st_mode)) n = disk_names(path, names);
+    else snprintf(names[0], sizeof names[0], "%s", path);
+    const char *name = base_name(path);
+    char trimmed[1024];
+    snprintf(trimmed, sizeof trimmed, "%s", name);
+    size_t tl = strlen(trimmed);
+    if (tl > 4 && !strcasecmp(trimmed + tl - 4, ".dsk")) trimmed[tl - 4] = 0;
+    name = trimmed;
+
+    memset(&s_rl, 0, sizeof s_rl);
+    memset(&s_tl, 0, sizeof s_tl);
+    s_rl.first_field = -1;
+    s_rl.line_lo = s_rl.line_hi = -1;
+    s_tl.last_field = -1;
+    s_field = 0;
+
+    uint32_t bytes = 0;
+    for (unsigned i = 0; i < COCO_DISK_DRIVES; i++) {
+        host_disk_free(&s_dd[i]);
+        s_drv[i] = NULL;
+    }
+    for (unsigned i = 0; i < n; i++) {
+        const char *why = host_disk_load(&s_dd[i], names[i]);
+        if (why) {
+            printf("%s\tdsk\trefused\t%u\t0\t0\t-\t0\t-\t-\t-\tdrive %u: %s\t0\t0\t0\t0\t00\t-\t-\t-\t-\n",
+                   name, n, i, why);
+            fflush(stdout);
+            return 0;
+        }
+        s_drv[i] = &s_dd[i];
+        bytes += s_dd[i].len;
+    }
+    char cmd[64], why[96];
+    disk_entry(&s_dd[0], cmd, sizeof cmd, why, sizeof why);
+    if (!cmd[0] && s_entry_only) return 0;
+    if (!cmd[0]) {
+        printf("%s\tdsk\tno-entry\t%u\t%u\t0\t-\t0\t-\t-\t-\t%s\t0\t0\t0\t0\t00\t-\t-\t-\t-\n",
+               name, n, bytes, why);
+        fflush(stdout);
+        return 0;
+    }
+
+    if (s_entry_only) {
+        /* And whether our reader took any of the disks as OS-9's shape,
+         * from its LSN0 (jvc.h): XRoar is told not to guess otherwise
+         * (tools/archive-disks.sh). */
+        bool os9 = false;
+        for (unsigned i = 0; i < n; i++) os9 = os9 || s_dd[i].g.os9;
+        printf("%s\t%s\t%s\n", name, cmd, os9 ? "os9" : "-");
+        fflush(stdout);
+        return 0;
+    }
+
+    /* XRoar's picture, if there is one to look for (-ref). */
+    static uint8_t ref[FRAME_RGB_BYTES], ours[FRAME_RGB_BYTES];
+    bool have_ref = false;
+    if (s_ref_dir) {
+        char sp[2048];
+        snprintf(sp, sizeof sp, "%s/%s.sna", s_ref_dir, name);
+        static coco_t rm;
+        coco_copy(&rm, &s_booted_disk.m);
+        have_ref = read_sna(sp, &rm) == NULL;
+        if (have_ref) render(&rm, ref);
+    }
+
+    coco_copy(&g.m, &s_booted_disk.m);
+    g.k = s_booted_disk.k;
+    for (unsigned i = 0; i < n; i++) host_disk_insert(&g.m, i, &s_dd[i]);
+    s_disk_mode = true;
+    char line[80];
+    snprintf(line, sizeof line, "%s\n", cmd);
+    type(line);
+    const uint64_t until = (uint64_t)fields * FIELD_CYCLES;
+    const uint64_t win = (uint64_t)MATCH_FIELDS * FIELD_CYCLES;
+    const uint64_t lo = until > win ? until - win : 0, hi = have_ref ? until + win : until;
+    long cap_field = -1, best_off = 0;
+    unsigned at_px = 0, best_px = UINT32_MAX;
+    char out[OPS * 16 + 512];
+    for (;;) {
+        bool captured = cap_field >= 0;
+        if (captured && g.m.cpu.cycles >= hi) break;
+        field();
+        if (have_ref && g.m.cpu.cycles >= lo) {
+            /* As XRoar's is drawn: the field's end state alone, since a
+             * snapshot holds no changes along the field (§9.4). */
+            uint16_t splits = g.m.n_split_last;
+            g.m.n_split_last = 0;
+            render(&g.m, ours);
+            g.m.n_split_last = splits;
+            unsigned px = 0;
+            for (unsigned k = 0; k < FRAME_RGB_BYTES; k += 3)
+                px += memcmp(ours + k, ref + k, 3) != 0;
+            /* In fields from the capture, by the cycle count. */
+            long off = (long)(((int64_t)g.m.cpu.cycles - (int64_t)until) / (int64_t)FIELD_CYCLES);
+            if (px < best_px || (px == best_px && labs(off) < labs(best_off))) {
+                best_px = px;
+                best_off = off;
+            }
+            if (cap_field < 0 && g.m.cpu.cycles >= until) at_px = px;
+        }
+        if (captured || g.m.cpu.cycles < until) continue;
+
+        /* The capture: what is reported, and the picture compared. */
+        cap_field = s_field;
+        const char *outcome = screen_has("ERROR") ? "error" : at_ok() ? "at-ok" : "running";
+        char note[160];
+        snprintf(note, sizeof note, "%s", why);
+        if (s_rl.replay_bad) snprintf(note, sizeof note, "%s; %u replays out of step", why, s_rl.replay_bad);
+        char ops[OPS * 16], changed[32], lines[16] = "-";
+        ops_str(ops, sizeof ops);
+        changed_str(changed, sizeof changed);
+        if (s_rl.line_lo >= 0) snprintf(lines, sizeof lines, "%d-%d", s_rl.line_lo, s_rl.line_hi);
+        uint8_t mode = coco_vdg_mode(&g.m);
+        char mstr[16];
+        snprintf(mstr, sizeof mstr, "%s%u%s", (mode & VDG_AG) ? "g" : "a",
+                 (unsigned)((mode & VDG_GM_MASK) >> VDG_GM_SHIFT), (mode & VDG_CSS) ? "c" : "");
+        unsigned cols = 0;
+        for (unsigned c = 0; c < COCO_KEY_COLS; c++)
+            if (g.m.key_col_reads[c] >= 16u) cols |= 1u << c;
+        int w = snprintf(out, sizeof out,
+                         "%s\tdsk\t%s\t%u\t%u\t%u\t%s\t%u\t%s\t%s\t%s\t%s\t%u\t%u\t%u\t%u\t%02X\t%s",
+                         name, outcome, n, bytes, (unsigned)s_rl.total, ops,
+                         (unsigned)g.m.split_fields, changed, lines, mstr, note, s_rl.regions,
+                         (unsigned)g.m.split_dropped, (unsigned)g.m.joy_samples[COCO_JOY_RIGHT],
+                         (unsigned)g.m.joy_samples[COCO_JOY_LEFT], cols, cmd);
+        /* A name long enough to fill the line: the report shows it cut. */
+        if (w < 0 || (size_t)w >= sizeof out) out[sizeof out - 2] = '~';
+        if (shots) shot(shots, name);
+    }
+    s_disk_mode = false;
+    /* Then the pixels that differ from XRoar's picture at the capture, the
+     * fewest at any field within MATCH_FIELDS of it, and that field's
+     * distance from the capture: the two disk models time a load
+     * differently, by seconds either way (design.md §15.4). */
+    if (have_ref) printf("%s\t%u\t%u\t%ld\n", out, at_px, best_px, best_off);
+    else printf("%s\t-\t-\t-\n", out);
+    fflush(stdout);
+    return 0;
+}
+
+/* ---- XRoar's snapshot ----------------------------------------------------- */
+
+/* A snapshot written by XRoar 1.13's -trap-snap, read for the picture:
+ * the RAM, the SAM's V and F and PIA 1's port B, put into a machine of
+ * ours and drawn by shot(), as our own run's last frame is (design.md
+ * §15.4). Read from the file's format, a tree of (tag, length, data)
+ * with every tag opening a level and a zero closing one, its integers
+ * variable-length; no XRoar code (D2, D8). A component is named by a
+ * tag 1 holding its id ("RAM", "SAM", "PIA1"); the fields wanted are at
+ * fixed depths under it. */
+typedef struct {
+    const uint8_t *p, *end;
+} sna_t;
+
+static uint32_t sna_vu(sna_t *s) {
+    if (s->p >= s->end) return 0;
+    unsigned b0 = *s->p++, mask = 0x7Fu;
+    uint32_t v = b0;
+    for (unsigned n = 1; n < 5 && (b0 & 0x80u); n++) {
+        if (s->p >= s->end) return 0;
+        b0 = (b0 << 1) & 0xFFu;
+        v = (v << 8) | *s->p++;
+        mask = (mask << 7) | 0x7Fu;
+    }
+    return v & mask;
+}
+
+static uint32_t sna_value(const uint8_t *d, uint32_t len) {
+    sna_t s = { d, d + len };
+    return len ? sna_vu(&s) : 0;
+}
+
+static uint8_t s_sna[1u << 20];
+
+static const char *read_sna(const char *path, coco_t *m) {
+    uint32_t len = read_file(path, s_sna, sizeof s_sna);
+    if (len < 8) return "cannot read";
+    sna_t s = { s_sna, s_sna + len };
+    int depth = 0, ctx = 0, ctx_depth = 0, side = 0;
+    bool open = false, got_ram = false;
+    unsigned v = 0, f = 0, ddr = 0, out = 0;
+    enum { NONE, RAM, SAM, PIA1 };
+    while (s.p < s.end) {
+        uint32_t tag = sna_vu(&s);
+        if (tag == 0) {
+            if (open) { open = false; continue; }
+            depth--;
+            if (ctx && depth <= ctx_depth) ctx = NONE;
+            continue;
+        }
+        if (open) depth++;
+        open = true;
+        uint32_t n = sna_vu(&s);
+        if (n > (uint32_t)(s.end - s.p)) return "truncated";
+        const uint8_t *d = s.p;
+        s.p += n;
+        if (tag == 1 && (n == 3 || n == 4) && depth > 0) {
+            if (n == 3 && !memcmp(d, "RAM", 3)) { ctx = RAM; ctx_depth = depth; continue; }
+            if (n == 3 && !memcmp(d, "SAM", 3)) { ctx = SAM; ctx_depth = depth; continue; }
+            if (n == 4 && !memcmp(d, "PIA1", 4)) { ctx = PIA1; ctx_depth = depth; side = 0; continue; }
+        }
+        if (ctx == RAM && tag == 1 && n == COCO_ADDR_SPACE) {
+            memcpy(m->ram, d, n);
+            got_ram = true;
+        } else if (ctx == SAM && depth == ctx_depth + 2) {
+            if (tag == 17) v = sna_value(d, n);
+            if (tag == 18) f = sna_value(d, n);
+        } else if (ctx == PIA1 && depth == ctx_depth + 2) {
+            side = (int)tag;
+        } else if (ctx == PIA1 && depth == ctx_depth + 3 && side == 2) {
+            if (tag == 2) ddr = sna_value(d, n);
+            if (tag == 3) out = sna_value(d, n);
+        }
+    }
+    if (!got_ram) return "no 64 KB RAM in it";
+    m->sam.reg = (uint16_t)((m->sam.reg & ~(SAM_V_MASK | SAM_F_MASK)) | (v & SAM_V_MASK) |
+                            (((f >> 9) << 3) & SAM_F_MASK));
+    m->pia1.b.ddr = (uint8_t)ddr;
+    m->pia1.b.out = (uint8_t)out;
+    m->n_split_last = 0;
+    return NULL;
+}
+
+static int run_sna(const char *path, const char *name, const char *shots) {
+    coco_copy(&g.m, &s_booted_disk.m);
+    const char *why = read_sna(path, &g.m);
+    if (why) {
+        fprintf(stderr, "%s: %s\n", path, why);
+        return 1;
+    }
+    memset(&s_rl, 0, sizeof s_rl);
+    s_rl.first_field = -1;
+    s_field = -1;
+    shot(shots ? shots : ".", name);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     long fields = 3600;
     unsigned ram = 64;
     bool ext = true;
     rom_id_t basic = ROM_COCO_BAS13;
-    const char *shots = NULL;
+    const char *shots = NULL, *sna = NULL, *sna_name = NULL;
     int i = 1;
     for (; i < argc && argv[i][0] == '-'; i++) {
         if (!strcmp(argv[i], "-f") && i + 1 < argc) fields = atol(argv[++i]);
         else if (!strcmp(argv[i], "-s") && i + 1 < argc) shots = argv[++i];
         else if (!strcmp(argv[i], "-ram") && i + 1 < argc) ram = (unsigned)atoi(argv[++i]);
         else if (!strcmp(argv[i], "-noext")) ext = false;
+        else if (!strcmp(argv[i], "-sna") && i + 2 < argc) { sna = argv[++i]; sna_name = argv[++i]; }
+        else if (!strcmp(argv[i], "-ref") && i + 1 < argc) s_ref_dir = argv[++i];
+        else if (!strcmp(argv[i], "-entry")) s_entry_only = true;
         else if (!strcmp(argv[i], "-basic") && i + 1 < argc)
             basic = !strcmp(argv[++i], "bas11") ? ROM_COCO_BAS11 : ROM_COCO_BAS13;
         else {
             fprintf(stderr, "usage: coco-corpus [-f FIELDS] [-s DIR] [-ram 4|16|32|64] "
-                            "[-basic bas13|bas11] [-noext] IMAGE...\n");
+                            "[-basic bas13|bas11] [-noext] [-sna FILE NAME] [-ref DIR] [-entry] IMAGE...\n");
             return 2;
         }
     }
@@ -559,6 +954,21 @@ int main(int argc, char **argv) {
         (ext && !guest_have_rom(ROM_COCO_EXTBAS11))) {
         fprintf(stderr, "coco-corpus: the ROMs are not in %s\n", dir);
         return 77;
+    }
+    s_have_disk = guest_have_rom(ROM_COCO_DISK11) && guest_have_rom(ROM_COCO_EXTBAS11);
+    if (s_have_disk) {
+        guest_build_disk(&s_booted_disk, ram);
+        if (!guest_boot(&s_booted_disk)) {
+            fprintf(stderr, "coco-corpus: Disk BASIC did not reach OK\n");
+            return 1;
+        }
+    }
+    if (sna) {
+        if (!s_have_disk) {
+            fprintf(stderr, "coco-corpus: -sna needs Disk BASIC's ROMs\n");
+            return 77;
+        }
+        return run_sna(sna, sna_name, shots);
     }
     guest_build_as(&s_booted, ram, basic, ext);
     if (!guest_boot(&s_booted)) {

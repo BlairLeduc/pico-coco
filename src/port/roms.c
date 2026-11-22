@@ -37,6 +37,12 @@ rom_id_t roms_basic_for(const card_job_t *job, unsigned ram_k, bool *extended, c
     return ROM_UNKNOWN;
 }
 
+const char *roms_rsdos_why(unsigned ram_k, bool extended) {
+    if (ram_k <= 4u) return "DISK BASIC NEEDS 16K";
+    if (!extended) return "DISK BASIC NEEDS EXTENDED";
+    return NULL;
+}
+
 const char *roms_basic_name(boot_basic_t b) {
     switch (b) {
     case BOOT_EXTENDED: return "EXTENDED COLOR BASIC 1.1";

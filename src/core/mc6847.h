@@ -85,8 +85,9 @@ extern const uint16_t mc6847_palette[VDG_COLOUR_COUNT];
 extern const uint16_t mc6847_palette_mono[VDG_COLOUR_COUNT];
 
 /* The border: black in the alphanumeric modes, green or buff by CSS in
- * the graphics ones. */
-vdg_colour_t mc6847_border(uint8_t mode);
+ * the graphics ones. A T1's (t1) in the alphanumeric modes with GM2 high
+ * and GM1 low is the ink's, green or orange by CSS. */
+vdg_colour_t mc6847_border(uint8_t mode, bool t1);
 
 /* Artefact colours (§9.5): off, or one of the two phases, named as
  * XRoar names its composite inputs by the colours of the pairs 00, 01,
@@ -142,6 +143,7 @@ typedef struct {
     uint16_t lut[256u * COCO_LUT_PX_MAX];
 
     const uint8_t *font;       /* MC6847_FONT_BYTES, or NULL             */
+    const uint8_t *font_t1;    /* the T1's 128 glyphs: a T1 when set     */
 } mc6847_t;
 
 void mc6847_init(mc6847_t *v);
@@ -153,6 +155,21 @@ void mc6847_set_mode(mc6847_t *v, uint8_t mode);
  * plainly wrong, not plausibly wrong (EL §5.5). */
 void mc6847_set_font(mc6847_t *v, const uint8_t *font);
 static inline bool mc6847_has_font(const mc6847_t *v) { return v->font != NULL; }
+
+/* The MC6847T1, the CoCo 2B's VDG (§9.2), with its own ROM
+ * (font_6847t1), or NULL for the MC6847. It differs only in the
+ * alphanumeric modes, as XRoar 1.13 has it (§18: medium):
+ *
+ *   - GM0 high is lower case, not INT/EXT: a byte's seven bits pick one
+ *     of the 128 glyphs, drawn inverted, so $00..$1F are lower case and
+ *     $40..$5F upper case, both dark on green as the CoCo's text is.
+ *     GM0 low picks among $40..$7F with D6 as INV, as the MC6847 does;
+ *   - GM1 high inverts every cell;
+ *   - GM2 high, with GM1 low, draws the border in the ink's colour;
+ *   - D7 is always SG4: there is no SG6;
+ *   - the ink with CSS high is orange, not bright orange. */
+void mc6847_set_t1(mc6847_t *v, const uint8_t *font_t1);
+static inline bool mc6847_is_t1(const mc6847_t *v) { return v->font_t1 != NULL; }
 
 /* Any palette of VDG_COLOUR_COUNT entries: mc6847_palette, the mono one,
  * or, for a test, one whose entries are their own indices. The mono

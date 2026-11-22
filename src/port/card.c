@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "pico/stdlib.h"
 
@@ -129,6 +130,7 @@ static void one_rom(card_job_t *j, const FILINFO *fi, uint8_t *basic, uint8_t *b
         j->found[id] = true;
         what = romset_images[id].file;
     }
+    if (id == ROM_COCO_DISK11) snprintf(j->disk_path, sizeof j->disk_path, "%s", path);
     log_core1("  rom          : %s, %lu bytes, sha1 %s, %s%s, %lu us\n", fi->fname,
               (unsigned long)len, hex, id == ROM_UNKNOWN ? "" : "recognised as ", what,
               (unsigned long)us);
@@ -260,6 +262,20 @@ unsigned card_cart_list(char paths[][COCO_PATH_MAX], unsigned max) {
     }
     f_closedir(&s_dir);
     return n;
+}
+
+const char *card_disk_rom_load(const card_job_t *job, uint8_t dst[COCO_CART_SIZE], uint32_t *len) {
+    const rom_info_t *r = &romset_images[ROM_COCO_DISK11];
+    if (!job->disk_path[0]) return "NEEDS DISK11.ROM";
+    if (!load_file(job->disk_path, dst, r->size)) return "CANNOT READ DISK11.ROM";
+    if (romset_identify(dst, r->size) != ROM_COCO_DISK11) return "DISK11.ROM HAS CHANGED";
+    *len = r->size;
+    log_core1("  cart         : RS-DOS, %s, %lu bytes\n", job->disk_path, (unsigned long)r->size);
+    return NULL;
+}
+
+bool card_is_rsdos(const char *name) {
+    return strcasecmp(name, CARD_RSDOS) == 0;
 }
 
 const char *card_cart_load(const char *path, uint8_t dst[COCO_CART_SIZE], uint32_t *len) {
