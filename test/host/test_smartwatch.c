@@ -60,6 +60,28 @@ int main(void) {
             if (smartwatch_seconds(&u) != s) bad++;
         }
         CHECK(bad == 0, "civil and back, every thirteenth day, 1900 to 2059: %u wrong", bad);
+
+        /* Which dates exist: every day from 1900 to 2059 does, as civil
+         * gives it, and the day after each month's last does not. */
+        unsigned unreal = 0;
+        for (int64_t s = SMARTWATCH_FIRST; s <= SMARTWATCH_LAST; s += 86400) {
+            smartwatch_time_t u;
+            smartwatch_civil(s, &u);
+            if (!smartwatch_valid(&u)) unreal++;
+            smartwatch_time_t n;
+            smartwatch_civil(s + 86400, &n);
+            if (n.day == 1u) {
+                u.day++;
+                if (smartwatch_valid(&u)) unreal++;
+            }
+        }
+        CHECK(unreal == 0, "each day 1900-2059 valid, each month's day after its last not: %u wrong",
+              unreal);
+        smartwatch_time_t g = { 2000, 2, 29, 0, 0, 0 }, h = { 1900, 2, 29, 0, 0, 0 },
+                          k = { 2026, 2, 31, 0, 0, 0 }, z = { 2026, 1, 0, 0, 0, 0 };
+        CHECK(smartwatch_valid(&g), "2000-02-29: a leap day (by 400)");
+        CHECK(!smartwatch_valid(&h), "1900-02-29: not (by 100)");
+        CHECK(!smartwatch_valid(&k) && !smartwatch_valid(&z), "2026-02-31, 2026-01-00: not");
     }
 
     coco_config_t cfg;
@@ -122,6 +144,17 @@ int main(void) {
     static const uint8_t junk[8] = { 0x00, 0x75, 0x04, 0x03, 0x01, 0x02, 0x01, 0x99 };
     for (unsigned i = 0; i < 8u; i++) send_byte(junk[i]);
     CHECK(m.clock.sets == 1u, "75 seconds: not taken");
+
+    /* Nor is a day the month does not have: 2026-02-31 would otherwise
+     * become 3 March (PR #15's review). */
+    send_key();
+    static const uint8_t feb31[8] = { 0x00, 0x00, 0x00, 0x12, 0x03, 0x31, 0x02, 0xC6 };
+    for (unsigned i = 0; i < 8u; i++) send_byte(feb31[i]);
+    CHECK(m.clock.sets == 1u, "2026-02-31: not taken");
+    send_key();
+    static const uint8_t apr31[8] = { 0x00, 0x00, 0x00, 0x12, 0x03, 0x31, 0x04, 0xC6 };
+    for (unsigned i = 0; i < 8u; i++) send_byte(apr31[i]);
+    CHECK(m.clock.sets == 1u, "2026-04-31: not taken");
 
     /* 2026 as 2.01's SETIME writes it, $C6, and read back so. */
     send_key();

@@ -219,7 +219,13 @@ def main():
         lines = text.split(b"\r")
         hit = [k for k, l in enumerate(lines) if l.strip().upper().startswith(b"SETIME")]
         new_text = b"\r".join(b"* " + l if k in hit else l for k, l in enumerate(lines))
-        if hit and len(new_text) <= sum(n for _, n in ssegs) * 256:
+        room = sum(n for _, n in ssegs) * 256
+        if hit and len(new_text) > room:
+            # Left alone, the disk would still ask the time at boot and
+            # could set the SmartWatch to what was typed.
+            raise SystemExit(f"{boot_path}: startup's SETIME made a comment needs "
+                             f"{len(new_text)} bytes, its sectors hold {room}; nothing written")
+        if hit:
             blob = new_text + bytes(-len(new_text) % 256)
             off = 0
             for a, n in ssegs:

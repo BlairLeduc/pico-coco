@@ -70,8 +70,7 @@ static bool read_ds3231(uint32_t *secs) {
         .minute = (uint8_t)unbcd(r[1] & 0x7Fu),
         .second = (uint8_t)unbcd(r[0] & 0x7Fu),
     };
-    if (t.year > 2059u || t.month < 1u || t.month > 12u || t.day < 1u || t.day > 31u ||
-        t.hour > 23u || t.minute > 59u || t.second > 59u) {
+    if (t.year > 2059u || !smartwatch_valid(&t)) {
         g_clock.errors++;
         return false;
     }

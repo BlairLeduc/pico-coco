@@ -177,10 +177,17 @@ static void restore_media(coco_t *m) {
     /* The drives' disks, those not in them already: a drive whose disk
      * stays keeps the track the state had in hand asked for again
      * (wd_restored). A disk that has gone leaves its drive empty, as a
-     * tape does. */
+     * tape does. Every drive that changes is emptied before any is
+     * filled: a disk is in one drive at a time (dskio_insert), so two
+     * disks swapped since the state would otherwise refuse the first. */
     if (!m->cfg.rsdos) return;
+    bool change[COCO_DISK_DRIVES] = { false };
     for (unsigned d = 0; d < COCO_DISK_DRIVES && d < COCO_SNAP_DRIVES; d++) {
-        if (strcmp(s_media.disk[d], dskio_inserted(d)) == 0) continue;
+        change[d] = strcmp(s_media.disk[d], dskio_inserted(d)) != 0;
+        if (change[d]) (void)dskio_insert(m, d, "");
+    }
+    for (unsigned d = 0; d < COCO_DISK_DRIVES && d < COCO_SNAP_DRIVES; d++) {
+        if (!change[d] || !s_media.disk[d][0]) continue;
         why = dskio_insert(m, d, s_media.disk[d]);
         if (why) {
             snprintf(s_said, sizeof s_said, " DISK %.18s MISSING", base(s_media.disk[d]));

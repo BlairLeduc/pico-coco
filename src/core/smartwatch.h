@@ -85,4 +85,8 @@ uint8_t smartwatch_read(smartwatch_t *w, uint16_t a, uint8_t bus);
 int64_t smartwatch_seconds(const smartwatch_time_t *t);
 void    smartwatch_civil(int64_t seconds, smartwatch_time_t *t);
 
+/* A date and time that exists: a day the month has, leap years kept.
+ * smartwatch_seconds takes 2026-02-31 as 3 March, so ask this first. */
+bool    smartwatch_valid(const smartwatch_time_t *t);
+
 #endif /* PICO_COCO_SMARTWATCH_H */

@@ -217,6 +217,30 @@ snapshot's line table, took 20.7 KB of it.
   "a field's own changes in that field"; fetching each line as the field
   runs is the next piece of work, on a branch of its own.
 
+**The pull request's review** (Copilot on #15, 2026-11-22), seven
+findings, each confirmed in the code and fixed:
+
+- The SmartWatch took a set of a day its month lacks (2026-02-31 became
+  3 March), and a DS3231 read of one was published the same way.
+  `smartwatch_valid` now decides both; `test_smartwatch` checks every day
+  from 1900 to 2059 and the day after each month's last, and two such
+  sets. The register checks failed before the fix, and a planted bug
+  (three days past each month's end allowed) failed six checks.
+- A snapshot restored into drives whose disks had been swapped since
+  left a drive empty, the first insert refused as "in another drive".
+  The drives that change are now emptied before any is filled. Built
+  only: no host harness reaches `snapio.c`, and the swap was **not
+  checked on the board**.
+- `archive-disks.sh` lost `coco-corpus`'s and the report's status in its
+  pipelines under `set -e`, and removed the pictures after a failed
+  report; each step now goes to a file. `disk-compare.py` hung on a PPM
+  cut off in its header and took two header-only files as the same
+  picture; both are refused now (the old reader timed out on the first
+  and gave (0, 0) for the second, 2026-11-22). `os9-clock.py` wrote its
+  disk when the SETIME edit did not fit `startup`; it now stops and
+  writes nothing (forced in a scratch copy), and 2.01's RTC disk is made
+  to its pinned SHA-1 as before.
+
 ## M12: the tape's signal, the keyboard joystick and layouts, split fields
 
 On branch `m12`, 2026-11-16 (`design.md` §17). On the owner's board.

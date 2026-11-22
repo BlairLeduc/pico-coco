@@ -52,6 +52,16 @@ void smartwatch_civil(int64_t s, smartwatch_time_t *t) {
     t->second = (uint8_t)(r % 60);
 }
 
+bool smartwatch_valid(const smartwatch_time_t *t) {
+    static const uint8_t k_days[12] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    if (t->month < 1u || t->month > 12u || t->hour > 23u || t->minute > 59u || t->second > 59u)
+        return false;
+    unsigned y = t->year;
+    bool leap = (y % 4u == 0u && y % 100u != 0u) || y % 400u == 0u;
+    unsigned last = k_days[t->month - 1u] + (t->month == 2u && leap);
+    return t->day >= 1u && t->day <= last;
+}
+
 /* ---- the registers ----------------------------------------------------- */
 
 static uint8_t bcd(unsigned v) { return (uint8_t)((v / 10u) << 4 | v % 10u); }
@@ -93,6 +103,7 @@ static void take(smartwatch_t *w) {
         return;
     smartwatch_time_t t = { (uint16_t)(1900u + y), (uint8_t)mo, (uint8_t)d,
                             (uint8_t)h, (uint8_t)mi, (uint8_t)s };
+    if (!smartwatch_valid(&t)) return;
     w->offset = smartwatch_seconds(&t) - (int64_t)w->host;
     w->sets++;
 }

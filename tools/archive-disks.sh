@@ -49,8 +49,11 @@ mkdir -p "$shots"
 n="$(find "$disks/dsk" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
 echo "disks: $n titles, 64 KB, Disk BASIC 1.1, capture at $fields fields, $jobs at a time"
 # First, how each title starts (coco-corpus -entry runs nothing).
-find "$disks/dsk" -mindepth 1 -maxdepth 1 -print0 | LC_ALL=C sort -z |
-    xargs -0 -n 16 -P "$jobs" "$bin" -entry | LC_ALL=C sort >"$out/entry.tsv"
+# Each step to a file and its status checked: under sh a pipeline's status
+# is its last command's, so set -e would not see coco-corpus fail.
+find "$disks/dsk" -mindepth 1 -maxdepth 1 -print0 | LC_ALL=C sort -z >"$out/titles.lst"
+xargs -0 -n 16 -P "$jobs" "$bin" -entry <"$out/titles.lst" >"$out/entry.raw"
+LC_ALL=C sort "$out/entry.raw" >"$out/entry.tsv"
 
 # XRoar, a title at a time, as many at once as there are cores. Each job
 # gets the title's name and command; its disks are found again as
@@ -103,11 +106,14 @@ awk -F '\t' '{ printf "%s%c%s%c%s%c", $1, 0, $2, 0, $3, 0 }' "$out/entry.tsv" |
     xargs -0 -n 3 -P "$jobs" "$out/xroar-job.sh"
 
 # Then ours, each picture compared with XRoar's within 10 s of the capture.
-find "$disks/dsk" -mindepth 1 -maxdepth 1 -print0 | LC_ALL=C sort -z |
-    xargs -0 -n 4 -P "$jobs" "$bin" -f "$fields" -s "$shots" -ref "$snaps" |
-    LC_ALL=C sort >"$out/disks.tsv"
+xargs -0 -n 4 -P "$jobs" "$bin" -f "$fields" -s "$shots" -ref "$snaps" \
+    <"$out/titles.lst" >"$out/disks.raw"
+LC_ALL=C sort "$out/disks.raw" >"$out/disks.tsv"
+rm -f "$out/titles.lst" "$out/entry.raw" "$out/disks.raw"
 
-python3 -I "$here/disk-compare.py" "$out/disks.tsv" "$shots" | tee "$out/report.txt"
+# The report written first, so a failure stops before the pictures go.
+python3 -I "$here/disk-compare.py" "$out/disks.tsv" "$shots" >"$out/report.txt"
+cat "$out/report.txt"
 
 if command -v sips >/dev/null 2>&1; then
     for f in "$shots"/*.ppm; do

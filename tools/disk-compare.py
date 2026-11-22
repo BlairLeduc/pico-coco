@@ -45,27 +45,39 @@ def load(path):
 
 
 def ppm(path):
-    """(width, height, rgb bytes) of a binary PPM, or None."""
+    """(width, height, rgb bytes) of a binary PPM, or None for one that is
+    missing, short in its header or short of its pixels: a snapshot cut off
+    in the writing must not compare as equal to another."""
     try:
         with open(path, "rb") as f:
             data = f.read()
     except OSError:
         return None
-    toks, i = [], 0
+    toks, i, n = [], 0, len(data)
     while len(toks) < 4:
-        while data[i:i + 1].isspace():
+        while i < n and data[i:i + 1].isspace():
             i += 1
+        if i >= n:
+            return None
         if data[i:i + 1] == b"#":
-            while data[i:i + 1] not in (b"\n", b""):
+            while i < n and data[i:i + 1] != b"\n":
                 i += 1
             continue
         j = i
-        while not data[j:j + 1].isspace():
+        while j < n and not data[j:j + 1].isspace():
             j += 1
         toks.append(data[i:j])
         i = j
-    w, h = int(toks[1]), int(toks[2])
-    return w, h, data[i + 1:]
+    if toks[0] != b"P6" or i >= n:
+        return None
+    try:
+        w, h = int(toks[1]), int(toks[2])
+    except ValueError:
+        return None
+    rgb = data[i + 1:]
+    if w < W or h < H or len(rgb) < w * h * 3:
+        return None
+    return w, h, rgb
 
 
 def vdg_mode(txt):
@@ -112,7 +124,10 @@ def main():
         ours = ppm(os.path.join(shots, name + ".ppm"))
         theirs = ppm(os.path.join(shots, name + ".xroar.ppm"))
         if theirs is None:
-            groups["no-snapshot"].append((r, "XRoar wrote no snapshot"))
+            groups["no-snapshot"].append((r, "XRoar wrote no snapshot, or a short one"))
+            continue
+        if ours is None:
+            groups["differ"].append((r, "our picture missing or short"))
             continue
         mo = vdg_mode(os.path.join(shots, name + ".txt"))
         mx = vdg_mode(os.path.join(shots, name + ".xroar.txt"))
