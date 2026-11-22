@@ -588,10 +588,13 @@ void COCO_HOT1(coco_slow_write)(coco_t *m, uint16_t a, uint8_t v) {
     /* A page of RAM the VDG may fetch from this field, the only RAM page
      * that reads fast and writes here (map): the lines shown before the
      * write, as they were (§9.3), then the byte. */
+    /* As integers: r may be NULL or point into ROM, and a relational
+     * compare of unrelated pointers is undefined in C. */
     const uint8_t *r = m->page[a >> 8].read;
-    if (r >= m->ram && r < m->ram + COCO_ADDR_SPACE) {
+    uintptr_t off = (uintptr_t)r - (uintptr_t)m->ram;
+    if (off < COCO_ADDR_SPACE) {
         if (m->vid_line < COCO_PIC_H) lines_due(m, access_tick(m));
-        ((uint8_t *)m->ram)[(r - m->ram) + (a & 0xFFu)] = v;
+        m->ram[off + (a & 0xFFu)] = v;
         return;
     }
     if ((a >> 8) == COCO_IO_PAGE) {
@@ -670,10 +673,14 @@ void coco_cart_autostart(coco_t *m, bool on) {
 }
 
 void coco_reset(coco_t *m) {
+    lines_due(m, coco_ticks(m));   /* in the state they had (§9.3) */
     mc6821_reset(&m->pia0);
     mc6821_reset(&m->pia1);
     sam6883_reset(&m->sam);
     tape_reset(m);
+    /* M is cleared, which reorganises the chips: the pages the VDG may
+     * fetch for the rest of the field, from the base FS's rise loaded. */
+    vid_protect(m);
     map(m);
     retime(m);
     uint64_t t = coco_ticks(m);

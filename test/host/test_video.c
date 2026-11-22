@@ -537,5 +537,58 @@ int main(void) {
         }
     }
 
+    /* ---- §9.3: a reset in the middle of a field ---------------------- */
+    {
+        /* Running in 64K with the screen at $0400, the machine is reset at
+         * picture line 50: the SAM goes to 4K, which reorganises the chips,
+         * while the field keeps the base FS's rise loaded. The code the
+         * reset runs ($A100) waits until line 135, after the beam has
+         * passed row 9 (lines 108-119), and writes $FF to its first byte.
+         * Row 9's lines show what was there, $00, only if the pages the
+         * VDG may fetch were worked out again for 4K at the reset (PR #16's
+         * review); RAM walked where FS falls, the control, has the $FF. */
+        memset(rom, 0x12, sizeof rom);
+        static const uint8_t run64[] = {
+            0xB7, 0xFF, 0xDD,           /* $A000 STA $FFDD  64K           */
+            0xB7, 0xFF, 0xC9,           /* $A003 STA $FFC9  F1: $0400     */
+            0x20, 0xFE,                 /* $A006 BRA *                    */
+        };
+        static const uint8_t after[] = {
+            0x8E, 0x02, 0x58,           /* $A100 LDX #600                 */
+            0x30, 0x1F, 0x26, 0xFC,     /* $A103 LEAX -1,X, BNE $A103     */
+            0x86, 0xFF, 0xB7, 0x05, 0x20, /* $A107 LDA #$FF, STA $0520    */
+            0x20, 0xFE,                 /* $A10C BRA *                    */
+        };
+        memcpy(rom, run64, sizeof run64);
+        memcpy(rom + 0x100, after, sizeof after);
+        rom[0x1FFE] = 0xA0; rom[0x1FFF] = 0x00;
+        machine();
+        for (int i = 0; i < 3; i++) coco_run_field(&m);
+        CHECK((m.sam.reg & SAM_M_MASK) == 2u << 13, "64K before the reset");
+        coco_run_blanking(&m);
+        uint64_t line50 = m.field_start + (uint64_t)(COCO_ACTIVE_LINE + 50u) * COCO_LINE_TICKS;
+        (void)coco_run(&m, (uint32_t)(line50 - coco_ticks(&m)));
+        /* The reset's vector to $A100, as the ROM the machine holds. */
+        m.rom[0x3FFE] = 0xA1; m.rom[0x3FFF] = 0x00;
+        coco_reset(&m);
+        coco_run_field(&m);
+        int32_t i520 = coco_ram_index(&m, 0x0520u);
+        CHECK((m.sam.reg & SAM_M_MASK) == 0 && i520 >= 0 && m.ram[i520] == 0xFFu,
+              "4K after the reset, $0520 written: M %u, ram %02X", (m.sam.reg & SAM_M_MASK) >> 13,
+              i520 >= 0 ? m.ram[i520] : 0u);
+        coco_video_snapshot(&m, &f);
+        unsigned shown = 0;
+        for (unsigned y = 108; y < 120u; y++) shown += f.lines[y * 32u] == 0xFFu;
+        CHECK(shown == 0, "reset mid-field: the byte written after the beam passed is on %u of "
+              "row 9's 12 lines", shown);
+        m.vid_whole = false;
+        m.sam.reg |= (0x0400u >> 9) << 3;   /* the walk from F, which the reset cleared */
+        coco_video_snapshot(&m, &f);
+        unsigned walked = 0;
+        for (unsigned y = 108; y < 120u; y++) walked += f.lines[y * 32u] == 0xFFu;
+        CHECK(walked == 12u, "reset mid-field, the control: RAM walked has it on %u of 12 lines",
+              walked);
+    }
+
     TEST_DONE();
 }

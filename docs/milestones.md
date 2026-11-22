@@ -77,6 +77,24 @@ The release build is 213,764 text and 374,152 bss. Captures in
   held to it.
 - The per-title cause of the archive's cursor flips.
 
+**The pull request's review** (Copilot on #16, 2026-11-22), two
+findings, both confirmed and fixed:
+
+- A reset part-way through a field cleared the SAM's M, so the chips'
+  organisation changed, but the pages the VDG may fetch were not worked
+  out again until the next field: a write behind the beam after it took
+  no notice of the lines shown. `coco_reset` now fetches the lines due,
+  then rebuilds the pages from the base the field loaded. `test_video`
+  resets a 64K machine at picture line 50 and writes row 9 at line 135;
+  before the fix the byte was on all 12 of its lines, after it none,
+  and RAM walked, the control, has it on all 12. Removing the rebuild
+  again fails the test. The port resets only between runs, at a slice's
+  boundary, so the lines fetched first are not exercised by it.
+- The slow write compared the page's pointer with RAM's relationally,
+  which is undefined when it is NULL or points into ROM; it compares
+  their difference as an integer now. Nothing observed went wrong;
+  the host tests and the three firmware builds pass.
+
 ## M13: disks, OS-9, the SmartWatch and the MC6847T1
 
 On branch `m13`, 2026-11-16 to 2026-11-22 (`design.md` §17). On the
