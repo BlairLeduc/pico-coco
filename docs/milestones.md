@@ -11,8 +11,9 @@ The owner's request: a CoCo SDC card's tree, the "Coco SDC Image
 (2026-04-03)", copied into `/coco/disks/` and browsed, in place of
 emulating the SDC. **Built, and checked on the host and over the UART
 on the owner's board, with that tree on its card, and by the owner on
-the panel**: browsing, a new disk made and used in a folder, and disks
-in drives 0 and 1 saved and restored across a power cycle (2026-11-22).
+the panel**: browsing, the folder left selected on going up, a new
+disk made and used in a folder, and disks in drives 0 and 1 saved and
+restored across a power cycle (2026-11-22).
 
 **Built.** `dirlist.c` in the core: a folder's entries with their names
 in one pool, sorted folders first, then images, by name without regard
@@ -61,10 +62,8 @@ it 384 bytes larger, too much for core 1's stack.
 
 **Not checked:**
 
-- The selection on going up, on the panel; `test_dirlist` names the
-  folder left.
 - A folder past 320 entries or 8 KB of names, and its status line: the
-  SDC tree has none.
+  SDC tree has none, and the owner set it aside (2026-11-22).
 
 ## Artefacts, their phase, and the power switch
 
