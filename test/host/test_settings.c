@@ -58,14 +58,21 @@ int main(void) {
             "artifacts = Full\r\n"
             "artifact_phase = random\r\n"
             "boot_tape = /coco/tapes/My Tape.cas\r\n"
-            "boot_disk = games.dsk\r\n";
+            "boot_disk = games.dsk\r\n"
+            "boot_disk1 = GAMES/H/HALL1/HALL2.DSK\r\n"
+            "boot_disk3 = /coco/disks/data.dsk\r\n";
         CHECK(parse(&s, all, &line) == SET_OK && line == 0, "every setting: line %u", line);
         CHECK(!s.extended && s.ram_k == 16u, "basic, ram");
         CHECK(s.volume == 0u && s.perf && !s.status && s.backlight == 15u,
               "volume, perf, status, backlight");
         CHECK(strcmp(s.cart, "Dungeons of Daggorath.ccc") == 0, "cart: %s", s.cart);
         CHECK(strcmp(s.boot_tape, "/coco/tapes/My Tape.cas") == 0, "boot_tape: %s", s.boot_tape);
-        CHECK(strcmp(s.boot_disk, "games.dsk") == 0, "boot_disk: %s", s.boot_disk);
+        CHECK(strcmp(s.boot_disk[0], "games.dsk") == 0, "boot_disk: %s", s.boot_disk[0]);
+        CHECK(strcmp(s.boot_disk[1], "GAMES/H/HALL1/HALL2.DSK") == 0, "boot_disk1: %s",
+              s.boot_disk[1]);
+        CHECK(!s.boot_disk[2][0], "boot_disk2 not given: none");
+        CHECK(strcmp(s.boot_disk[3], "/coco/disks/data.dsk") == 0, "boot_disk3: %s",
+              s.boot_disk[3]);
         CHECK(!s.fast_tape && strcmp(s.layout, "JOY RIGHT") == 0,
               "fast_tape, and the layout in capitals with its space: %s", s.layout);
         CHECK(s.vdg_t1, "vdg = 6847T1");
@@ -91,7 +98,8 @@ int main(void) {
           "16 KB, with a stranger after it");
     CHECK(parse(&s, "cart =\n", &line) == SET_OK && !s.cart[0], "no cartridge");
     CHECK(parse(&s, "boot_tape =   \n", &line) == SET_OK && !s.boot_tape[0], "empty means none");
-    CHECK(parse(&s, "boot_disk =\n", &line) == SET_OK && !s.boot_disk[0], "no boot disk");
+    CHECK(parse(&s, "boot_disk =\n", &line) == SET_OK && !s.boot_disk[0][0], "no boot disk");
+    CHECK(parse(&s, "boot_disk2 =\n", &line) == SET_OK && !s.boot_disk[2][0], "none in drive 2");
     CHECK(parse(&s, "cart = rsdos\n", &line) == SET_OK && strcmp(s.cart, "rsdos") == 0,
           "the RS-DOS cartridge, as a word the port knows");
 
@@ -134,6 +142,7 @@ int main(void) {
             { "artefacts = full\n",    SET_UNKNOWN },     /* the CoCo's spelling */
             { "artifact_phase = orange\n", SET_BAD_VALUE },
             { "turbo = on\n",          SET_UNKNOWN },
+            { "boot_disk4 = x.dsk\n",  SET_UNKNOWN },     /* four drives, 0 to 3 */
         };
         for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
             settings_status_t st = parse(&s, bad[i].text, &line);
@@ -414,6 +423,23 @@ int main(void) {
         CHECK(REWRITE("vdg = 6847T1  # the CoCo 2B\n", &k) == SET_OK &&
                   strstr(out, "vdg = 6847    # the CoCo 2B\n"),
               "back to the MC6847, in place:\n%.*s", (int)out_len, out);
+    }
+
+    /* ---- each drive's disk, saved (§12.4) ------------------------------- */
+    {
+        settings_t k;
+        settings_default(&k);
+        strcpy(k.boot_disk[0], "GAMES/H/HALL1/HALL1.DSK");
+        strcpy(k.boot_disk[1], "GAMES/H/HALL1/HALL2.DSK");
+        CHECK(REWRITE("ram = 64\n", &k) == SET_OK &&
+                  strstr(out, "boot_disk = GAMES/H/HALL1/HALL1.DSK\n") &&
+                  strstr(out, "boot_disk1 = GAMES/H/HALL1/HALL2.DSK\n") &&
+                  !strstr(out, "boot_disk2") && !strstr(out, "boot_disk3"),
+              "drives 0 and 1 added, 2 and 3 empty and not written:\n%.*s", (int)out_len, out);
+        k.boot_disk[1][0] = 0;
+        CHECK(REWRITE("boot_disk = a.dsk\nboot_disk1 = b.dsk # side 2\n", &k) == SET_OK &&
+                  IS("boot_disk = GAMES/H/HALL1/HALL1.DSK\nboot_disk1 =       # side 2\n"),
+              "drive 1 emptied in place:\n%.*s", (int)out_len, out);
     }
 
     /* ---- the artefacts, saved (§9.5) ------------------------------------ */

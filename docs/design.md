@@ -1519,6 +1519,25 @@ on the Color Computer, it is *disk*. The card's folder is
 `/coco/disks/`, and what the user sees says *disk*: the menu's Disks
 item and page, and the status line.
 
+**Folders** (the owner, 2026-11-22): the Disks page browses
+`/coco/disks/` and the folders in it, so a CoCo SDC card's tree can be
+copied there whole; the CoCo SDC itself is not emulated (XRoar 1.13's
+is a stub, and no SDC-DOS is needed to run the disks). The page lists
+one folder: a `..` row with the folder's path inside one, its folders,
+then its images, each in name order without regard to case
+(`dirlist.c`, `test_dirlist`). Enter opens a folder or inserts an
+image, Backspace goes up, never above `/coco/disks/`; the page opens in
+the folder of the disk in the drive, and a new disk is made in the
+folder shown. Up to 320 entries are held, their names in one 8 KB pool,
+so long names cost only their length: the SDC image's 8.3 names fill
+4 KB at its largest folder, 306 entries. A folder that fills either
+says how many of how many it shows. Other files, hidden ones and
+macOS's `._` shadows are not listed. A disk inserted from a folder is
+saved in `boot_disk` and in a save state by its whole path. Save
+settings writes each drive's disk: `boot_disk` for drive 0, as before,
+and `boot_disk1` to `boot_disk3` (the owner found drive 1's not saved,
+2026-11-22).
+
 The family's settings file and rules without change (EL §8.7): every
 default in one function, a wrong line changes nothing, saving is a
 deliberate menu action that **edits the user's text in place**, the

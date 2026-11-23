@@ -4,6 +4,67 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## Folders on the Disks page
+
+On branch `disk-folders`, from #17, 2026-11-22 (`design.md` §12.6, §14).
+The owner's request: a CoCo SDC card's tree, the "Coco SDC Image
+(2026-04-03)", copied into `/coco/disks/` and browsed, in place of
+emulating the SDC. **Built, and checked on the host and over the UART
+on the owner's board, with that tree on its card, and by the owner on
+the panel**: browsing, the folder left selected on going up, a new
+disk made and used in a folder, and disks in drives 0 and 1 saved and
+restored across a power cycle (2026-11-22).
+
+**Built.** `dirlist.c` in the core: a folder's entries with their names
+in one pool, sorted folders first, then images, by name without regard
+to case, and the paths: join, up, within, below, the folder of a file.
+`dskio_list` reads any folder into it; `dskio_new` and
+`dskio_next_name` take the folder. The Disks page lists one folder:
+`..` with the folder's path inside one, then its folders and images;
+Enter opens or inserts, Backspace goes up, and the page opens where the
+drive's disk is.
+
+**On the host** (Apple clang): the 35 tests pass, `test_dirlist` new:
+the sort over 8.3 and long names, a full list and a full pool each
+counted, five folders down and back with the folder left named each
+time, never above the root, `/coco/disksX` outside `/coco/disks`.
+Planted, one at a time, each failing it: folders not first (9 failing
+checks), a path that only begins with the root's letters taken as
+inside (1), the slash before the folder left kept (3). The first plant
+left two variables unused and did not compile; it was replaced.
+
+**On the board**, the owner's Plus 2 W, UART0 build, the card holding
+the SDC tree, 5,282 images, and the owner's own disks with long names:
+
+- The first build kept names of up to 31 characters in each entry,
+  from the SDC image's 8.3 names; the card's root then listed 20
+  entries, and 21 once names went into the pool: one of the owner's
+  disks had a longer name and was silently missing.
+- Driven over the UART: the root, `GAMES`, `GAMES/A` and `GAMES/A/AGD`
+  opened, and back up to the root. Listed in 6.2 ms (21 entries),
+  7.5 ms (27), 11.3 ms (54) and 44.7 ms (304).
+- `GAMES/H/HALL1/HALL1.DSK` inserted into drive 0 from its folder, and
+  Disk BASIC's `DIR` listed Hall of the King's files; the page opened
+  again in `GAMES/H/HALL1`.
+- The image (UART0): 222,708 bytes of text and 379,584 of bss, against
+  #17's 219,420 and 376,240; the list is 12,044 bytes, the old one
+  8,704. The release build is 219,656 and 377,512.
+
+**From the owner on the panel** (2026-11-22): browsing works, and
+Save settings kept drive 0's disk from a folder; drive 1's was not
+kept, as the file had a key for drive 0 alone. `boot_disk1` to
+`boot_disk3` now name drives 1 to 3, `boot_disk` still drive 0; the
+boot inserts each, and the save writes each, an empty drive's key not
+added. `test_settings` reads all four, saves 0 and 1 and empties 1 in
+place; a plant writing drive 0's path for every key fails it (2
+checks). The copy Save settings edits is static now: four paths make
+it 384 bytes larger, too much for core 1's stack.
+
+**Not checked:**
+
+- A folder past 320 entries or 8 KB of names, and its status line: the
+  SDC tree has none, and the owner set it aside (2026-11-22).
+
 ## Artefacts, their phase, and the power switch
 
 On branch `artifacts`, from the line fetch, 2026-11-22 (`design.md` §9.5,

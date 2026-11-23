@@ -23,7 +23,10 @@
  *   smartwatch = on | off          a DS1216 at $FF78-$FF7F, set from the
  *                                  board's clock (§12.7)
  *   boot_tape = <file>             a tape in /coco/tapes/ put in the deck
- *   boot_disk = <file>             a disk in /coco/disks/ put in drive 0
+ *   artifacts = off | simple | full    the artefact colours (§9.5)
+ *   artifact_phase = blue | red | random
+ *   boot_disk = <file>             a disk in /coco/disks/ put in drive 0;
+ *   boot_disk1 .. boot_disk3       and in drives 1 to 3 (§12.4)
  *
  * The parser is here, in the core, so it is tested on the host. What a
  * value names on the card is the port's to find, and it says so when it
@@ -75,7 +78,7 @@ typedef struct {
      * against SETTINGS_CART_DIR, SETTINGS_TAPE_DIR or SETTINGS_DISK_DIR. */
     char       cart[COCO_PATH_MAX];
     char       boot_tape[COCO_PATH_MAX];
-    char       boot_disk[COCO_PATH_MAX];
+    char       boot_disk[COCO_DISK_DRIVES][COCO_PATH_MAX];   /* by drive */
 } settings_t;
 
 void settings_default(settings_t *s);

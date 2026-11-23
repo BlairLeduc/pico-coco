@@ -41,22 +41,23 @@ static bool is_disk(const char *fname) {
     return n > 4 && (strcasecmp(fname + n - 4, ".dsk") == 0 || strcasecmp(fname + n - 4, ".jvc") == 0);
 }
 
-unsigned dskio_list(dskio_entry_t *out, unsigned max) {
+bool dskio_list(const char *path, dirlist_t *l) {
     DIR dir;
     static FILINFO fi;
-    unsigned n = 0;
-    if (f_opendir(&dir, DSKIO_DIR) != FR_OK) return 0;
-    while (n < max && f_readdir(&dir, &fi) == FR_OK && fi.fname[0]) {
-        if ((fi.fattrib & AM_DIR) || !is_disk(fi.fname)) continue;
-        dskio_entry_t *e = &out[n];
-        int len = snprintf(e->path, sizeof e->path, DSKIO_DIR "/%s", fi.fname);
-        if (len < 0 || (size_t)len >= sizeof e->path) continue;
-        e->size = (uint32_t)fi.fsize;
-        e->protect = (fi.fattrib & AM_RDO) != 0;
-        n++;
+    dirlist_clear(l);
+    if (f_opendir(&dir, path) != FR_OK) return false;
+    while (f_readdir(&dir, &fi) == FR_OK && fi.fname[0]) {
+        if (fi.fname[0] == '.' || (fi.fattrib & (AM_HID | AM_SYS))) continue;
+        bool folder = (fi.fattrib & AM_DIR) != 0;
+        if (!folder && !is_disk(fi.fname)) continue;
+        (void)dirlist_add(l, fi.fname,
+                          (uint8_t)((folder ? DIRLIST_FOLDER : 0u) |
+                                    ((fi.fattrib & AM_RDO) ? DIRLIST_RDONLY : 0u)),
+                          (uint32_t)fi.fsize);
     }
     f_closedir(&dir);
-    return n;
+    dirlist_sort(l);
+    return true;
 }
 
 /* Put back what the drive has written, and drop its request. */
@@ -161,12 +162,14 @@ void dskio_media(snap_media_t *md) {
         memcpy(md->disk[d], s_drive[d].path, sizeof md->disk[d]);
 }
 
-void dskio_next_name(char out[COCO_MEDIA_NAME_MAX + 1]) {
+void dskio_next_name(const char *dir, char out[COCO_MEDIA_NAME_MAX + 1]) {
     char path[COCO_PATH_MAX];
     static FILINFO fi;
     out[0] = 0;
     for (unsigned n = 1; n <= 99u; n++) {
-        snprintf(path, sizeof path, "%s/DISK%02u.dsk", DSKIO_DIR, n);
+        char name[16];
+        snprintf(name, sizeof name, "DISK%02u.dsk", n);
+        if (!dirlist_join(path, sizeof path, dir, name)) return;
         FRESULT fr = f_stat(path, &fi);
         if (fr == FR_OK) continue;
         if (fr == FR_NO_FILE) snprintf(out, COCO_MEDIA_NAME_MAX + 1, "DISK%02u", n);
@@ -174,13 +177,15 @@ void dskio_next_name(char out[COCO_MEDIA_NAME_MAX + 1]) {
     }
 }
 
-const char *dskio_new(coco_t *m, unsigned drive, const char *name) {
+const char *dskio_new(coco_t *m, unsigned drive, const char *dir, const char *name) {
     if (drive >= COCO_DISK_DRIVES) return "NO SUCH DRIVE";
-    char path[COCO_PATH_MAX];
+    if (!dirlist_within(dir, DSKIO_DIR)) return "NOT IN " DSKIO_DIR;
+    char path[COCO_PATH_MAX], file[COCO_MEDIA_NAME_MAX + 8];
     static FILINFO fi;
     (void)f_mkdir("/coco");
     (void)f_mkdir(DSKIO_DIR);
-    snprintf(path, sizeof path, "%s/%.*s.dsk", DSKIO_DIR, (int)COCO_MEDIA_NAME_MAX, name);
+    snprintf(file, sizeof file, "%.*s.dsk", (int)COCO_MEDIA_NAME_MAX, name);
+    if (!dirlist_join(path, sizeof path, dir, file)) return "NAME TOO LONG";
     FRESULT fr = f_stat(path, &fi);
     if (fr == FR_OK) return "ALREADY THERE";
     if (fr != FR_NO_FILE) return "CARD ERROR";

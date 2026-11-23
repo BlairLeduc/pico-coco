@@ -243,6 +243,12 @@
  * bytes, RS-DOS's and OS-9's, is the most taken (jvc.h). */
 #define COCO_DISK_TRACK_DATA_MAX 4608u
 #define COCO_DISK_DIR    "/coco/disks"
-#define COCO_DISK_LIST_MAX      64u
+/* The Disks page's list of one folder (dirlist.h): its folders and
+ * images, their names in one pool. The CoCo SDC image's largest folder
+ * holds 306 of 8.3 names, 4 KB of them (2026-11-22); the owner's own
+ * names run to 60 characters. A folder that fills either shows the
+ * entries that fit. */
+#define COCO_DISK_LIST_MAX     320u
+#define COCO_DIR_POOL         8192u
 
 #endif /* PICO_COCO_CONFIG_H */

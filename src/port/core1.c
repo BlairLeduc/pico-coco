@@ -174,9 +174,10 @@ static void boot_rom(void) {
                 const char *err = tapeio_boot(st->boot_tape);
                 if (err) settingsio_fail(st->boot_tape, err);
             }
-            if (st->boot_disk[0]) {
-                const char *err = dskio_insert(NULL, 0, st->boot_disk);
-                if (err) settingsio_fail(st->boot_disk, err);
+            for (unsigned d = 0; d < COCO_DISK_DRIVES; d++) {
+                if (!st->boot_disk[d][0]) continue;
+                const char *err = dskio_insert(NULL, d, st->boot_disk[d]);
+                if (err) settingsio_fail(st->boot_disk[d], err);
             }
             storage_unmount();
         } else {

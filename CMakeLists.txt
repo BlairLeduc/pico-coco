@@ -40,6 +40,7 @@ set(PICO_COCO_CORE_SOURCES
     src/core/snapshot.c
     src/core/tape.c
     src/core/status.c
+    src/core/dirlist.c
     src/core/textpage.c
     src/core/wd1793.c
 )
