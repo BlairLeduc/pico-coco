@@ -1815,6 +1815,13 @@ the debounce at 500 ms, two more swaps mounted first time. Debounce for
 500 ms, and while the card stays in, try a failed mount again a few times
 rather than waiting for card detect to move.
 
+**Listing a folder** with `f_readdir`, long names on (`FF_USE_LFN 1`),
+measured on a Plus 2 W, 2026-11-22, a 32 GB card holding a 1.4 GB tree
+of 5,000 small files: 21 entries in 6.2 ms, 54 in 11.3 ms, 304 in
+44.7 ms; about 0.13 ms an entry over 6 ms. A folder of hundreds can be
+read whole each time it is opened; there is no need to page it from the
+card.
+
 **Prefer the card to internal flash for anything the application writes**,
 such as settings. A text file on the card is one source of truth the user can
 read and edit on any computer, it survives reflashing, and writing it opens no

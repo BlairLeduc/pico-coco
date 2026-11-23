@@ -13,6 +13,7 @@ set(PICO_COCO_HOST_TESTS
     test_present
     test_keymap
     test_status
+    test_dirlist
     test_textpage
     test_audio
     test_settings

@@ -28,6 +28,7 @@
 
 #include "coco.h"
 #include "config.h"
+#include "dirlist.h"
 #include "jvc.h"
 #include "snapshot.h"
 
@@ -39,15 +40,12 @@
  * (wd_served). The time taken is in *us. */
 bool dskio_serve(coco_t *m, uint32_t *us);
 
-typedef struct {
-    char     path[COCO_PATH_MAX];
-    uint32_t size;
-    bool     protect;
-} dskio_entry_t;
-
-/* Up to max images in DSKIO_DIR, in directory order. The card must be
+/* The folders and images in `dir`, DSKIO_DIR or one inside it, into l,
+ * sorted (dirlist.h): as many as it holds, l->total counting them all.
+ * Hidden and system entries, macOS's "._" shadows and other files are
+ * not listed. False if the folder could not be opened. The card must be
  * mounted (storage.h). */
-unsigned dskio_list(dskio_entry_t *out, unsigned max);
+bool dskio_list(const char *dir, dirlist_t *l);
 
 /* A written track the controller has in hand put back now, as before a
  * power-on or a state saved (wd_flush). The card must be mounted, and
@@ -73,14 +71,15 @@ bool        dskio_protected(unsigned drive);
 /* The drives into a machine just powered on (core0_power_on). */
 void dskio_attach(coco_t *m);
 
-/* A new disk for a drive, name.dsk in DSKIO_DIR: empty, no tracks at
- * all, for DSKINI to format, as a new floppy is; then put in that drive.
- * name is the menu's, up to COCO_MEDIA_NAME_MAX characters; a disk of
- * that name already there is refused. The card must be mounted, and core
- * 0 parked. NULL, or why not. dskio_next_name gives the menu its first
- * offer, DISKnn, the first number free; "" if none is. */
-const char *dskio_new(coco_t *m, unsigned drive, const char *name);
-void        dskio_next_name(char out[COCO_MEDIA_NAME_MAX + 1]);
+/* A new disk for a drive, name.dsk in `dir` (DSKIO_DIR or a folder in
+ * it): empty, no tracks at all, for DSKINI to format, as a new floppy
+ * is; then put in that drive. name is the menu's, up to
+ * COCO_MEDIA_NAME_MAX characters; a disk of that name already there is
+ * refused. The card must be mounted, and core 0 parked. NULL, or why
+ * not. dskio_next_name gives the menu its first offer for `dir`, DISKnn,
+ * the first number free; "" if none is. */
+const char *dskio_new(coco_t *m, unsigned drive, const char *dir, const char *name);
+void        dskio_next_name(const char *dir, char out[COCO_MEDIA_NAME_MAX + 1]);
 
 /* The media a state carries (snapshot.h): each drive's path. */
 void dskio_media(snap_media_t *md);

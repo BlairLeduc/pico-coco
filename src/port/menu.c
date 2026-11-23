@@ -19,6 +19,7 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "pico/stdlib.h"
 
@@ -77,8 +78,9 @@ enum { T_EJECT, T_REWIND, T_NEW, T_FIRST };
 #define TAPE_ROWS (ROW_STATUS - 1 - (ROW_TOP + 1))
 
 /* The Disks page, as pico-oric's: row 0 empties the drive, row 1 makes
- * a new disk for it, the card's images follow; < > choose the drive on
- * any row. */
+ * a new disk for it, then one folder of the card: ".." inside a folder,
+ * its folders, its images (dirlist.h); < > choose the drive on any row,
+ * Enter opens a folder or inserts an image, Backspace goes up. */
 enum { K_EMPTY, K_NEW, K_FIRST };
 #define DISK_ROWS TAPE_ROWS
 
@@ -96,8 +98,9 @@ static bool          s_bkl_set;
 static card_job_t    s_job;        /* About's look at the card         */
 
 static tapeio_entry_t s_list[COCO_TAPE_LIST_MAX];
-static dskio_entry_t  s_disks[COCO_DISK_LIST_MAX];
+static dirlist_t      s_disks;
 static unsigned       s_drive;     /* the Disks page's, kept between openings */
+static char           s_disk_dir[COCO_PATH_MAX] = DSKIO_DIR;   /* likewise   */
 static char           s_carts[COCO_CART_LIST_MAX][COCO_PATH_MAX];
 
 static const unsigned k_rams[4] = { 4u, 16u, 32u, 64u };
@@ -127,7 +130,8 @@ static struct {
     unsigned n_tapes;
     int      tape_sel, tape_top;
 
-    unsigned n_disks;
+    unsigned n_disks;          /* s_disks.n, 0 with no card          */
+    bool     disk_up;          /* inside a folder: a ".." row         */
     int      disk_sel, disk_top;
 
     int      machine_sel;
@@ -232,17 +236,30 @@ static void draw_tapes(void) {
 /* Which drive an image is in: 0 to 3, or a space. */
 static char drive_of(const char *path) {
     for (unsigned d = 0; d < COCO_DISK_DRIVES; d++)
-        if (strcmp(path, dskio_inserted(d)) == 0) return (char)('0' + d);
+        if (strcasecmp(path, dskio_inserted(d)) == 0) return (char)('0' + d);
     return ' ';
+}
+
+/* The row of the folder's first entry, after ".." if there is one. */
+static int disk_first(void) {
+    return K_FIRST + (s.disk_up ? 1 : 0);
+}
+
+/* The entry a row shows, or NULL for the rows before them. */
+static const dirlist_entry_t *disk_entry(int row) {
+    int i = row - disk_first();
+    return i >= 0 && i < (int)s.n_disks ? &s_disks.e[i] : NULL;
 }
 
 static void draw_disks(void) {
     char line[TEXT_COLS + 1];
     snprintf(line, sizeof line, " DRIVE < %c >  %.18s", '0' + s_drive,
-             !s.card ? "NO CARD" : s.n_disks ? "IMAGE     IN R/O" : "NONE ON THE CARD");
+             !s.card ? "NO CARD" : s.n_disks ? "IMAGE     IN R/O"
+             : s.disk_up ? "AN EMPTY FOLDER" : "NONE ON THE CARD");
     textpage_line(s_scr, ROW_TOP, line, false);
     for (int r = 0; r < DISK_ROWS; r++) {
         int i = s.disk_top + r;
+        const dirlist_entry_t *e = disk_entry(i);
         line[0] = 0;
         if (i == K_EMPTY) {
             const char *in = dskio_inserted(s_drive);
@@ -250,10 +267,18 @@ static void draw_disks(void) {
                      in[0] ? base(in) : "EMPTY");
         } else if (i == K_NEW) {
             snprintf(line, sizeof line, " (NEW DISK, FOR DSKINI)");
-        } else if (i < K_FIRST + (int)s.n_disks) {
-            const dskio_entry_t *e = &s_disks[i - K_FIRST];
-            snprintf(line, sizeof line, " %-24.24s %c  %c", base(e->path), drive_of(e->path),
-                     e->protect ? '*' : ' ');
+        } else if (i == K_FIRST && s.disk_up) {
+            /* Up, beside the folder this is: its end, if it is long. */
+            const char *below = dirlist_below(s_disk_dir, DSKIO_DIR);
+            size_t n = strlen(below), room = TEXT_COLS - 5u;
+            snprintf(line, sizeof line, " .. /%s", n > room ? below + (n - room) : below);
+        } else if (e && (e->flags & DIRLIST_FOLDER)) {
+            snprintf(line, sizeof line, " %.29s/", e->name);
+        } else if (e) {
+            char full[COCO_PATH_MAX];
+            dirlist_join(full, sizeof full, s_disk_dir, e->name);
+            snprintf(line, sizeof line, " %-24.24s %c  %c", e->name, drive_of(full),
+                     (e->flags & DIRLIST_RDONLY) ? '*' : ' ');
         }
         textpage_line(s_scr, ROW_TOP + 1 + r, line, i == s.disk_sel);
     }
@@ -530,20 +555,50 @@ static void open_tapes(void) {
                   s_list[i].type == 2 ? ", code" : "");
 }
 
-static void open_disks(void) {
-    s.n_disks = s.card ? dskio_list(s_disks, COCO_DISK_LIST_MAX) : 0;
-    s.page = P_DISKS;
-    s.disk_sel = K_EMPTY;
-    for (unsigned i = 0; i < s.n_disks; i++)
-        if (strcmp(s_disks[i].path, dskio_inserted(s_drive)) == 0) s.disk_sel = K_FIRST + (int)i;
+/* The folder s_disk_dir listed, and `select` chosen if it is there (a
+ * name in the folder), else the first entry. A folder gone from the card
+ * is left for DSKIO_DIR. */
+static void disks_load(const char *select) {
+    uint32_t t0 = time_us_32();
+    dirlist_clear(&s_disks);
+    if (s.card && !dskio_list(s_disk_dir, &s_disks) && strcmp(s_disk_dir, DSKIO_DIR) != 0) {
+        snprintf(s_disk_dir, sizeof s_disk_dir, "%s", DSKIO_DIR);
+        select = NULL;
+        (void)dskio_list(s_disk_dir, &s_disks);
+    }
+    s.n_disks = s_disks.n;
+    s.disk_up = dirlist_below(s_disk_dir, DSKIO_DIR)[0] != 0;
+    s.disk_sel = s.n_disks ? disk_first() : s.disk_up ? K_FIRST : K_EMPTY;
+    for (unsigned i = 0; select && i < s.n_disks; i++)
+        if (strcasecmp(s_disks.e[i].name, select) == 0) s.disk_sel = disk_first() + (int)i;
     s.disk_top = s.disk_sel >= DISK_ROWS ? s.disk_sel - DISK_ROWS + 1 : 0;
-    log_core1("  disks        : page open, drive %u, %u images in " DSKIO_DIR "%s\n", s_drive,
-              s.n_disks, s.card ? "" : " (no card)");
-    for (unsigned i = 0; i < s.n_disks; i++)
-        log_core1("  disks        : %2u %s, %lu bytes%s%s%c\n", i + 1u, s_disks[i].path,
-                  (unsigned long)s_disks[i].size, s_disks[i].protect ? ", read-only" : "",
-                  drive_of(s_disks[i].path) != ' ' ? ", in drive " : "",
-                  drive_of(s_disks[i].path) != ' ' ? drive_of(s_disks[i].path) : ' ');
+    if (s_disks.total > s.n_disks)
+        snprintf(s.status, sizeof s.status, " FIRST %u OF %u SHOWN", s.n_disks % 1000u,
+                 s_disks.total % 100000u);
+    log_core1("  disks        : %s, %u entries%s%s, listed in %lu us\n", s_disk_dir,
+              s_disks.total, s_disks.total > s.n_disks ? ", not all held" : "",
+              s.card ? "" : " (no card)", (unsigned long)(time_us_32() - t0));
+    /* The first 16, so a big folder does not flood the log. */
+    for (unsigned i = 0; i < 16u && i < s.n_disks; i++) {
+        const dirlist_entry_t *e = &s_disks.e[i];
+        log_core1("  disks        : %2u %s%s, %lu bytes%s\n", i + 1u, e->name,
+                  (e->flags & DIRLIST_FOLDER) ? "/" : "", (unsigned long)e->size,
+                  (e->flags & DIRLIST_RDONLY) ? ", read-only" : "");
+    }
+}
+
+/* Opened in the folder of the disk in the drive, if there is one; else
+ * where the page was last. */
+static void open_disks(void) {
+    s.page = P_DISKS;
+    const char *in = dskio_inserted(s_drive);
+    if (in[0] && dirlist_within(in, DSKIO_DIR)) {
+        dirlist_folder_of(s_disk_dir, sizeof s_disk_dir, in);
+        disks_load(base(in));
+    } else {
+        disks_load(NULL);
+    }
+    log_core1("  disks        : page open, drive %u\n", s_drive);
 }
 
 static void refresh_slots(void) {
@@ -599,7 +654,9 @@ static void open_about(void) {
 
 static void save_settings(void) {
     if (!s.card) { say(" NO CARD: NOT SAVED", ""); return; }
-    settings_t out = s_file;
+    /* Static: four disks' paths make it too big for core 1's stack. */
+    static settings_t out;
+    out = s_file;
     /* The machine as it runs, not as the Machine page has it staged
      * (EL §10). */
     out.extended = g_machine.extended;
@@ -619,7 +676,8 @@ static void save_settings(void) {
     if (!keymapio_chosen_by()[0])
         snprintf(out.layout, sizeof out.layout, "%s", g_ui.layout ? g_ui.layout->name : "");
     settings_card_name(SETTINGS_TAPE_DIR, tapeio_chosen() ? tapeio_inserted() : "", out.boot_tape);
-    settings_card_name(SETTINGS_DISK_DIR, dskio_inserted(0), out.boot_disk);
+    for (unsigned d = 0; d < COCO_DISK_DRIVES; d++)
+        settings_card_name(SETTINGS_DISK_DIR, dskio_inserted(d), out.boot_disk[d]);
     const char *err = settingsio_save(&out);
     if (!err) s_file = out;
     say(err ? " NOT SAVED: %.20s" : " SETTINGS SAVED", err);
@@ -713,7 +771,7 @@ static void open_item(void) {
 static void name_start(bool disk) {
     s.name.on = true;
     s.name.disk = disk;
-    if (disk) dskio_next_name(s.name.text);
+    if (disk) dskio_next_name(s_disk_dir, s.name.text);
     else tapeio_next_name(s.name.text);
     s.name.len = (unsigned)strlen(s.name.text);
     s.status[0] = 0;
@@ -728,13 +786,10 @@ static void name_make(void) {
     if (!s.name.len) return;
     s.name.on = false;
     if (s.name.disk) {
-        const char *err = dskio_new(s.m, s_drive, s.name.text);
+        const char *err = dskio_new(s.m, s_drive, s_disk_dir, s.name.text);
         if (err) { say(" NO NEW DISK: %.18s", err); return; }
+        disks_load(base(dskio_inserted(s_drive)));
         say(" IN DRIVE %c: DSKINI IT", (char[]){ (char)('0' + s_drive), 0 });
-        s.n_disks = dskio_list(s_disks, COCO_DISK_LIST_MAX);
-        for (unsigned i = 0; i < s.n_disks; i++)
-            if (strcmp(s_disks[i].path, dskio_inserted(s_drive)) == 0) s.disk_sel = K_FIRST + (int)i;
-        if (s.disk_sel >= s.disk_top + DISK_ROWS) s.disk_top = s.disk_sel - DISK_ROWS + 1;
         return;
     }
     const char *err = tapeio_new(s.m, s.name.text);
@@ -798,9 +853,21 @@ static void key_tapes(uint8_t c) {
     if (s.tape_sel >= s.tape_top + TAPE_ROWS) s.tape_top = s.tape_sel - TAPE_ROWS + 1;
 }
 
+/* Up a folder, the one left selected. */
+static void disks_up(void) {
+    char left[COCO_PATH_MAX];
+    if (!dirlist_up(s_disk_dir, DSKIO_DIR, left, sizeof left)) return;
+    s.status[0] = 0;
+    disks_load(left);
+}
+
 static void key_disks(uint8_t c) {
-    int last = K_FIRST + (int)s.n_disks - 1;
+    int last = disk_first() + (int)s.n_disks - 1;
+    if (last < K_FIRST && s.disk_up) last = K_FIRST;
     switch (c) {
+    case PICOCALC_KEY_BACKSPACE:
+        disks_up();
+        return;
     case PICOCALC_KEY_UP:   if (s.disk_sel > 0) s.disk_sel--; break;
     case PICOCALC_KEY_DOWN: if (s.disk_sel < last) s.disk_sel++; break;
     case PICOCALC_KEY_LEFT:
@@ -817,12 +884,25 @@ static void key_disks(uint8_t c) {
         } else if (s.disk_sel == K_NEW) {
             if (!s.card) { say(" NO CARD", ""); return; }
             name_start(true);
-        } else {
-            const dskio_entry_t *e = &s_disks[s.disk_sel - K_FIRST];
-            const char *err = dskio_insert(s.m, s_drive, e->path);
+        } else if (s.disk_sel == K_FIRST && s.disk_up) {
+            disks_up();
+        } else if (disk_entry(s.disk_sel)) {
+            const dirlist_entry_t *e = disk_entry(s.disk_sel);
+            char full[COCO_PATH_MAX];
+            if (!dirlist_join(full, sizeof full, s_disk_dir, e->name)) {
+                say(" THE PATH IS TOO LONG", "");
+                return;
+            }
+            if (e->flags & DIRLIST_FOLDER) {
+                s.status[0] = 0;
+                snprintf(s_disk_dir, sizeof s_disk_dir, "%s", full);
+                disks_load(NULL);
+                return;
+            }
+            const char *err = dskio_insert(s.m, s_drive, full);
             if (err) { say(" NOT IN: %.22s", err); return; }
             char line[TEXT_COLS + 1];
-            snprintf(line, sizeof line, " IN DRIVE %c: %.18s", d[0], base(e->path));
+            snprintf(line, sizeof line, " IN DRIVE %c: %.18s", d[0], e->name);
             say("%s", line);
         }
         return;
