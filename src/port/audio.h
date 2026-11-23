@@ -56,4 +56,27 @@ typedef struct {
  * producer's failure, a late refill the consumer's. */
 void audio_stats(audio_stats_t *st, bool reset_low_water);
 
+/* Where core 0's thread is, for the gap's report: the field loop and
+ * the park set it as they go, the refill IRQ reads it when the queue
+ * first runs dry. */
+enum {
+    AUDIO_AT_LOOP, AUDIO_AT_KEYS, AUDIO_AT_RUN, AUDIO_AT_SNAPSHOT, AUDIO_AT_DRAIN,
+    AUDIO_AT_PUSH, AUDIO_AT_PARK, AUDIO_AT_PARKED, AUDIO_AT_APPLY, AUDIO_AT_LOG,
+    AUDIO_AT_COUNT
+};
+void audio_at(uint32_t at);
+
+/* One stretch the queue ran dry, from its first empty slot to the first
+ * sample after it. */
+typedef struct {
+    uint32_t start_us;      /* time_us_32 at the first empty half         */
+    uint32_t samples;       /* empty slots in it                          */
+    uint32_t at;            /* AUDIO_AT_ where core 0 was as it began     */
+    uint32_t at_us;         /* how long core 0 had been there by then     */
+    uint32_t push_us;       /* since the last audio_push returned         */
+} audio_gap_t;
+
+/* The last stretch that has ended, once: true and *g filled. */
+bool audio_gap(audio_gap_t *g);
+
 #endif /* PICO_COCO_AUDIO_H */

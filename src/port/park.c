@@ -77,6 +77,7 @@ uint32_t park(uint32_t why, unsigned page, bool alt) {
     __dmb();
     g_park = why;
 #if PICO_COCO_AUDIO
+    audio_at(AUDIO_AT_PARKED);
     static const int16_t silence[128];
 #endif
     while (g_park != PARK_NONE) {

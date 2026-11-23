@@ -4,6 +4,53 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## The underrun as The Interbank Incident loads
+
+On branch `audio-underrun`, from #20, 2026-11-23 (`design.md` §7.5,
+§8.3, §10). The follow-up found in #20's sessions: a 64-82 ms underrun
+just after the menu closed while The Interbank Incident loaded. **Found,
+fixed, and checked on the host, over the UART on the owner's board, and
+by the owner on the panel** (2026-11-23).
+
+**Found.** The audio's refill interrupt now notes each stretch the
+queue runs dry, and core 0 logs it with the step it was in and the
+last four fields' run time, cycles, instructions, `coco_run` slices,
+sound edges, PC and SAM (`audio_gap`, `audio_at`, `coco_t.slices`). In
+the owner's next session: 54 gaps over a second, one a field, core 0
+in the field itself for 14-18 ms of the field's 16.7, each field 4,367
+instructions in 4 or 5 slices, PC at $9C0C-$9C16 with the SAM at $C08E
+(64 KB, all RAM). The loop there, after the game's three questions,
+waits for the right stick's button: `LDA #$FF`, `STA $FF02`, `LDA
+$FF00`, `BITA #$01`, `BNE`. Not the menu, the card or the drives'
+sounds: the menu was only the last thing before it. Typed in from BASIC
+and EXECed, the loop alone took core 0 to 95 % busy at 541 host cycles
+an instruction (`design.md` §7.5).
+
+**Fixed.** Sampled by PC over SWD (`hardware-notes.md` §9.10), then each
+change measured on that loop on the board: `before_pia`, `hs_catch_up`,
+`note_video`, `coco_vdg_mode`, `coco_ram_index` and `cassette_dac` into
+SRAM, 81 %; HS's place in its line from the field's start in 32 bits,
+divided in hardware, and the slice's cycles likewise (`line_tick`),
+74 %; HS's next change of level kept (`hs_change`), 65 %; the first PIA
+rise due kept (`due_first`), **62 %**, 352 cycles an instruction. Both
+caches are 0 for "work it out" after a reset, a restored state and
+`coco_init`. `coco-corpus` writes each field's cost with
+`COCO_FIELD_TIMES`.
+
+**Checked.** All 36 host tests; the trace diff, 2,186,516 instructions
+through boot and typing, agreeing with XRoar; the release and no-audio
+builds clean. **From the owner on the panel** (2026-11-23): The
+Interbank Incident played as before, R ANALOG chosen in the menu, its
+questions answered (no Speech/Sound Cartridge, blue sky, two drives):
+**no gap, no underrun samples**, no late refills, the queue never below
+770, core 0 at most 35.5 % busy, 353 sectors read.
+
+**Not checked:** the host could not answer the game's first question
+(its stick and button through `coco-corpus` were not taken), so the
+loop was found on the board, not by the archive run; other titles that
+poll a PIA as hard; the 80,656 underrun samples on #19's boot, which
+have not been seen since.
+
 ## The disk drives' sounds
 
 On branch `disk-sounds`, from #19, 2026-11-22 (`design.md` §10,

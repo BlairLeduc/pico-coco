@@ -61,7 +61,7 @@ static int32_t ram_index(const coco_t *m, uint16_t a, bool video) {
     return (int32_t)((bank << m->ram_addr_bits) | idx);
 }
 
-int32_t coco_ram_index(const coco_t *m, uint16_t a) {
+int32_t COCO_HOT1(coco_ram_index)(const coco_t *m, uint16_t a) {
     return ram_index(m, a, false);
 }
 
@@ -190,23 +190,30 @@ static mc6821_port_t *pia_port(coco_t *m, unsigned i) {
 static void c1_edge(coco_t *m, unsigned i, bool level, uint64_t t) {
     if (mc6821_set_c1(pia_port(m, i), level) && !m->irq_due[i]) {
         m->irq_due[i] = t + TRS3_TICKS;
+        if (m->irq_due[i] < m->due_first) m->due_first = m->irq_due[i];
         mc6809_stop(&m->cpu);   /* a new stop point for the slice (coco_run) */
     }
 }
 
+/* The first rise due, or UINT64_MAX: kept in due_first, which 0 says to
+ * work out again, so every PIA access need not look at all four. */
+static uint64_t next_due(coco_t *m) {
+    if (m->due_first) return m->due_first;
+    uint64_t d = UINT64_MAX;
+    for (unsigned i = 0; i < COCO_PIA_PORTS; i++)
+        if (m->irq_due[i] && m->irq_due[i] < d) d = m->irq_due[i];
+    m->due_first = d;
+    return d;
+}
+
 static void raise_due(coco_t *m, uint64_t t) {
+    if (t < next_due(m)) return;
     for (unsigned i = 0; i < COCO_PIA_PORTS; i++)
         if (m->irq_due[i] && m->irq_due[i] <= t) {
             mc6821_raise_c1(pia_port(m, i));   /* only C1s are wired */
             m->irq_due[i] = 0;
         }
-}
-
-static uint64_t next_due(const coco_t *m) {
-    uint64_t d = UINT64_MAX;
-    for (unsigned i = 0; i < COCO_PIA_PORTS; i++)
-        if (m->irq_due[i] && m->irq_due[i] < d) d = m->irq_due[i];
-    return d;
+    m->due_first = 0;
 }
 
 /* A cartridge's CART line tied to the Q clock reaches PIA1 CB1 as an
@@ -224,27 +231,52 @@ static void cart_q(coco_t *m, uint64_t t) {
 /* HS, on PIA0 CA1, is brought up to date lazily (§8.3, EL §4.3): lines run
  * from tick 0, since fields follow one another whole, and HS is low for
  * the first COCO_HS_LOW_TICKS of each. */
-static bool hs_level(uint64_t t) {
-    return (t % COCO_LINE_TICKS) >= COCO_HS_LOW_TICKS;
+_Static_assert(COCO_FIELD_TICKS % COCO_LINE_TICKS == 0, "a field is whole lines");
+
+/* Where `t` falls in its line. Every field starts on a line's first tick,
+ * so this field's ticks give it in 32 bits, which the M33 divides in
+ * hardware; a 64-bit divide is libgcc's, hundreds of cycles, and HS is
+ * brought up at every PIA access, a game's poll of the fire button
+ * among them (design.md §7.5). A tick outside this field takes the
+ * long way. */
+static inline uint32_t line_tick(const coco_t *m, uint64_t t) {
+    uint64_t d = t - m->field_start;
+    if (t >= m->field_start && d <= UINT32_MAX) return (uint32_t)d % COCO_LINE_TICKS;
+    return (uint32_t)(t % COCO_LINE_TICKS);
+}
+
+static bool hs_level(const coco_t *m, uint64_t t) {
+    return line_tick(m, t) >= COCO_HS_LOW_TICKS;
 }
 
 /* The first HS edge after `t` of the kind CA1 is set to take. */
 static uint64_t hs_next_edge(const coco_t *m, uint64_t t) {
-    uint64_t off = (m->pia0.a.cr & MC6821_CR_C1_RISE) ? COCO_HS_LOW_TICKS : 0u;
+    uint32_t off = (m->pia0.a.cr & MC6821_CR_C1_RISE) ? COCO_HS_LOW_TICKS : 0u;
     if (t < off) return off;
-    return ((t - off) / COCO_LINE_TICKS + 1u) * COCO_LINE_TICKS + off;
+    /* ((t - off) / LINE + 1) * LINE + off, without the divide. */
+    uint32_t in = line_tick(m, t);
+    uint32_t past = in >= off ? in - off : in + COCO_LINE_TICKS - off;
+    return t - past + COCO_LINE_TICKS;
 }
 
-static void hs_catch_up(coco_t *m, uint64_t t) {
+static void COCO_HOT1(hs_catch_up)(coco_t *m, uint64_t t) {
     if (t <= m->hs_seen) return;
+    /* HS holds its level until hs_change: nothing to bring up but the
+     * tick, which a loop polling a PIA asks for at every access. */
+    if (t < m->hs_change) {
+        m->hs_seen = t;
+        return;
+    }
     uint64_t e = hs_next_edge(m, m->hs_seen);
     if (e <= t) {
         bool active = (m->pia0.a.cr & MC6821_CR_C1_RISE) != 0;
         c1_edge(m, 0, !active, e);
         c1_edge(m, 0, active, e);
     }
-    c1_edge(m, 0, hs_level(t), t);
+    c1_edge(m, 0, hs_level(m, t), t);
     m->hs_seen = t;
+    uint32_t in = line_tick(m, t);
+    m->hs_change = t - in + (in < COCO_HS_LOW_TICKS ? COCO_HS_LOW_TICKS : COCO_LINE_TICKS);
 }
 
 /* FS, on PIA0 CB1, falls as line COCO_FS_FALL_LINE begins (§13.1). The field
@@ -273,7 +305,7 @@ static uint64_t access_tick(const coco_t *m) {
 /* Before a PIA access: everything up to it, and if it is the instruction's
  * last cycle, the CPU decides at the boundary on the lines as they stood
  * at that cycle's start (mc6809.h). */
-static void before_pia(coco_t *m) {
+static void COCO_HOT1(before_pia)(coco_t *m) {
     uint64_t t = access_tick(m);
     if (m->cpu.io_at & MC6809_IO_LAST) {
         bring_up(m, t - m->tpc);
@@ -288,7 +320,7 @@ static void before_pia(coco_t *m) {
 /* PIA1 PB3-PB7 drive CSS, GM0-GM2 and A/G (§3.3). An input nothing drives
  * reads low, as XRoar's PIA has it for the VDG too, so before BASIC sets
  * the port's direction the VDG is in its first alphanumeric mode. */
-uint8_t coco_vdg_mode(const coco_t *m) {
+uint8_t COCO_HOT1(coco_vdg_mode)(const coco_t *m) {
     const mc6821_port_t *b = &m->pia1.b;
     return mc6847_mode_from_pb((uint8_t)(b->out & b->ddr));
 }
@@ -306,7 +338,7 @@ static void mode_written(coco_t *m, uint64_t t);
  * (§9.4): before the line's pixels, the line's first; after them, the
  * next line's. The display offset is loaded only as the field begins,
  * so a change of it alone is not kept. */
-static void note_video(coco_t *m, uint64_t t) {
+static void COCO_HOT1(note_video)(coco_t *m, uint64_t t) {
     uint32_t bits = video_bits(m);
     if (bits == m->video_bits) return;
     uint32_t changed = bits ^ m->video_bits;
@@ -686,8 +718,10 @@ void coco_reset(coco_t *m) {
     uint64_t t = coco_ticks(m);
     cassette_motor(m, false, t);
     memset(m->irq_due, 0, sizeof(m->irq_due));
+    m->due_first = 0;
     m->hs_seen = t;
-    m->pia0.a.c1 = hs_level(t);
+    m->hs_change = 0;
+    m->pia0.a.c1 = hs_level(m, t);
     m->pia0.b.c1 = t - m->field_start < (uint64_t)COCO_FS_FALL_LINE * COCO_LINE_TICKS;
     cart_q(m, t + m->tpc);
     update_irq(m);
@@ -855,6 +889,7 @@ static void COCO_HOT1(lines_due)(coco_t *m, uint64_t now) {
 uint32_t COCO_HOT2(coco_run)(coco_t *m, uint32_t ticks) {
     uint64_t start = coco_ticks(m), target = start + ticks;
     for (;;) {
+        m->slices++;
         uint64_t now = coco_ticks(m);
         /* A rise already due when the run starts, or after an edge set
          * between runs, is seen at this boundary. */
@@ -879,7 +914,9 @@ uint32_t COCO_HOT2(coco_run)(coco_t *m, uint32_t ticks) {
             if (m->dk.fdc.due < stop) stop = m->dk.fdc.due;
         }
         if (stop <= now) stop = now + 1u;
-        uint32_t cycles = (uint32_t)((stop - now + m->tpc - 1u) / m->tpc);
+        /* Within the run's ticks, so 32 bits, divided in hardware. */
+        uint32_t left = (uint32_t)(stop - now);
+        uint32_t cycles = left / m->tpc + (left % m->tpc != 0u);
         if (__builtin_expect(m->step_hook != NULL, 0)) {
             (void)mc6809_run(m, 1u);
             m->step_hook(m);

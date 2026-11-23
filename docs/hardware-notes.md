@@ -2241,6 +2241,29 @@ back to 22.8 % busy, its control's 22.7 % (2026-11-16, RP2350 at
 150 MHz). Measure a change against the image before it, in the same
 sitting, even when the change is not in the hot path.
 
+### 9.10 Sampling the PC without halting, and the 64-bit divide
+
+The Cortex-M33's DWT has a PC sample register, `DWT_PCSR` at
+`0xE000101C`, which the debugger reads while the core runs: no halt, no
+change to timing beyond the bus's share. With `DEMCR.TRCENA` (bit 24 of
+`0xE000EDFC`) and `DWT_CTRL` bit 0 (`0xE0001000`) set, OpenOCD's
+`read_memory 0xE000101C 32 1` on `rp2350.cm0`, in a Tcl loop, took 4,000
+samples in a few seconds through a Debug Probe at 5 MHz, and
+`arm-none-eabi-addr2line -f` turns them into a profile by function. The
+idle loop shows as `__wfi`: its share is the core's idle time, and
+agreed with the core's own busy figure to within a point. **Measured**
+on a Plus 2 W at 150 MHz, 2026-11-23.
+
+What it found there: an emulator's I/O path at about 1,000 cycles an
+access, from code that looked cheap. Two of its functions were still in
+flash (§9.8), and each access did two to four 64-bit divides and
+modulos by a constant. The M33 divides 32 bits in hardware, a few
+cycles; a 64-bit divide is libgcc's `__aeabi_uldivmod`, which the SDK
+places in SRAM but which runs in software, a few hundred cycles. Taking
+the remainder from a 32-bit offset instead, and both functions into
+SRAM, took that path's loop from 95 % of the core to 74 %. Look for
+`uint64_t` arithmetic with `/` or `%` on any path that runs per access.
+
 ---
 
 ## 10. Bring-up order and trap checklist

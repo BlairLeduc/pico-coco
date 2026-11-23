@@ -45,6 +45,11 @@
  * title reads for itself, not through BASIC). With -s, the last frame as DIR/<name>.ppm and
  * the text screen, with the lead-in to the first undocumented opcode,
  * as DIR/<name>.txt.
+ *
+ * With COCO_FIELD_TIMES=FILE in the environment, each field's run as a
+ * line of FILE: the field, the host's nanoseconds, and the guest's
+ * cycles, instructions and coco_run slices, to find the fields that
+ * cost the most.
  */
 
 #include <dirent.h>
@@ -56,6 +61,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #include "cas.h"
 #include "disk_util.h"
@@ -222,7 +228,24 @@ static void field(void) {
     keymatrix_field(&g.k, &g.m);
     coco_copy(&s_field_start, &g.m);
     uint32_t undoc = g.m.cpu.undoc_count, split = g.m.split_fields;
+    static FILE *times;
+    static bool looked;
+    if (!looked) {
+        looked = true;
+        const char *tp = getenv("COCO_FIELD_TIMES");
+        if (tp) times = fopen(tp, "w");
+    }
+    struct timespec t0, t1;
+    uint64_t cyc0 = g.m.cpu.cycles, ins0 = g.m.cpu.instructions;
+    uint32_t sl0 = g.m.slices;
+    timespec_get(&t0, TIME_UTC);   /* C11, needing no POSIX feature macro */
     coco_run_field(&g.m);
+    timespec_get(&t1, TIME_UTC);
+    if (times)
+        fprintf(times, "%ld\t%ld\t%llu\t%llu\t%u\n", s_field,
+                (long)((t1.tv_sec - t0.tv_sec) * 1000000000L + (t1.tv_nsec - t0.tv_nsec)),
+                (unsigned long long)(g.m.cpu.cycles - cyc0),
+                (unsigned long long)(g.m.cpu.instructions - ins0), g.m.slices - sl0);
     static int16_t pcm[4096];
     while (coco_audio_drain(&g.m, pcm, sizeof pcm / sizeof pcm[0]) == sizeof pcm / sizeof pcm[0]) {}
     if (g.m.cpu.undoc_count != undoc || g.m.split_fields != split) replay();

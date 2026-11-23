@@ -17,6 +17,7 @@
 #include "hardware/irq.h"
 #include "hardware/pwm.h"
 #include "hardware/sync.h"
+#include "hardware/timer.h"
 
 #include "config.h"
 
@@ -52,6 +53,13 @@ static volatile bool     s_started;
 
 static volatile uint32_t s_underruns, s_late, s_consumed, s_low_water;
 
+/* The gap's report (audio.h). */
+static volatile uint32_t s_at, s_at_since, s_pushed_us;
+static bool s_in_gap;
+static audio_gap_t s_gap;
+static volatile bool s_gap_ready;
+static audio_gap_t s_gap_done;
+
 static int s_ch[2];
 static uint32_t s_rate_num, s_rate_den;
 static unsigned s_volume = 256u;
@@ -81,6 +89,22 @@ static void __not_in_flash_func(fill_half)(uint32_t *dst) {
     if (s_started) {
         s_consumed += COCO_DMA_FRAMES_PER_HALF;
         s_underruns += under;
+        uint32_t now = time_us_32();
+        if (under) {
+            if (!s_in_gap) {
+                s_in_gap = true;
+                s_gap.start_us = now;
+                s_gap.samples = 0;
+                s_gap.at = s_at;
+                s_gap.at_us = now - s_at_since;
+                s_gap.push_us = now - s_pushed_us;
+            }
+            s_gap.samples += under;
+        } else if (s_in_gap) {
+            s_in_gap = false;
+            s_gap_done = s_gap;
+            s_gap_ready = true;
+        }
         uint32_t level = head - tail;
         if (level < s_low_water) s_low_water = level;
     }
@@ -217,6 +241,21 @@ void audio_push(const int16_t *pcm, size_t n) {
         s_head = ++head;
         if (!s_started && head - s_tail >= COCO_PCM_QUEUE_START) s_started = true;
     }
+    s_pushed_us = time_us_32();
+}
+
+void audio_at(uint32_t at) {
+    s_at_since = time_us_32();
+    s_at = at;
+}
+
+bool audio_gap(audio_gap_t *g) {
+    if (!s_gap_ready) return false;
+    uint32_t irq = save_and_disable_interrupts();
+    *g = s_gap_done;
+    s_gap_ready = false;
+    restore_interrupts(irq);
+    return true;
 }
 
 size_t audio_room(void) {

@@ -343,6 +343,45 @@ static void log_audio(const coco_t *m, const audio_stats_t *last, uint64_t wall,
                (unsigned long)(au.late_refills - last->late_refills), (unsigned long)edges,
                (unsigned long)m->pcm.overflow);
 }
+
+/* Each stretch the queue ran dry, with where core 0 was as it began
+ * (audio.h): an underrun is the producer's, and this names its step. */
+/* The last few fields, for the gap's report: what each cost core 0 and
+ * what the guest did in it. */
+typedef struct {
+    uint32_t field, run_us, cycles, insns, slices, edges;
+    uint16_t pc, sam;
+} field_rec_t;
+#define FIELD_RECS 4u
+static field_rec_t s_recs[FIELD_RECS];
+
+static void log_gap(void) {
+    static const char *const names[AUDIO_AT_COUNT] = {
+        "the park loop", "the keys", "the field", "the snapshot", "the drain",
+        "the push", "a park's start", "parked", "after a park", "the books",
+    };
+    audio_gap_t g;
+    if (!audio_gap(&g)) return;
+    log_printf("  audio gap    : %lu samples at %lu.%06lu s; core 0 in %s for %lu us, "
+               "%lu us since its last push\n", (unsigned long)g.samples,
+               (unsigned long)(g.start_us / 1000000u), (unsigned long)(g.start_us % 1000000u),
+               g.at < AUDIO_AT_COUNT ? names[g.at] : "?", (unsigned long)g.at_us,
+               (unsigned long)g.push_us);
+    for (unsigned i = 0; i < FIELD_RECS; i++) {
+        const field_rec_t *r = &s_recs[i];
+        if (!r->field) continue;
+        log_printf("  audio gap    :   field %lu: %lu us, %lu cycles, %lu instructions, "
+                   "%lu slices, %lu sound edges, PC $%04X, SAM $%04X\n", (unsigned long)r->field,
+                   (unsigned long)r->run_us, (unsigned long)r->cycles, (unsigned long)r->insns,
+                   (unsigned long)r->slices, (unsigned long)r->edges, r->pc, r->sam);
+    }
+}
+#endif
+
+#if PICO_COCO_AUDIO
+#define AT(x) audio_at(x)
+#else
+#define AT(x) ((void)0)
 #endif
 
 void core0_run(coco_t *m, keymatrix_t *k) {
@@ -412,13 +451,16 @@ void core0_run(coco_t *m, keymatrix_t *k) {
          * windows start again from now. After a hold, the menu or a
          * pause the keys start again from none held: theirs were not the
          * guest's. A tape request goes first. */
+        AT(AUDIO_AT_LOOP);
         while (why != PARK_NONE || coco_disk_request(m) || tapeio_wanted(m)) {
+            AT(AUDIO_AT_PARK);
             /* A disk's track goes first: the controller waits on it,
              * busy, as a drive does while its head settles (dskio.h). */
             bool disk = coco_disk_request(m) != NULL;
             bool tape = !disk && tapeio_wanted(m);
             uint32_t w = disk ? PARK_DISK : tape ? PARK_TAPE : why;
             uint32_t parked = park(w, page, alt);
+            AT(AUDIO_AT_APPLY);
             if (w == PARK_DISK) {
                 disk_parks++;
                 disk_parked_us += parked;
@@ -449,6 +491,7 @@ void core0_run(coco_t *m, keymatrix_t *k) {
         }
 
         uint32_t t_busy = time_us_32();
+        AT(AUDIO_AT_KEYS);
 
         /* Keys first, so the matrix the guest scans this field is the
          * one the events describe (§11.1). */
@@ -474,8 +517,20 @@ void core0_run(coco_t *m, keymatrix_t *k) {
         coco_disk_recordings(m, soundio_samples());
 
         uint32_t t_run = time_us_32();
+        AT(AUDIO_AT_RUN);
+#if PICO_COCO_AUDIO
+        uint64_t f_cyc = m->cpu.cycles, f_ins = m->cpu.instructions;
+        uint32_t f_sl = m->slices, f_ed = m->sound_edges;
+#endif
         uint32_t ran = coco_run_field(m);
         uint32_t run_us = time_us_32() - t_run;
+#if PICO_COCO_AUDIO
+        memmove(&s_recs[0], &s_recs[1], sizeof s_recs - sizeof s_recs[0]);
+        s_recs[FIELD_RECS - 1u] = (field_rec_t){
+            m->fields, run_us, (uint32_t)(m->cpu.cycles - f_cyc),
+            (uint32_t)(m->cpu.instructions - f_ins), m->slices - f_sl, m->sound_edges - f_ed,
+            m->cpu.pc, m->sam.reg };
+#endif
         g_c0.tape_unsaved = tapeio_unsaved(m);
         g_c0.disk = coco_disk_active(m);
 #if PICO_COCO_AUDIO
@@ -516,6 +571,7 @@ void core0_run(coco_t *m, keymatrix_t *k) {
 
         /* The field ends where the next active line begins, which is
          * where the snapshot is taken (§9.3, §13.1). */
+        AT(AUDIO_AT_SNAPSHOT);
         int i = pool_claim();
         if (i >= 0) {
             uint32_t t_take = time_us_32();
@@ -526,6 +582,7 @@ void core0_run(coco_t *m, keymatrix_t *k) {
             pool_publish(i);
         }
 #if PICO_COCO_AUDIO
+        AT(AUDIO_AT_DRAIN);
         size_t n = coco_audio_drain(m, pcm, COCO_AUDIO_BUF_LEN);
 #endif
         uint32_t busy = time_us_32() - t_busy;
@@ -554,6 +611,7 @@ void core0_run(coco_t *m, keymatrix_t *k) {
         }
         deck_was = deck;
 #if PICO_COCO_AUDIO
+        AT(AUDIO_AT_PUSH);
         if (turbo) {
             /* Never block: the guest's samples are dropped, and the queue
              * kept at its start depth with silence, so it never runs dry
@@ -585,6 +643,10 @@ void core0_run(coco_t *m, keymatrix_t *k) {
             busy_wait_us_32(9000u);
             restore_interrupts(irq);
         }
+#endif
+        AT(AUDIO_AT_LOG);
+#if PICO_COCO_AUDIO
+        log_gap();
 #endif
         hb.run_us += run_us;
         sec.run_us += run_us;
