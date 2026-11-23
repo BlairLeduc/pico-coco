@@ -166,7 +166,10 @@ static bool apply_head(keymatrix_t *k) {
     if (e->flags & KM_MENU) { k->menu_request = true; k->menu_page = e->row; }
     if (e->flags & KM_PAUSE) k->pause_request = true;
     if (e->flags & KM_SHOT) k->shot_request = true;
-    if (e->flags & KM_RESET) k->reset_request = true;
+    if (e->flags & KM_RESET) {
+        if (e->row == 1u) k->power_request = true;
+        else k->reset_request = true;
+    }
     if (k->n >= COCO_KEY_HELD_MAX) return true;  /* more keys than fingers */
 
     k->held[k->n++] = (keymatrix_held_t){ .canon = canon, .map = *e };

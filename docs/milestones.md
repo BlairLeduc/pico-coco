@@ -4,6 +4,111 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## Artefacts, their phase, and the power switch
+
+On branch `artifacts`, from the line fetch, 2026-11-22 (`design.md` §9.5,
+§12.6, §13.3, §14). Three requests from the owner, before M15.
+**Built, and checked on the host, over the UART on the owner's board,
+and by the owner on the panel**: the full artefacts in a demo, and
+Alt+O from the PicoCalc's keyboard (2026-11-22).
+
+**Built.** `artifacts = off | simple | full` and `artifact_phase =
+blue | red | random`, on the Setup page and in `coco.ini`; simple and
+blue by default, as before. *Full* is XRoar 1.13's 5-bit renderer
+(`mc6847_artefact_line`), run over each line once composed, with dirty
+spans widened by two pixels (`present_t.reach`). *Random* chooses the
+phase at every RESET and power-on (core 0 counts them in
+`g_c0.resets`; core 1 takes a bit of its microsecond timer when it sees
+one); blue and red take effect at once. The main page has Power off/on
+after Reset, and Alt+O does the same: the running machine powered on
+again, the media left in, refused while a recording is unsaved; the key
+goes through a park of its own (`PARK_POWER`) so core 0 re-paces after
+it as after the menu.
+
+**On the host** (Apple clang): the 34 tests pass.
+
+- `test_vdg_oracle` now links XRoar's own renderer (`vo_render.c` and
+  what it needs, through `xroar_render.c`) and feeds it XRoar's VDG
+  output line by line: 160 fields, every VDG mode, both colour sets,
+  both phases, the dark backgrounds drawn and black, through the 2-bit
+  and the 5-bit renderers, every pixel equal to ours. Random RAM with
+  runs: a byte at random, or $00, $FF, $55 or $AA. XRoar's palette, set
+  up as xroar.c does at start (saturation 50), takes only black for
+  black and buff for white; without the start-up messages, saturation
+  is 0 and yellow, bright orange and the dark colours pass too, which
+  is why the harness sends them.
+- Planted in the full pass, one at a time, each failing the oracle: the
+  phase not alternating (16 failing checks), the window a pixel short
+  (21), the neighbours not required black or white (21), the left
+  border ignored (21), the right border ignored (21), the dark green
+  drawn black in full (12), one table entry changed (10), KRBW ignored
+  (8). A first table plant changed a value RGB565 rounds away, and
+  passed; it was replaced.
+- `test_present`: a thousand changes with the full artefacts, half the
+  frames RG6 with CSS, the phase flipped among them: 0 stale with a
+  reach of 2; 448 stale with none, 455 with 1.
+- `test_settings`: the two keys parsed, refused when wrong
+  (`artefacts`, the British spelling, is unknown), and saved in place.
+- `test_keymap`: Alt+O asks for the power, and only that.
+- Four golden images, looked at: the band scene in both full phases,
+  and runs of 1 to 8 lit pixels on even and odd columns, simple and
+  full. Simple breaks runs of three or more into orange and blue by
+  where they cross a pair; full draws them white with fringes either
+  way. The 25 earlier goldens are unchanged.
+
+**On the board**, the owner's Plus 2 W, UART0 build, driven over the
+UART:
+
+- Setup reached over the UART (F4, then ^N and ^F) set full artefacts,
+  logged as `setup : artifacts full`.
+- The phase set to random, then four RESETs from the menu: blue, blue,
+  red, blue, each logged. Power off/on from the menu: logged, and
+  `LIST` after it showed the program typed before it gone, a cold
+  start.
+- `perf-run.sh` gained `PERF_MENU`, keys typed after the boot. Idle,
+  scrolling `PRINT` and `pmode4`, simple against full in one sitting,
+  eight or nine windows each. Core 0's busy share is unchanged (24.1 %,
+  27.9 %, 20.1 % against 24.1 %, 27.9 %, 20.2 %), as the pass is core
+  1's. Core 1's present, one sample a heartbeat: idle 0.66–0.96 ms
+  against 0.66–0.68 ms; scrolling 0.66–0.97 against 0.66–1.74;
+  `pmode4` 0.83–1.01 against 1.63–3.46. The longest present, a full
+  repaint, was 16.4 ms simple and 13.2 ms full; no snapshot dropped
+  after the boot's one in either. Logs in `out/artifacts/`, not
+  committed.
+- The image (UART0): 219,420 bytes of text and 376,240 of bss, against
+  216,800 and 376,224; the release build 216,192 and 374,168.
+
+**From the owner on the panel** (2026-11-22): four graphical
+adventures from the CoCo SDC image (The Dallas Quest, Calixto Island,
+Sands of Egypt, Hall of the King) in full artefacts, much better than
+simple, which the owner compared. And a fault from before this branch:
+opening the menu over a graphics screen left the border its old colour
+until the selection moved. A menu page is a full repaint, whose border
+M11 left to the next present so the two together fit a field
+(`display_present`); the guest presents every field, but the menu only
+on a key. `display_settle` now fills a deferred border at once, called
+by the menu and the missing-ROM page after they present. Seen by the
+owner on the Plus 2 W: the menus' borders are black at once.
+
+**Also.** The help page listed fifteen rows of keys under its title on
+a page of sixteen, so its last rows were never shown; the function
+keys now share two rows, and the main, Setup and help pages are
+checked against the status row at compile time. The Setup page shows
+two rows of a layout's bindings, not three. At the owner's request,
+seen on the panel: the Keys value is in the other rows' column, a card
+layout's name cut to 11 characters, and the main page no longer shows
+the tape, which the status line and the Tapes page do.
+
+**Not checked:**
+
+- The Setup rows and the help page on the panel, beyond their use in
+  the owner's runs.
+- Either renderer against a real CoCo on a television: both are
+  XRoar's model (§18, low).
+- The border's colour beside the line as XRoar's VDG really draws it:
+  the oracle gives XRoar's renderer our border, so it holds the pass to
+  XRoar given that border, not the border itself.
+
 ## Each line fetched as it is shown
 
 On branch `beam-lines`, from M13, 2026-11-22 (`design.md` §9.3, §9.4,

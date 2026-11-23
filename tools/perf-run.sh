@@ -19,6 +19,11 @@
 # program was run on the host first (test/host's guest harness), and none
 # returns to the prompt.
 #
+# PERF_MENU, if set, is typed after the boot and before the program: keys
+# for the menu, to measure a setting against its control in one sitting,
+# e.g. the full artefacts (design.md §9.5) from the Setup page:
+#   PERF_MENU=$'\x84\x0e\x0e\x0e\x0e\x0e\x0e\x0e\x06\x1b\x1b'
+#
 # Adapted from pico-oric's. Each line is typed at uart-type.sh's pace, a
 # character every 0.25 s.
 set -euo pipefail
@@ -87,6 +92,10 @@ for w in "${workloads[@]}"; do
     done
     "$here/flash.sh" "$elf" >"$outdir/$w.flash.log" 2>&1
     sleep 4                           # the card, then 1.3 s of the ROM's own boot
+    if [ -n "${PERF_MENU:-}" ]; then
+        "$here/uart-type.sh" "$PERF_MENU"
+        sleep 2
+    fi
     while IFS= read -r line; do
         "$here/uart-type.sh" "$line\r"
         sleep 1

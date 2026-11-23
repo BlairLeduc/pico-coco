@@ -32,6 +32,8 @@
 #define PARK_MENU  3u  /* Alt+M, Alt+H or a function key (§14)          */
 #define PARK_PAUSE 4u  /* Alt+P                                           */
 #define PARK_DISK  5u  /* a track for the WD1793, or one to put back (dskio.h) */
+#define PARK_POWER 6u  /* Alt+O: core 1 hands it straight back, and core 0
+                        * powers on after it, as after the menu's        */
 
 /* GS, which no key sends: park the guest, check the card, and stay
  * parked until the next GS. */

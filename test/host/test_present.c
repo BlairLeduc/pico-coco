@@ -6,7 +6,9 @@
  *    VDG's mode or colour set, some a change of artefacts that only
  *    present_invalidate can report), must equal a full render after
  *    each. The control is a plan that diffs bytes only, ignoring the
- *    mode, which must leave stale pixels (EL §5.3).
+ *    mode, which must leave stale pixels (EL §5.3). Again with the full
+ *    artefacts (§9.5), whose pixels take their colours from their
+ *    neighbours: sent with present_t's reach of 2, stale with none.
  *  - The pool: pico-oric's transitions, and a long random interleaving
  *    of both cores' calls in which core 0 always gets a buffer, never one
  *    core 1 holds, and every publish is taken or counted dropped.
@@ -68,12 +70,20 @@ static uint8_t random_mode(void) {
     return (m & VDG_AG) ? m : (uint8_t)(m & (VDG_GM0 | VDG_CSS));
 }
 
-/* A thousand changes; `bytes_only` is the control. Returns the number of
+/* RG6 with CSS high, where the artefacts show most, half the time with
+ * the full ones. */
+static uint8_t mode_for(bool full) {
+    return full && rng() % 2u ? (uint8_t)(VDG_AG | VDG_GM_MASK | VDG_CSS) : random_mode();
+}
+
+/* A thousand changes; `bytes_only` is the control. With `full`, the full
+ * artefacts throughout, and `reach` the plan's. Returns the number of
  * presents that left stale pixels. */
-static unsigned trial(bool bytes_only) {
+static unsigned trial(bool bytes_only, bool full, unsigned reach) {
     memset(&f, 0, sizeof f);
     memset(&pr, 0, sizeof pr);
-    mc6847_set_artefact(&v, VDG_ARTEFACT_OFF);
+    pr.reach = (uint8_t)reach;
+    mc6847_set_artefact(&v, full ? VDG_ARTEFACT_FULL_KBRW : VDG_ARTEFACT_OFF);
     for (unsigned i = 0; i < COCO_SNAP_VRAM_MAX; i++) f.lines[i] = (uint8_t)rng();
     f.mode = 0;
     coco_frame_plain(&f);
@@ -83,7 +93,7 @@ static unsigned trial(bool bytes_only) {
     for (unsigned step = 0; step < 1000u; step++) {
         unsigned kind = rng() % 9u;
         if (kind < 2u) {
-            f.mode = random_mode();
+            f.mode = mode_for(full);
             coco_frame_plain(&f);
         } else if (kind == 2u) {
             /* §9.4: plain again, or from a random line a few runs of
@@ -92,21 +102,26 @@ static unsigned trial(bool bytes_only) {
             coco_frame_plain(&f);
             unsigned y = rng() % 3u ? rng() % 60u : COCO_PIC_H;
             while (y < COCO_PIC_H) {
-                coco_line_t how = { .mode = random_mode() };
+                coco_line_t how = { .mode = mode_for(full) };
                 if (rng() % 2u) {
                     how.x[0] = (uint8_t)(1u + rng() % 200u);
-                    how.m[0] = random_mode();
+                    how.m[0] = mode_for(full);
                     if (rng() % 2u) {
                         how.x[1] = (uint8_t)(how.x[0] + 1u + rng() % 50u);
-                        how.m[1] = random_mode();
+                        how.m[1] = mode_for(full);
                     }
                 }
                 for (unsigned n = 1u + rng() % 40u; n && y < COCO_PIC_H; n--) f.how[y++] = how;
             }
         } else if (kind == 3u) {
-            /* Artefacts on or off: no byte and no mode changes. */
-            mc6847_set_artefact(&v, v.artefact == VDG_ARTEFACT_OFF ? VDG_ARTEFACT_KBRW
-                                                                   : VDG_ARTEFACT_OFF);
+            /* Artefacts on or off, or the full ones' phase: no byte and
+             * no mode changes. */
+            if (full)
+                mc6847_set_artefact(&v, v.artefact == VDG_ARTEFACT_FULL_KBRW
+                                            ? VDG_ARTEFACT_FULL_KRBW : VDG_ARTEFACT_FULL_KBRW);
+            else
+                mc6847_set_artefact(&v, v.artefact == VDG_ARTEFACT_OFF ? VDG_ARTEFACT_KBRW
+                                                                       : VDG_ARTEFACT_OFF);
             if (!bytes_only) present_invalidate(&pr);
         } else {
             unsigned k = 1u + rng() % 40u;
@@ -129,11 +144,18 @@ int main(void) {
 
     /* ---- the plan ---------------------------------------------------- */
     {
-        unsigned bad = trial(false);
+        unsigned bad = trial(false, false, 0);
         CHECK(bad == 0, "%u of 1000 presents left stale pixels", bad);
-        unsigned control = trial(true);
+        unsigned control = trial(true, false, 0);
         CHECK(control > 0, "the control, blind to the mode, should leave stale pixels");
         printf("plan: 0 stale; the control stale after %u of 1000\n", control);
+
+        bad = trial(false, true, 2);
+        CHECK(bad == 0, "full artefacts: %u of 1000 presents left stale pixels", bad);
+        control = trial(false, true, 0);
+        CHECK(control > 0, "full artefacts with no reach should leave stale pixels");
+        printf("plan, full artefacts: 0 stale; with no reach stale after %u of 1000\n", control);
+        mc6847_set_artefact(&v, VDG_ARTEFACT_OFF);
 
         /* A frame with nothing changed sends nothing; one byte, one band. */
         memset(&pr, 0, sizeof pr);

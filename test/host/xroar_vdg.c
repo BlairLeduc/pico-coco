@@ -3,8 +3,8 @@
  * The VDG and SAM are wired as XRoar's dragon.c wires them: HS and FS to
  * the SAM's counter, the VDG's fetch through the SAM's vdg_bytes, GM0 to
  * INT/EXT and D7, D6 to A/S and INV. Also the symbols those files need
- * from the rest of XRoar: part_new and part_is_a, xmalloc, the global the
- * event list hangs from, and the serialiser's and the debugger's, which
+ * from the rest of XRoar: part_new and part_is_a, the global the event
+ * list hangs from (xmalloc is portalib's own, linked for the renderer), and the serialiser's and the debugger's, which
  * nothing here uses.
  */
 
@@ -29,12 +29,6 @@
 
 void *part_new(size_t psize) {
     void *p = calloc(1, psize);
-    if (!p) abort();
-    return p;
-}
-
-void *xmalloc(size_t s) {
-    void *p = malloc(s);
     if (!p) abort();
     return p;
 }

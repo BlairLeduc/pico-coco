@@ -623,21 +623,23 @@ int main(void) {
         fields(1);
         CHECK(k.n == 0 && matrix_empty(), "Alt+Q should do nothing");
 
-        /* Alt+M, Alt+H, Alt+P and Alt+K ask, and touch nothing in the
-         * machine (§14). */
+        /* Alt+M, Alt+H, Alt+P, Alt+K and Alt+O ask, and touch nothing in
+         * the machine (§14). */
         static const struct { uint8_t code; bool *flag; const char *what; } asks[] = {
             { 'M', &k.menu_request,  "menu"  },
             { 'H', &k.menu_request,  "help page" },
             { 'P', &k.pause_request, "pause" },
             { 'K', &k.reset_request, "reset button" },
+            { 'O', &k.power_request, "power off and on" },
         };
-        for (unsigned i = 0; i < 4; i++) {
+        for (unsigned i = 0; i < 5; i++) {
             fresh();
             press(PICOCALC_KEY_ALT);
             press(asks[i].code);
             fields(1);
             CHECK(*asks[i].flag, "Alt+%c requests the %s", asks[i].code, asks[i].what);
-            CHECK(k.menu_request + k.pause_request + k.reset_request + k.shot_request == 1,
+            CHECK(k.menu_request + k.pause_request + k.reset_request + k.shot_request +
+                          k.power_request == 1,
                   "Alt+%c requests only the %s", asks[i].code, asks[i].what);
             CHECK(matrix_empty(), "Alt+%c reached the matrix", asks[i].code);
         }

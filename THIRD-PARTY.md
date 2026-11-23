@@ -58,6 +58,16 @@ its 0.3 threshold for feeding the bus back to PIA1 PB1 (`docs/design.md`
 hundredths of a volt; the code around them is this project's. XRoar is
 Ciaran Anscomb's, under the GPL-3.0-or-later, as this project is.
 
+## The artefact colours — XRoar
+
+`src/core/mc6847.c`'s `art5` table, the full artefacts' colours
+(`docs/design.md` §9.5), is the 64 colours of XRoar's 5-bit cross-colour
+table, `cmp_lut_5bit` in `src/vo_render.c`, generated from that file by
+script and written as RGB565; the simple artefacts' blue and orange are its
+2-bit table's. Only the colours were taken; the code that uses them is this
+project's, held to XRoar's renderer by `test_vdg_oracle`. XRoar is Ciaran
+Anscomb's, under the GPL-3.0-or-later, as this project is.
+
 ## XRoar, the reference and the CPU oracle
 
 Not in the tree, and in no image (`docs/design.md` D2, D8, §15.2).
@@ -68,7 +78,10 @@ checkout into `test_mc6809_oracle` alone, through `test/host/xroar_cpu.c`,
 this project's driver; `hd6309.c` joins them in M15. From M4 its
 `src/mc6847/mc6847.c`, the two fonts, `src/mc6883.c` and `src/events.c` are
 compiled the same way into `test_vdg_oracle` alone, through
-`test/host/xroar_vdg.c`. From M3 the
+`test/host/xroar_vdg.c`; from 2026-11-22 its renderer, `src/vo_render.c`
+with `ntsc.c`, `filter.c`, `colourspace.c`, `messenger.c`, `ui.c`,
+`vdg_palette.c` and portalib's `xmalloc.c`, `intfuncs.c` and `slist.c`,
+through `test/host/xroar_render.c`. From M3 the
 headless XRoar also runs beside `tools/trace/coco-trace.c` for the trace
 diff, as a separate program, sharing nothing with this project's code. XRoar is Ciaran
 Anscomb's, under the GPL-3.0-or-later.

@@ -19,6 +19,8 @@ void settings_default(settings_t *s) {
     s->backlight = 0u;
     s->fast_tape = true;
     s->vdg_t1    = false;       /* the MC6847 of the CoCo 1 and 2 (§9.2) */
+    s->artefacts = SETTINGS_ARTEFACTS_SIMPLE;   /* §9.5 */
+    s->artefact_phase = SETTINGS_PHASE_BLUE;
 }
 
 /* strcasecmp is POSIX, not C11. */
@@ -46,6 +48,26 @@ static settings_status_t vdg(const char *v, bool *t1) {
     if (same_name(v, "6847"))   { *t1 = false; return SET_OK; }
     if (same_name(v, "6847t1")) { *t1 = true;  return SET_OK; }
     return SET_BAD_VALUE;
+}
+
+/* A value from a list of names, its index into *out. */
+static settings_status_t one_of(const char *v, const char *const *names, unsigned n,
+                                uint8_t *out) {
+    for (unsigned i = 0; i < n; i++)
+        if (same_name(v, names[i])) { *out = (uint8_t)i; return SET_OK; }
+    return SET_BAD_VALUE;
+}
+
+/* In SETTINGS_ARTEFACTS_* and SETTINGS_PHASE_* order. */
+static const char *const k_artefacts[] = { "off", "simple", "full" };
+static const char *const k_phases[] = { "blue", "red", "random" };
+
+const char *settings_artefacts_str(unsigned a) {
+    return a < 3u ? k_artefacts[a] : "simple";
+}
+
+const char *settings_phase_str(unsigned p) {
+    return p < 3u ? k_phases[p] : "blue";
 }
 
 static settings_status_t number(const char *v, unsigned lo, unsigned hi, unsigned *out) {
@@ -106,11 +128,13 @@ static settings_status_t layout(settings_t *s, const char *v) {
  * cartridge, the boot tape and the boot disk may be left empty, meaning
  * none. */
 enum { K_BASIC, K_RAM, K_CART, K_VOLUME, K_PERF, K_STATUS, K_BACKLIGHT, K_LAYOUT, K_FAST_TAPE,
-       K_VDG, K_SMARTWATCH, K_BOOT_TAPE, K_BOOT_DISK, K_COUNT };
+       K_VDG, K_SMARTWATCH, K_ARTIFACTS, K_ARTIFACT_PHASE, K_BOOT_TAPE, K_BOOT_DISK, K_COUNT };
 
+/* The artefacts' keys are spelt as the CoCo's own manuals and its
+ * users spell the word. */
 static const char *const k_names[K_COUNT] = {
     "basic", "ram", "cart", "volume", "perf", "status", "backlight", "layout", "fast_tape",
-    "vdg", "smartwatch", "boot_tape", "boot_disk",
+    "vdg", "smartwatch", "artifacts", "artifact_phase", "boot_tape", "boot_disk",
 };
 
 static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
@@ -127,6 +151,8 @@ static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
     case K_FAST_TAPE: return on_off(v, &s->fast_tape);
     case K_VDG:       return vdg(v, &s->vdg_t1);
     case K_SMARTWATCH: return on_off(v, &s->smartwatch);
+    case K_ARTIFACTS: return one_of(v, k_artefacts, 3u, &s->artefacts);
+    case K_ARTIFACT_PHASE: return one_of(v, k_phases, 3u, &s->artefact_phase);
     case K_BOOT_TAPE: return path(v, s->boot_tape);
     case K_BOOT_DISK: return path(v, s->boot_disk);
     }
@@ -255,6 +281,8 @@ static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
     case K_FAST_TAPE: return a->fast_tape == b->fast_tape;
     case K_VDG:       return a->vdg_t1 == b->vdg_t1;
     case K_SMARTWATCH: return a->smartwatch == b->smartwatch;
+    case K_ARTIFACTS: return a->artefacts == b->artefacts;
+    case K_ARTIFACT_PHASE: return a->artefact_phase == b->artefact_phase;
     case K_BOOT_TAPE: return same_path(SETTINGS_TAPE_DIR, a->boot_tape, b->boot_tape);
     case K_BOOT_DISK: return same_path(SETTINGS_DISK_DIR, a->boot_disk, b->boot_disk);
     }
@@ -281,6 +309,8 @@ static const char *value_of(unsigned k, const settings_t *s, char num[4]) {
     case K_FAST_TAPE: return s->fast_tape ? "on" : "off";
     case K_VDG:       return s->vdg_t1 ? "6847t1" : "6847";
     case K_SMARTWATCH: return s->smartwatch ? "on" : "off";
+    case K_ARTIFACTS: return settings_artefacts_str(s->artefacts);
+    case K_ARTIFACT_PHASE: return settings_phase_str(s->artefact_phase);
     case K_BOOT_TAPE: return s->boot_tape;
     case K_BOOT_DISK: return s->boot_disk;
     }

@@ -29,6 +29,10 @@ unsigned present_plan(present_t *p, const coco_frame_t *f, present_band_t bands[
         } else if (band_plain(how)) {
             band->dirty = mc6847_band_span(how[0].mode, f->lines, p->shadow, b, &band->x0,
                                            &band->x1);
+            /* A pixel's colour may depend on its neighbours' (§9.5). */
+            band->x0 = band->x0 > p->reach ? (uint16_t)(band->x0 - p->reach) : 0u;
+            band->x1 = band->x1 + p->reach < COCO_PIC_W ? (uint16_t)(band->x1 + p->reach)
+                                                        : (uint16_t)(COCO_PIC_W - 1u);
         } else {
             /* The columns a byte covers differ by the line and along
              * it, so any change sends the band whole. */
@@ -50,11 +54,21 @@ void present_render_line(const coco_frame_t *f, unsigned y, present_vdg_fn vdg, 
                          uint16_t *dst, uint16_t *tmp) {
     const coco_line_t *how = &f->how[y];
     const uint8_t *bytes = &f->lines[y * COCO_VDG_LINE_BYTES];
-    mc6847_render_line(vdg(ctx, how->mode), bytes, y, dst);
+    const mc6847_t *v = vdg(ctx, how->mode);
+    mc6847_render_line(v, bytes, y, dst);
+    /* The border's colour either side, for the full artefacts (§9.5):
+     * taken now, as the next vdg() may rebuild this renderer. */
+    uint16_t left = v->col[mc6847_border(how->mode, mc6847_is_t1(v))];
+    uint8_t last = how->mode;
     for (unsigned k = 0; k < COCO_LINE_SPLITS && how->x[k]; k++) {
         /* The whole line in the new mode, and its pixels from the
          * change on: a later change draws over this one's. */
-        mc6847_render_line(vdg(ctx, how->m[k]), bytes, y, tmp);
+        v = vdg(ctx, how->m[k]);
+        mc6847_render_line(v, bytes, y, tmp);
         memcpy(dst + how->x[k], tmp + how->x[k], (COCO_PIC_W - how->x[k]) * sizeof dst[0]);
+        last = how->m[k];
     }
+    /* Over the line as composed, as XRoar's renderer sees the signal. */
+    if (mc6847_artefacts_full(v))
+        mc6847_artefact_line(v, dst, left, v->col[mc6847_border(last, mc6847_is_t1(v))]);
 }

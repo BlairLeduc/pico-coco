@@ -30,6 +30,8 @@ int main(void) {
         CHECK(d.fast_tape && !d.layout[0], "fast tape, the standard keys (§11.3, §12.3)");
         CHECK(!d.vdg_t1, "the MC6847, not the T1 (§9.2)");
         CHECK(!d.smartwatch, "no SmartWatch (§12.7)");
+        CHECK(d.artefacts == SETTINGS_ARTEFACTS_SIMPLE && d.artefact_phase == SETTINGS_PHASE_BLUE,
+              "simple artefacts, blue (§9.5)");
     }
 
     /* ---- an empty file, and one of comments, change nothing ----------- */
@@ -53,6 +55,8 @@ int main(void) {
             "fast_tape = off\r\n"
             "vdg       = 6847T1\r\n"
             "smartwatch = on\r\n"
+            "artifacts = Full\r\n"
+            "artifact_phase = random\r\n"
             "boot_tape = /coco/tapes/My Tape.cas\r\n"
             "boot_disk = games.dsk\r\n";
         CHECK(parse(&s, all, &line) == SET_OK && line == 0, "every setting: line %u", line);
@@ -66,7 +70,15 @@ int main(void) {
               "fast_tape, and the layout in capitals with its space: %s", s.layout);
         CHECK(s.vdg_t1, "vdg = 6847T1");
         CHECK(s.smartwatch, "smartwatch = on");
+        CHECK(s.artefacts == SETTINGS_ARTEFACTS_FULL, "artifacts = full");
+        CHECK(s.artefact_phase == SETTINGS_PHASE_RANDOM, "artifact_phase = random");
     }
+    CHECK(parse(&s, "artifacts = off\nartifact_phase = red\n", &line) == SET_OK &&
+          s.artefacts == SETTINGS_ARTEFACTS_OFF && s.artefact_phase == SETTINGS_PHASE_RED,
+          "artifacts = off, artifact_phase = red");
+    CHECK(parse(&s, "artifacts = simple\nartifact_phase = blue\n", &line) == SET_OK &&
+          s.artefacts == SETTINGS_ARTEFACTS_SIMPLE && s.artefact_phase == SETTINGS_PHASE_BLUE,
+          "artifacts = simple, artifact_phase = blue");
     CHECK(parse(&s, "vdg = 6847\n", &line) == SET_OK && !s.vdg_t1, "vdg = 6847");
     CHECK(parse(&s, "layout = Standard\n", &line) == SET_OK && !s.layout[0], "layout = standard");
     for (unsigned k = 0; k < 4; k++) {
@@ -118,6 +130,9 @@ int main(void) {
             { "vdg = t1\n",            SET_BAD_VALUE },
             { "smartwatch = ds1216\n", SET_BAD_VALUE },
             { "vdg = 6847T2\n",        SET_BAD_VALUE },
+            { "artifacts = on\n",      SET_BAD_VALUE },
+            { "artefacts = full\n",    SET_UNKNOWN },     /* the CoCo's spelling */
+            { "artifact_phase = orange\n", SET_BAD_VALUE },
             { "turbo = on\n",          SET_UNKNOWN },
         };
         for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
@@ -399,6 +414,24 @@ int main(void) {
         CHECK(REWRITE("vdg = 6847T1  # the CoCo 2B\n", &k) == SET_OK &&
                   strstr(out, "vdg = 6847    # the CoCo 2B\n"),
               "back to the MC6847, in place:\n%.*s", (int)out_len, out);
+    }
+
+    /* ---- the artefacts, saved (§9.5) ------------------------------------ */
+    {
+        settings_t k;
+        settings_default(&k);
+        CHECK(REWRITE("ram = 64\n", &k) == SET_OK && !strstr(out, "artifact"),
+              "simple and blue, the defaults, are not written:\n%.*s", (int)out_len, out);
+        k.artefacts = SETTINGS_ARTEFACTS_FULL;
+        k.artefact_phase = SETTINGS_PHASE_RANDOM;
+        CHECK(REWRITE("ram = 64\n", &k) == SET_OK && strstr(out, "artifacts = full\n") &&
+                  strstr(out, "artifact_phase = random\n"),
+              "full and random are added:\n%.*s", (int)out_len, out);
+        k.artefacts = SETTINGS_ARTEFACTS_OFF;
+        k.artefact_phase = SETTINGS_PHASE_RED;
+        CHECK(REWRITE("artifacts = full # sharp\nartifact_phase = random\n", &k) == SET_OK &&
+                  IS("artifacts = off  # sharp\nartifact_phase = red\n"),
+              "off and red, in place:\n%.*s", (int)out_len, out);
     }
 
     TEST_DONE();

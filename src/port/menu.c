@@ -63,10 +63,13 @@
 #define ROW_STATUS (TEXT_ROWS - 2)
 #define ROW_KEYS   (TEXT_ROWS - 1)
 
-enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_SAVE, I_SHELL, I_ABOUT,
-       I_COUNT };
+enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_POWER, I_SAVE, I_SHELL,
+       I_ABOUT, I_COUNT };
 
-enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_VDG, D_CLOCK, D_COUNT };
+enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_VDG, D_ARTEFACTS, D_PHASE,
+       D_CLOCK, D_COUNT };
+_Static_assert(ROW_TOP + I_COUNT + 2 <= ROW_STATUS, "the main page's rows fit");
+_Static_assert(ROW_TOP + D_COUNT < ROW_STATUS, "the Setup page's rows fit");
 
 /* The Tapes page: three things to do with the deck, then the card's
  * tapes. */
@@ -186,20 +189,19 @@ static const char *machine_name(bool ext, unsigned ram_k) {
 static void draw_main(void) {
     static const char *const items[I_COUNT] = {
         " TAPES...", " DISKS...", " SNAPSHOTS...", " SETUP...", " MACHINE...", " RESET",
-        " SAVE SETTINGS", " EXIT TO SHELL", " ABOUT...",
+        " POWER OFF/ON", " SAVE SETTINGS", " EXIT TO SHELL", " ABOUT...",
     };
     for (int i = 0; i < I_COUNT; i++)
         textpage_line(s_scr, ROW_TOP + i, items[i], i == s.item);
+    /* Under the items, a row apart. The tape is not repeated here: the
+     * status line and the Tapes page show it (the owner, 2026-11-22). */
     char line[TEXT_COLS + 1];
-    const char *in = tapeio_inserted();
-    snprintf(line, sizeof line, " TAPE: %.25s", in[0] ? base(in) : "NONE");
-    textpage_line(s_scr, ROW_TOP + I_COUNT + 1, line, false);
     snprintf(line, sizeof line, " %.30s", machine_name(g_machine.extended, g_machine.ram_k));
-    textpage_line(s_scr, ROW_TOP + I_COUNT + 2, line, false);
+    textpage_line(s_scr, ROW_TOP + I_COUNT + 1, line, false);
     if (g_machine.rsdos) {
         const char *d = dskio_inserted(0);
         snprintf(line, sizeof line, " RS-DOS, DISK 0: %.15s", d[0] ? base(d) : "NONE");
-        textpage_line(s_scr, ROW_TOP + I_COUNT + 3, line, false);
+        textpage_line(s_scr, ROW_TOP + I_COUNT + 2, line, false);
     }
 }
 
@@ -276,8 +278,9 @@ static void draw_setup(void) {
             snprintf(line, sizeof line, " VOLUME          < %u >", g_ui.volume);
             break;
         case D_KEYS:
-            /* A card layout's name is cut to keep the column. */
-            snprintf(line, sizeof line, " KEYS    < %.16s >",
+            /* In the column the others use; a card layout's name is cut
+             * to the 11 characters that leave room for " >". */
+            snprintf(line, sizeof line, " KEYS            < %.11s >",
                      g_ui.layout ? g_ui.layout->name : "STANDARD");
             break;
         case D_FAST:
@@ -288,6 +291,21 @@ static void draw_setup(void) {
             snprintf(line, sizeof line, " VDG             < %s >",
                      g_ui.vdg_t1 ? "6847T1" : "6847");
             break;
+        case D_ARTEFACTS: {
+            /* §9.5: XRoar's 2-bit renderer's, or its 5-bit one's. */
+            static const char *const how[3] = { "OFF", "SIMPLE", "FULL" };
+            snprintf(line, sizeof line, " ARTIFACTS       < %s >", how[g_ui.artefacts % 3u]);
+            break;
+        }
+        case D_PHASE: {
+            /* The phase drawn now; "random" chooses at each reset. */
+            const char *now = g_ui.artefact_red ? "RED" : "BLUE";
+            if (g_ui.artefact_phase == SETTINGS_PHASE_RANDOM)
+                snprintf(line, sizeof line, " PHASE   < RANDOM, NOW %s >", now);
+            else
+                snprintf(line, sizeof line, " PHASE           < %s >", now);
+            break;
+        }
         case D_CLOCK:
             /* A DS1216 at $FF78-$FF7F, for OS-9's clock_tc3 (rtc.h). */
             snprintf(line, sizeof line, " SMARTWATCH      < %s >", on_off(g_ui.smartwatch));
@@ -298,7 +316,7 @@ static void draw_setup(void) {
     /* The layout in force, two bindings a row as a .map file writes them
      * (keymatrix.h). */
     const keylayout_t *l = g_ui.layout;
-    int row = ROW_TOP + D_COUNT + 1;
+    int row = ROW_TOP + D_COUNT;
     for (unsigned i = 0; l && i < l->n && row < ROW_STATUS; i += 2, row++) {
         char a[16] = "", b[16] = "";
         keymap_binding_str(&l->bind[i], a, sizeof a);
@@ -412,23 +430,23 @@ static void draw_about(void) {
 }
 
 static void draw_help(void) {
+    /* Twelve rows between the title and the status row. */
     static const char *const keys[][2] = {
-        { "F1",     "TAPES" },
-        { "F2",     "DISKS" },
-        { "F3",     "SNAPSHOTS" },
-        { "F4",     "SETUP" },
-        { "F5",     "MACHINE" },
-        { "F10",    "ABOUT" },
+        { "F1/2/3", "TAPES DISKS SNAPSHOTS" },
+        { "F4/5/10", "SETUP MACHINE ABOUT" },
         { "ALT+M",  "MENU" },
         { "ALT+H",  "THESE KEYS" },
         { "ALT+P",  "PAUSE" },
         { "ALT+K",  "RESET BUTTON" },
+        { "ALT+O",  "POWER OFF AND ON" },
         { "F4 KEYS", "JOYSTICK: ARROWS, ]" },
         { "ESC",    "BREAK" },
         { "CTRL",   "CLEAR, OS-9'S CONTROL" },
         { "TAB",    "CLEAR" },
         { "BKSP",   "LEFT ARROW" },
     };
+    _Static_assert(sizeof keys / sizeof keys[0] <= ROW_STATUS - ROW_TOP,
+                   "the keys fit above the status row");
     char line[TEXT_COLS + 1];
     int row = ROW_TOP;
     for (unsigned i = 0; i < sizeof keys / sizeof keys[0]; i++) {
@@ -493,6 +511,7 @@ static void draw(void) {
         textpage_line(s_scr, ROW_KEYS, keys[s.page], true);
     }
     display_present(s_scr, NULL);
+    display_settle();   /* the border now, not at the next key */
 }
 
 /* ---- opening the pages ------------------------------------------------------ */
@@ -592,6 +611,8 @@ static void save_settings(void) {
     if (s_bkl_set) out.backlight = g_ui.backlight;
     out.fast_tape = g_ui.fast_tape;
     out.vdg_t1 = g_ui.vdg_t1;
+    out.artefacts = g_ui.artefacts;
+    out.artefact_phase = g_ui.artefact_phase;
     out.smartwatch = g_ui.smartwatch;
     /* A layout a loaded file chose is not the user's choice, so the file
      * keeps the one it had (§11.3). */
@@ -674,6 +695,13 @@ static void open_item(void) {
     case I_SETUP:   s.page = P_SETUP; s.setup_sel = D_STATUS; break;
     case I_MACHINE: open_machine(); break;
     case I_RESET:   g_ui.reset = true; s.done = true; break;
+    case I_POWER:
+        /* Off and on (§13.3): RAM cleared, BASIC started cold, the
+         * media left in. Refused as Apply is, for a recording. */
+        if (tapeio_unsaved(s.m)) { say(" A RECORDING IS NOT SAVED", ""); break; }
+        g_ui.power = true;
+        s.done = true;
+        break;
     case I_SAVE:    save_settings(); break;
     case I_SHELL:   exit_to_shell(); break;
     case I_ABOUT:   open_about(); break;
@@ -991,6 +1019,25 @@ static void key_setup(uint8_t c) {
     case D_VDG:
         g_ui.vdg_t1 = !g_ui.vdg_t1;
         display_set_t1(g_ui.vdg_t1);
+        break;
+    case D_ARTEFACTS:
+        g_ui.artefacts = (uint8_t)((g_ui.artefacts + 3u + (dir < 0 ? -1 : 1)) % 3u);
+        display_set_artefacts(g_ui.artefacts, g_ui.artefact_red);
+        log_core1("  setup        : artifacts %s\n", settings_artefacts_str(g_ui.artefacts));
+        break;
+    case D_PHASE:
+        /* Blue, red, random: blue and red take effect at once, without a
+         * reset, as no real CoCo 1 or 2 could (§9.5); random keeps the
+         * phase drawn until the next reset. */
+        g_ui.artefact_phase = (uint8_t)((g_ui.artefact_phase + 3u + (dir < 0 ? -1 : 1)) % 3u);
+        if (g_ui.artefact_phase == SETTINGS_PHASE_RANDOM) {
+            say(" A NEW PHASE AT EACH RESET", "");
+        } else {
+            g_ui.artefact_red = g_ui.artefact_phase == SETTINGS_PHASE_RED;
+            display_set_artefacts(g_ui.artefacts, g_ui.artefact_red);
+        }
+        log_core1("  setup        : artifact phase %s\n",
+                  settings_phase_str(g_ui.artefact_phase));
         break;
     case D_CLOCK:
         g_ui.smartwatch = !g_ui.smartwatch;

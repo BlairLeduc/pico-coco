@@ -35,6 +35,9 @@ typedef struct {
     uint8_t mode;      /* the mode whose border the panel shows
                         * (coco_frame_border_mode)                      */
     bool    full;      /* the last plan repainted for that mode, or all */
+    uint8_t reach;     /* pixels a changed byte's colours reach beside
+                        * it: 2 with the full artefacts (§9.5), else 0;
+                        * the caller's, kept by present_invalidate      */
     coco_line_t how[COCO_PIC_H];          /* each line's, as shown      */
     uint8_t shadow[COCO_SNAP_VRAM_MAX];   /* the bytes the panel shows  */
 } present_t;
@@ -52,8 +55,9 @@ typedef const mc6847_t *(*present_vdg_fn)(void *ctx, uint8_t mode);
 
 /* Line y of `f` as COCO_PIC_W pixels into `dst`, drawn as f->how[y]
  * says (§9.4): in the line's mode, and from each change along it in
- * that change's, from the same bytes. `tmp` is COCO_PIC_W pixels of
- * scratch. */
+ * that change's, from the same bytes; then the full artefacts over the
+ * line as composed, where the renderers draw them (mc6847_artefact_line,
+ * §9.5). `tmp` is COCO_PIC_W pixels of scratch. */
 void present_render_line(const coco_frame_t *f, unsigned y, present_vdg_fn vdg, void *ctx,
                          uint16_t *dst, uint16_t *tmp);
 

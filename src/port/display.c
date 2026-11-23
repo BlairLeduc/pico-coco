@@ -62,6 +62,9 @@ static const mc6847_t *vdg_for(void *ctx, uint8_t mode) {
  * leaves it be. M9: the setting that turns it off. */
 static uint16_t s_border_rgb = 0x0000u;
 
+/* A full repaint's border, left to the next present (display_present). */
+static bool s_border_deferred;
+
 /* DMA ping-pong (hardware-notes.md §4.6), the panel's width so that the
  * text lines can use them too. */
 static uint16_t s_line[COCO_LINEBUF_COUNT][COCO_LINEBUF_PIXELS];
@@ -87,6 +90,17 @@ void display_init(void) {
 }
 
 void display_invalidate(void) {
+    present_invalidate(&s_present);
+}
+
+void display_set_artefacts(unsigned how, bool red) {
+    vdg_artefact_t a = how == 0 ? VDG_ARTEFACT_OFF
+                     : how == 1 ? (red ? VDG_ARTEFACT_KRBW : VDG_ARTEFACT_KBRW)
+                                : (red ? VDG_ARTEFACT_FULL_KRBW : VDG_ARTEFACT_FULL_KBRW);
+    if (a == s_vdg.artefact) return;
+    for (unsigned i = 0; i < VDGS; i++) mc6847_set_artefact(&s_vdgs[i], a);
+    /* The full artefacts reach two pixels beside a changed byte. */
+    s_present.reach = vdg_artefact_full(a) ? 2u : 0u;
     present_invalidate(&s_present);
 }
 
@@ -126,7 +140,6 @@ void display_present(const coco_frame_t *f, display_stats_t *st) {
      * repaint it made a 22 ms present, over a field, and the pool
      * superseded a snapshot (§17 M11's soak). A full repaint leaves the
      * border to the next present, once, so it lags by a field at most. */
-    static bool s_border_deferred;
     vdg_colour_t edge = mc6847_border(border, mc6847_is_t1(&s_vdg));
     if (s.full && !s_border_deferred && s_vdg.col[edge] != s_border_rgb) {
         s_border_deferred = true;
@@ -158,6 +171,12 @@ void display_present(const coco_frame_t *f, display_stats_t *st) {
 
     s.us = time_us_32() - t0;
     if (st) *st = s;
+}
+
+void display_settle(void) {
+    if (!s_border_deferred) return;
+    fill_border(s_present.mode);
+    s_border_deferred = false;
 }
 
 static void draw_line(text_line_t *l, const char *text) {

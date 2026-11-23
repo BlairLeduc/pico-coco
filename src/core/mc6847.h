@@ -92,12 +92,27 @@ vdg_colour_t mc6847_border(uint8_t mode, bool t1);
 /* Artefact colours (§9.5): off, or one of the two phases, named as
  * XRoar names its composite inputs by the colours of the pairs 00, 01,
  * 10 and 11 (a pair being two pixels, left then right): black, blue,
- * red, white; or black, red, blue, white. */
+ * red, white; or black, red, blue, white.
+ *
+ * Each phase is drawn simply, a pair at a time from the line's start,
+ * as XRoar's 2-bit renderer does, or fully, each pixel by the two either
+ * side of it, as its 5-bit one does (mc6847_artefact_line). */
 typedef enum {
     VDG_ARTEFACT_OFF,
     VDG_ARTEFACT_KBRW,
     VDG_ARTEFACT_KRBW,
+    VDG_ARTEFACT_FULL_KBRW,
+    VDG_ARTEFACT_FULL_KRBW,
 } vdg_artefact_t;
+
+static inline bool vdg_artefact_full(vdg_artefact_t a) {
+    return a == VDG_ARTEFACT_FULL_KBRW || a == VDG_ARTEFACT_FULL_KRBW;
+}
+
+/* The phase whose pair 01 is red. */
+static inline bool vdg_artefact_krbw(vdg_artefact_t a) {
+    return a == VDG_ARTEFACT_KRBW || a == VDG_ARTEFACT_FULL_KRBW;
+}
 
 /* ---- the character ROM ----------------------------------------------- */
 
@@ -183,6 +198,21 @@ void mc6847_set_mono(mc6847_t *v, bool mono);
 void mc6847_set_dark_bg(mc6847_t *v, bool dark);
 
 void mc6847_set_artefact(mc6847_t *v, vdg_artefact_t a);
+
+/* Does this renderer want mc6847_artefact_line on its lines? */
+bool mc6847_artefacts_full(const mc6847_t *v);
+
+/* The full artefacts (§9.5), over a line already drawn: XRoar's 5-bit
+ * renderer. A pixel whose neighbours either side and itself are each
+ * black or buff takes its colour from a table, by whether each of the
+ * five pixels centred on it is buff, and by phase, which alternates
+ * pixel by pixel from the line's first. Any mode: a two-pixel pattern
+ * in RG3 colours as XRoar's does. `left` and `right` are the border's
+ * colours either side, as drawn; the line's pixels are compared with
+ * the colours the renderer draws black and buff, which in this mode are
+ * no other colour's (the dark backgrounds, drawn black, are drawn a
+ * shade apart). Nothing is changed unless mc6847_artefacts_full. */
+void mc6847_artefact_line(const mc6847_t *v, uint16_t *px, uint16_t left, uint16_t right);
 
 /* One active line, y of 192, from the bytes the VDG fetched on it
  * (`bytes`, bytes_per_line of them), as COCO_PIC_W RGB565 pixels into

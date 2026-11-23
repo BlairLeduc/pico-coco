@@ -184,6 +184,7 @@ const keymap_t keymap_picocalc[] = {
     { 'H', KM_PAGE_HELP, 0, KM_ALT | KM_MENU },
     { 'P', NOCELL,          KM_ALT | KM_PAUSE },
     { 'K', NOCELL,          KM_ALT | KM_RESET },
+    { 'O', 1, 0,            KM_ALT | KM_RESET },   /* off and on (§13.3) */
 
     /* The function keys open the menu at a page (§14). The CoCo has no
      * function keys, so they are the menu's everywhere. F6, Shift+F1,

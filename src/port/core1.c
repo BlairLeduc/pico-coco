@@ -108,6 +108,9 @@ static void apply_settings(const settings_t *st) {
     g_ui.status = st->status;
     g_ui.fast_tape = st->fast_tape;
     g_ui.vdg_t1 = st->vdg_t1;
+    g_ui.artefacts = st->artefacts;
+    g_ui.artefact_phase = st->artefact_phase;
+    g_ui.artefact_red = st->artefact_phase == SETTINGS_PHASE_RED;
     g_ui.smartwatch = st->smartwatch;
     uint8_t r[2];
     if (st->backlight) {
@@ -190,6 +193,7 @@ static void boot_rom(void) {
     if (!roms_start_now(&g_boot.job, g_boot.settings.extended)) {
         roms_page(&g_boot.job, &s_page);
         display_present(&s_page, NULL);
+        display_settle();
     }
 }
 
@@ -263,6 +267,19 @@ void core1_main(void) {
         if (i >= 0) {
             display_stats_t st;
             display_set_t1(g_ui.vdg_t1);
+            /* A random phase is chosen afresh at each reset, as a real
+             * VDG comes up locked to either edge of its clock (§9.5);
+             * the microsecond core 1 sees it on is as random as that. */
+            static uint32_t s_resets;
+            if (g_c0.resets != s_resets) {
+                s_resets = g_c0.resets;
+                if (g_ui.artefact_phase == SETTINGS_PHASE_RANDOM) {
+                    g_ui.artefact_red = ((time_us_32() >> 3) & 1u) != 0;
+                    log_core1("  artifacts    : a reset; the phase is %s\n",
+                              g_ui.artefact_red ? "red" : "blue");
+                }
+            }
+            display_set_artefacts(g_ui.artefacts, g_ui.artefact_red);
             display_present(&g_pool.buf[i], &st);
             pool_release(i);
             g_c1.presents++;

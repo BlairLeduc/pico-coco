@@ -14,7 +14,11 @@
  * Then the artefact colours (§9.5): XRoar's simple renderer's rule
  * applied to XRoar's VDG output (a pair of pixels each black or white
  * becomes black, blue, red or white, by phase), against this renderer
- * with artefacts on, in both phases.
+ * with artefacts on, in both phases. And XRoar's renderers themselves
+ * (xroar_render.c), its 2-bit and its 5-bit, fed XRoar's VDG output a
+ * line at a time, against this renderer's simple and full artefacts,
+ * in every mode, both colour sets and both phases, with the dark
+ * backgrounds drawn as such and as black.
  *
  * With "t1", the MC6847T1 (mc6847.h) against XRoar's MC6847T1, its
  * ROM ours as XRoar's: in every alphanumeric mode, GM2:GM0 all eight,
@@ -32,6 +36,7 @@
 #include "mc6847.h"
 #include "mc6847_font.h"
 #include "test_util.h"
+#include "xroar_render.h"
 #include "xroar_vdg.h"
 
 static coco_t m;
@@ -121,6 +126,88 @@ static int compare(uint16_t sam_reg, uint8_t pb, vdg_artefact_t artefact, const 
     return 0;
 }
 
+#define RGB565(r, g, b) \
+    ((uint16_t)((((r) & 0xF8u) << 8) | (((g) & 0xFCu) << 3) | ((b) >> 3)))
+
+/* One field through XRoar's VDG and its renderer `ccr`, against ours with
+ * the matching artefacts. A colour drawn from XRoar's palette must be the
+ * same index drawn by ours; an artefact, XRoar's table's colour, which
+ * the simple renderer draws as the palette's black or buff where XRoar's
+ * table gives black or white. Ours draws through `pal`, whose VDG colours
+ * no table colour equals. */
+static int compare_ccr(uint16_t sam_reg, uint8_t pb, xr_ccr_t ccr, int krbw, bool dark,
+                       const uint16_t *pal, const char *what) {
+    xv_field(ram, sam_reg, pb, want);
+
+    coco_config_t cfg;
+    coco_config_default(&cfg);
+    coco_init(&m, &cfg);
+    m.sam.reg = (uint16_t)((sam_reg & ~SAM_M_MASK) | (2u << 13));   /* 64K mode */
+    m.pia1.b.ddr = 0xFFu;
+    m.pia1.b.out = pb;
+    memcpy(m.ram, ram, sizeof ram);
+    coco_video_snapshot(&m, &frame);
+
+    static mc6847_t v;
+    static bool init;
+    if (!init) {
+        mc6847_init(&v);
+        mc6847_set_font(&v, font_6847);
+        init = true;
+    }
+    mc6847_set_t1(&v, mc6847_is_t1(&vdg) ? font_6847t1 : NULL);
+    mc6847_set_palette(&v, pal);
+    mc6847_set_dark_bg(&v, dark);
+    mc6847_set_artefact(&v, ccr == XR_CCR_5BIT
+                                ? (krbw ? VDG_ARTEFACT_FULL_KRBW : VDG_ARTEFACT_FULL_KBRW)
+                                : (krbw ? VDG_ARTEFACT_KRBW : VDG_ARTEFACT_KBRW));
+    mc6847_set_mode(&v, frame.mode);
+    uint8_t border = (uint8_t)mc6847_border(frame.mode, mc6847_is_t1(&v));
+
+    static xr_pixel_t xr[256];
+    unsigned bad = 0, split = 0;
+    for (unsigned y = 0; y < COCO_PIC_H; y++) {
+        mc6847_render_line(&v, &frame.lines[y * COCO_VDG_LINE_BYTES], y, got);
+        mc6847_artefact_line(&v, got, v.col[border], v.col[border]);
+        xr_render_line(ccr, krbw, want[y], border, xr);
+        for (unsigned x = 0; x < COCO_PIC_W; x++) {
+            /* A pixel XRoar split, and those whose colours it reaches. */
+            bool skip = false;
+            for (int d = -2; d <= 2; d++) {
+                int i = (int)x + d;
+                if (i >= 0 && i < (int)COCO_PIC_W && want[y][2 * i] != want[y][2 * i + 1])
+                    skip = true;
+            }
+            if (skip || xr[x].from_palette == 2) { split++; continue; }
+            uint16_t w;
+            if (xr[x].from_palette) {
+                w = v.col[xr[x].index];
+            } else if (ccr == XR_CCR_SIMPLE && xr[x].r == 0 && xr[x].g == 0 && xr[x].b == 0) {
+                w = v.col[VDG_BLACK];
+            } else if (ccr == XR_CCR_SIMPLE && xr[x].r == 0xFF && xr[x].g == 0xFF &&
+                       xr[x].b == 0xFF) {
+                w = v.col[VDG_BUFF];
+            } else {
+                w = RGB565(xr[x].r, xr[x].g, xr[x].b);
+            }
+            if (got[x] != w) {
+                if (!bad && diffs_reported < 12) {
+                    fprintf(stderr, "    %s: first difference at (%u,%u): ours %04X, XRoar's %04X"
+                            " (%s %u, %02X%02X%02X)\n", what, x, y, got[x], w,
+                            xr[x].from_palette ? "index" : "table", xr[x].index, xr[x].r,
+                            xr[x].g, xr[x].b);
+                    diffs_reported++;
+                }
+                bad++;
+            }
+        }
+    }
+    CHECK(bad == 0, "%s: %u pixel(s) differ from XRoar's renderer", what, bad);
+    CHECK(split == 0, "%s: %u pixel(s) split or beside one, not compared", what, split);
+    compared_fields++;
+    return 0;
+}
+
 int main(int argc, char **argv) {
     bool t1 = argc > 1 && strcmp(argv[1], "t1") == 0;
     for (unsigned i = 0; i < VDG_COLOUR_COUNT; i++) index_pal[i] = (uint16_t)i;
@@ -175,6 +262,47 @@ int main(int argc, char **argv) {
             if (compare((uint16_t)(v | (rng() % 128u) << 3), pb, a, what)) return 1;
         }
     }
+
+    /* XRoar's renderers. Its palette's verdict first: of the VDG's
+     * colours, only black is black and only buff white to it. */
+    for (unsigned c = 0; c < 12u; c++)
+        CHECK(xr_black_or_white((uint8_t)c) == (c == VDG_BLACK ? 2 : c == VDG_BUFF ? 3 : 0),
+              "XRoar's verdict on colour %u: %d", c, xr_black_or_white((uint8_t)c));
+    /* Ours draws the VDG's colours as no table colour: $F800 and up. */
+    static uint16_t mark_pal[VDG_COLOUR_COUNT];
+    for (unsigned c = 0; c < VDG_COLOUR_COUNT; c++) mark_pal[c] = (uint16_t)(0xF800u | c);
+    mark_pal[VDG_ARTEFACT_BLUE] = mc6847_palette[VDG_ARTEFACT_BLUE];
+    mark_pal[VDG_ARTEFACT_RED] = mc6847_palette[VDG_ARTEFACT_RED];
+    unsigned ccr_fields = 0;
+    for (unsigned c = 0; c < 2u; c++) {
+        xr_ccr_t ccr = c ? XR_CCR_5BIT : XR_CCR_SIMPLE;
+        for (unsigned i = 0; i < n; i++) {
+            for (unsigned css = 0; css < 2u; css++) {
+                for (unsigned t = 0; t < 2u; t++) {
+                    for (unsigned d = 0; d < 2u; d++) {
+                        for (unsigned k = 0; k < sizeof ram; k++) ram[k] = (uint8_t)rng();
+                        /* Runs and single pixels, as well as noise: a
+                         * byte at random, $00, $FF, $55 or $AA. */
+                        for (unsigned k = 0; k < sizeof ram; k++) {
+                            static const uint8_t pick[4] = { 0x00u, 0xFFu, 0x55u, 0xAAu };
+                            if (ram[k] & 0x80u) ram[k] = pick[ram[k] & 3u];
+                        }
+                        uint8_t pb = (uint8_t)(vdg_modes[i] | (css ? 0x08u : 0u));
+                        unsigned v = mc6847_mode_info(pb)->sam_v;
+                        char what[96];
+                        snprintf(what, sizeof what, "XRoar's %s, %s, VDG %s CSS %u, dark %s",
+                                 c ? "5-bit" : "2-bit", t ? "KRBW" : "KBRW",
+                                 mc6847_mode_info(pb)->name, css, d ? "drawn" : "black");
+                        if (compare_ccr((uint16_t)(v | (rng() % 128u) << 3), pb, ccr, (int)t,
+                                        d != 0, mark_pal, what))
+                            return 1;
+                        ccr_fields++;
+                    }
+                }
+            }
+        }
+    }
+    printf("%u fields through XRoar's renderers\n", ccr_fields);
 
     printf("%u fields compared with XRoar's %s\n", compared_fields, t1 ? "MC6847T1" : "MC6847");
     TEST_DONE();
