@@ -4,6 +4,68 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## The analog joystick
+
+On branch `analog-joystick`, from #18, 2026-11-22 (`design.md` §11.4,
+§14). The owner's request: an analog keyboard joystick, as the
+pointer in their picocalc-quest port, in JOYSTK's 0 to 63; then Keys
+as one row, left analog to right analog with the standard map in the
+middle. **Built, and checked on the host, over the UART on the
+owner's board, and by the owner on the panel**, playing The Interbank
+Incident with the analog stick (2026-11-22).
+
+**Built.** `keylayout_t.analog`, and four built-ins, `L ANALOG`,
+`L DIGITAL`, `R DIGITAL`, `R ANALOG`, in the menu's order;
+`keylayout_current_name` takes M12's `JOY RIGHT` and `JOY LEFT` to the
+digital ones, for settings files that name them. The key matrix keeps
+each axis's run (`keymatrix_run_t`) and moves the stick by
+`keymatrix_run_places`, picocalc-quest's curve in places
+(`COCO_JOY_V0`, `COCO_JOY_V1`, `COCO_JOY_RAMP_MS`); `coco_joystick_put`
+and `coco_joystick_place` set and read an axis by place. A separate
+`joystick = digital | analog` setting was built first and withdrawn
+when the owner asked for the layouts instead.
+
+**On the host** (Apple clang): the 35 tests pass. `test_keymap`: the
+curve rises from one place, a tap is one place and stays, a held
+arrow crosses from 0 to 63 in 85 to 100 fields and is at 14 to 20
+places 0.6 s on, opposite arrows stop the run, the stick stays through
+a park and a digital layout centres it, a run held across a change to
+digital and back starts again from where the stick is, the left
+stick's layout moves the left stick alone; the four built-ins in
+order, their names within the Setup page's 11 columns, and the old
+names. `test_keyboard`, in Color BASIC 1.1, 1.3 and Extended 1.1:
+JOYSTK(0) to (3) read each of the 64 places, each axis set to a
+different one, and a tap of Right reads 32. Planted, one at a time,
+each failing a test: a place at the bottom of its step of the DAC
+(`test_keyboard`, 23 failing checks; `test_keymap` does not see it), no
+place at the start of a run (4 and 3), a run that keeps its first
+start (1), release centring the stick (6), the speed never rising past
+V0 (4), the run kept across a change of layout (1), the analog flag
+ignored (8 and 23), the standard map in the wrong place (1), `JOY LEFT`
+not taken to `L DIGITAL` (1).
+
+**On the board**, the owner's Plus 2 W, UART0 build, 2026-11-22: the
+owner's settings file brought up `R DIGITAL`, the layout M12 named
+`JOY RIGHT`. Setup's Keys row, driven over the UART: Left three times
+went to the standard map, `L DIGITAL`, `L ANALOG` and stopped; Right
+six times to `L DIGITAL`, the standard map, `R DIGITAL`, `R ANALOG` and
+stopped, the card having no layouts; Enter came round to `L ANALOG`,
+then `L DIGITAL`. The UART reaches the guest with characters, not the
+arrows, so the stick was not moved there. The image (UART0): 224,260
+bytes of text and 381,188 of bss, against #18's 222,708 and 379,584.
+
+**From the owner on the panel** (2026-11-22): The Interbank Incident
+played with the analog joystick. Its "disk error" at the second disk
+was the game's: it asks for Disk 1 in drive 0 as well as Disk 2 in
+drive 1, and with both in it went on. Tandy OS-9 on the host read the
+game's disks in drive 1, before and after a swap, as a check.
+
+**Not checked:**
+
+- The curve's speed against other games that read the stick for
+  position.
+- A card layout cannot be analog: `.map` files have no way to say so.
+
 ## Folders on the Disks page
 
 On branch `disk-folders`, from #17, 2026-11-22 (`design.md` §12.6, §14).

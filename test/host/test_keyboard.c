@@ -565,7 +565,7 @@ static int joystick_basic(void) {
         { PICOCALC_KEY_UP, 1, 0, "Up" },     { PICOCALC_KEY_DOWN, 1, 63, "Down" },
     };
     for (unsigned stick = 0; stick < COCO_JOYSTICKS; stick++) {
-        const keylayout_t *l = &keylayout_builtin[stick];
+        const keylayout_t *l = keylayout_joystick(stick, false);
         char expr[32];
         fresh();
         g.m.step_hook = NULL;
@@ -604,6 +604,35 @@ static int joystick_basic(void) {
     }
     printf("  %s: JOYSTK reads 0, 31 and 63 from the keyboard joystick as either stick, and "
            "its button\n", label);
+
+    /* Every place, each axis set to its own (coco_joystick_put), read
+     * back by BASIC's JOYSTK; an analog layout leaves the axes alone
+     * with no joystick line held. */
+    fresh();
+    g.m.step_hook = NULL;
+    keymatrix_set_layout(&g.k, keylayout_joystick(COCO_JOY_RIGHT, true));
+    for (unsigned p = 0; p < COCO_JOY_PLACES; p++) {
+        unsigned want[4] = { p, 63u - p, (p + 17u) % 64u, (p * 5u + 3u) % 64u };
+        for (unsigned j = 0; j < 4u; j++) coco_joystick_put(&g.m, j / 2u, j % 2u, want[j]);
+        guest_type(&g, "CLS:?JOYSTK(0);JOYSTK(1);JOYSTK(2);JOYSTK(3)\r");
+        guest_settle(&g, 60);
+        int v[4] = { -1, -1, -1, -1 };
+        (void)sscanf(guest_row(&g.m, 0), " %d %d %d %d", &v[0], &v[1], &v[2], &v[3]);
+        for (unsigned j = 0; j < 4u; j++)
+            CHECK(v[j] == (int)want[j], "%s: JOYSTK(%u) is %d at place %u", label, j, v[j],
+                  want[j]);
+    }
+
+    /* The analog way, through the layout: a tap of Right is one place. */
+    fresh();
+    g.m.step_hook = NULL;
+    keymatrix_set_layout(&g.k, keylayout_joystick(COCO_JOY_RIGHT, true));
+    keymatrix_event(&g.k, KEY_EV_PRESSED, PICOCALC_KEY_RIGHT);
+    keymatrix_event(&g.k, KEY_EV_RELEASED, PICOCALC_KEY_RIGHT);
+    guest_fields(&g, 10);
+    int v = basic_value("JOYSTK(0)", 0);
+    CHECK(v == 32, "%s: a tap of Right, analog: JOYSTK(0) is %d, not 32", label, v);
+    printf("  %s: JOYSTK reads each of the 64 places on each axis, and a tap is one\n", label);
     return 0;
 }
 

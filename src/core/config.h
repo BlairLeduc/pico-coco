@@ -53,6 +53,16 @@
 #define COCO_JOYSTICKS          2u
 #define COCO_JOY_CENTRE     32767u
 
+/* The analog keyboard joystick (§11.4): a run moves a stick one place of
+ * JOYSTK's 64 as it starts, then at a speed rising from V0 to V1 places
+ * a second over RAMP_MS, and stays at V1; across in about 1.5 s. The
+ * owner's pointer in picocalc-quest, tuned by play there (its D8, 40 to
+ * 240 pixels a second over 0.6 s across 320), scaled to 64 places. */
+#define COCO_JOY_PLACES        64u
+#define COCO_JOY_V0             8u
+#define COCO_JOY_V1            48u
+#define COCO_JOY_RAMP_MS      600u
+
 /* The held-key set (§11.1, keymatrix.h). */
 #define COCO_KEY_EVENT_QUEUE   64u  /* southbridge FIFO holds 31 (HW §6.2) */
 #define COCO_KEY_HELD_MAX       8u  /* keys down at once                   */

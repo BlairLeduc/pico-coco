@@ -1230,6 +1230,21 @@ driven and gives the key up if any is low ($A211 in 1.1), read off the
 ROM and seen in all three. So fire is `]` and not a key BASIC needs,
 and a program that reads the button is not at the prompt.
 
+**Analog** (the owner, 2026-11-22): a layout may move its stick while
+a line is held and leave it there, as the owner's pointer does in
+picocalc-quest, in JOYSTK's 64 places (`keylayout_t.analog`). A run
+moves a place as it starts, so a tap is one place, then at 8 places a
+second rising to 48 over 0.6 s, the pointer's 40 to 240 pixels a
+second across 320 scaled to 64: across in 1.5 s. Opposite lines held
+together stop the run where it is; a new direction runs from where the
+stick is. Each place is the middle of its step of the DAC, place 31
+the centre a digital stick rests at (`coco_joystick_put`). The stick
+stays where it is through a park, and a digital layout centres it
+again. The built-ins are four: `L ANALOG`, `L DIGITAL`, `R DIGITAL` and
+`R ANALOG`; M12's `JOY RIGHT` and `JOY LEFT`, which a settings file may
+still name, are the digital ones. `test_keymap` holds the run and
+`test_keyboard` reads every place through JOYSTK in each ROM.
+
 ---
 
 ## 12. Media: ROMs, cartridges, tape, disc, snapshots, settings
@@ -1765,7 +1780,11 @@ title on a page of sixteen, so the last were never shown; the function
 keys now share two rows, and each page's rows are checked against the
 status row at compile time. The Keys value moved into the other rows' column, a
 layout's name cut to 11 characters there, and the main page dropped its
-tape line (the owner).
+tape line (the owner). Keys runs, in a row, `L ANALOG`, `L DIGITAL`,
+the standard map, `R DIGITAL`, `R ANALOG`, then the card's layouts, so
+from the standard map Left or Right chooses a stick and a second press
+its analog way (§11.4; the owner); Left and Right stop at the ends, and
+Enter steps right and comes round.
 
 ---
 

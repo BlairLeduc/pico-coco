@@ -292,6 +292,13 @@ void     coco_key_set(coco_t *m, int row, int col, bool down);
 #define COCO_JOY_LEFT  1u
 void     coco_joystick_set(coco_t *m, unsigned stick, int x, int y, bool fire);
 
+/* An axis by the place JOYSTK reads, 0 to COCO_JOY_PLACES - 1, each in
+ * the middle of its step of the DAC: 31 is COCO_JOY_CENTRE, 63 the
+ * axis's end. coco_joystick_place reads one back, from wherever it was
+ * set. Axis 0 is X, 1 Y. */
+void     coco_joystick_put(coco_t *m, unsigned stick, unsigned axis, unsigned place);
+unsigned coco_joystick_place(const coco_t *m, unsigned stick, unsigned axis);
+
 /* The machine's copy: never `=`, since the page table points into the
  * struct (§6, EL §2.2). */
 void     coco_copy(coco_t *dst, const coco_t *src);

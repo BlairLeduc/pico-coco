@@ -15,8 +15,9 @@
  *   perf      = on | off           the perf line above the picture (§9.6)
  *   status    = on | off           the status line below it
  *   backlight = 1-15
- *   layout    = standard | <name>  a game layout: JOY RIGHT, JOY LEFT, or
- *                                  one of /coco/keymaps/ (§11.3)
+ *   layout    = standard | <name>  a game layout: L ANALOG, L DIGITAL,
+ *                                  R DIGITAL, R ANALOG (§11.4), or one
+ *                                  of /coco/keymaps/ (§11.3)
  *   fast_tape = on | off           the trap, or the tape's signal (§12.3)
  *   vdg       = 6847 | 6847t1      the CoCo 1 and 2's VDG, or the CoCo
  *                                  2B's, with lower case (§9.2)

@@ -776,9 +776,28 @@ int main(void) {
     }
 
     /* ---- game layouts: the built-ins (§11.3, §11.4) -------------------- */
-    CHECK(keylayout_builtin_len == 2 && strcmp(keylayout_builtin[0].name, "JOY RIGHT") == 0 &&
-              strcmp(keylayout_builtin[1].name, "JOY LEFT") == 0,
-          "the keyboard joystick as either stick is the built-in layouts");
+    {
+        /* In the menu's order (§14): left analog, left digital, then
+         * (after the standard map) right digital, right analog. */
+        static const struct { const char *name; unsigned stick; bool analog; } want[] = {
+            { "L ANALOG", COCO_JOY_LEFT, true },    { "L DIGITAL", COCO_JOY_LEFT, false },
+            { "R DIGITAL", COCO_JOY_RIGHT, false }, { "R ANALOG", COCO_JOY_RIGHT, true },
+        };
+        CHECK(keylayout_builtin_len == 4 && KEYLAYOUT_STANDARD_AT == 2,
+              "the keyboard joystick as either stick, either way, is the built-in layouts");
+        for (size_t li = 0; li < 4u && li < keylayout_builtin_len; li++) {
+            const keylayout_t *l = &keylayout_builtin[li];
+            CHECK(strcmp(l->name, want[li].name) == 0 && l->analog == want[li].analog &&
+                      l->bind[0].row == want[li].stick &&
+                      keylayout_joystick(want[li].stick, want[li].analog) == l,
+                  "built-in %zu is %s, not %s", li, l->name, want[li].name);
+            CHECK(strlen(l->name) <= 11u, "%s: wider than the Setup page's column", l->name);
+        }
+        CHECK(strcmp(keylayout_current_name("JOY RIGHT"), "R DIGITAL") == 0 &&
+                  strcmp(keylayout_current_name("JOY LEFT"), "L DIGITAL") == 0 &&
+                  strcmp(keylayout_current_name("FIRE"), "FIRE") == 0,
+              "M12's names are the digital layouts");
+    }
     for (size_t li = 0; li < keylayout_builtin_len; li++) {
         const keylayout_t *l = &keylayout_builtin[li];
         CHECK(l->n <= COCO_KEYMAP_BINDINGS && l->n_files == 0,
@@ -789,7 +808,7 @@ int main(void) {
             CHECK(keymap_picocalc_canonical(e->code) == e->code,
                   "%s: 0x%02X is not a canonical code, so it would never match", l->name,
                   e->code);
-            CHECK(e->flags == KM_JOY && e->row == li && e->col <= KJ_FIRE,
+            CHECK(e->flags == KM_JOY && e->row == l->bind[0].row && e->col <= KJ_FIRE,
                   "%s: 0x%02X is not a line of its stick", l->name, e->code);
             for (unsigned j = i + 1; j < l->n; j++)
                 CHECK(l->bind[j].code != e->code, "%s: 0x%02X bound twice", l->name, e->code);
@@ -798,7 +817,8 @@ int main(void) {
 
     /* ---- the keyboard joystick in the held set (§11.4) ----------------- */
     {
-        const keylayout_t *jr = &keylayout_builtin[0], *jl = &keylayout_builtin[1];
+        const keylayout_t *jr = keylayout_joystick(COCO_JOY_RIGHT, false);
+        const keylayout_t *jl = keylayout_joystick(COCO_JOY_LEFT, false);
         #define AXES(s, x, y) (m.joy_axis[s][0] == (x) && m.joy_axis[s][1] == (y))
         const uint16_t C = COCO_JOY_CENTRE;
 
@@ -810,7 +830,7 @@ int main(void) {
         press(PICOCALC_KEY_LEFT);
         fields(1);
         CHECK(AXES(0, 0, C) && AXES(1, C, C) && matrix_empty(),
-              "Left under JOY RIGHT: the right stick's X at its low end, and no key");
+              "Left under R DIGITAL: the right stick's X at its low end, and no key");
         fresh();
         press(PICOCALC_KEY_LEFT);
         fields(1);
@@ -848,7 +868,7 @@ int main(void) {
         press(']');
         fields(1);
         CHECK(AXES(1, C, 65535u) && AXES(0, C, C) && m.joy_buttons == 2u,
-              "Down and ] under JOY LEFT: the left stick's Y high and its button");
+              "Down and ] under L DIGITAL: the left stick's Y high and its button");
 
         /* The other keys still type, and ] shifted is still the button:
          * the binding is by physical key. */
@@ -896,18 +916,136 @@ int main(void) {
         #undef AXES
     }
 
+    /* ---- the analog keyboard joystick (§11.4) --------------------------- */
+    {
+        const keylayout_t *jr = keylayout_joystick(COCO_JOY_RIGHT, false);
+        const keylayout_t *ra = keylayout_joystick(COCO_JOY_RIGHT, true);
+        #define PLACE(s, a) coco_joystick_place(&m, s, a)
+
+        /* The curve: a place at once, never back, and V0's pace first. */
+        CHECK(keymatrix_run_places(0) == 1u, "a run moves a place at once");
+        bool rising = true;
+        for (unsigned f = 1; f <= 300u; f++)
+            if (keymatrix_run_places(f) < keymatrix_run_places(f - 1u)) rising = false;
+        CHECK(rising, "a run never moves back");
+        CHECK(keymatrix_run_places(6) == 2u, "a tenth of a second on, 2 places, not %u",
+              keymatrix_run_places(6));
+
+        /* A tap, as short as the replay lets one be, is one place, and
+         * the stick stays there; the digital way is the control. */
+        fresh();
+        keymatrix_set_layout(&k, ra);
+        CHECK(PLACE(0, 0) == 31u && PLACE(0, 1) == 31u, "the stick starts at place 31");
+        press(PICOCALC_KEY_RIGHT);
+        release(PICOCALC_KEY_RIGHT);
+        fields(20);
+        CHECK(PLACE(0, 0) == 32u && PLACE(0, 1) == 31u && k.n == 0,
+              "a tap of Right: X at 32, not %u, and left there", PLACE(0, 0));
+        press(PICOCALC_KEY_UP);
+        release(PICOCALC_KEY_UP);
+        fields(20);
+        CHECK(PLACE(0, 1) == 30u && PLACE(0, 0) == 32u, "a tap of Up: Y at 30, not %u",
+              PLACE(0, 1));
+        fresh();
+        keymatrix_set_layout(&k, jr);
+        press(PICOCALC_KEY_RIGHT);
+        release(PICOCALC_KEY_RIGHT);
+        fields(20);
+        CHECK(PLACE(0, 0) == 31u, "digital, a tap of Right leaves X centred");
+
+        /* Held from one end, the stick crosses in about a second and a
+         * half, as picocalc-quest's pointer crosses its screen. */
+        fresh();
+        keymatrix_set_layout(&k, ra);
+        coco_joystick_put(&m, 0, 0, 0);
+        press(PICOCALC_KEY_RIGHT);
+        unsigned crossed = 0, at_half = 0;
+        for (unsigned f = 1; f <= 200u && !crossed; f++) {
+            fields(1);
+            if (f == 36u) at_half = PLACE(0, 0);
+            if (PLACE(0, 0) == 63u) crossed = f;
+        }
+        CHECK(crossed >= 85u && crossed <= 100u, "held Right crosses in %u fields", crossed);
+        CHECK(at_half >= 14u && at_half <= 20u, "0.6 s on, at place %u", at_half);
+        fields(30);
+        CHECK(PLACE(0, 0) == 63u, "held on, it stays at its end");
+        release(PICOCALC_KEY_RIGHT);
+        fields(10);
+        CHECK(PLACE(0, 0) == 63u && PLACE(0, 1) == 31u, "let go, it stays where it is");
+
+        /* Left now runs from there, and Right with it stops the run. */
+        press(PICOCALC_KEY_LEFT);
+        fields(30);
+        unsigned was = PLACE(0, 0);
+        CHECK(was < 63u && was > 40u, "Left from the end: X at %u", was);
+        press(PICOCALC_KEY_RIGHT);
+        fields(30);
+        CHECK(PLACE(0, 0) == was, "Left and Right together stop it at %u, not %u", was,
+              PLACE(0, 0));
+        release(PICOCALC_KEY_RIGHT);
+        fields(10);
+        CHECK(PLACE(0, 0) < was, "Right let go, Left runs on from there");
+        release(PICOCALC_KEY_LEFT);
+        fields(10);
+
+        /* The button as the digital way has it. */
+        press(']');
+        fields(1);
+        CHECK(m.joy_buttons == 1u, "] is the right button, analog");
+        release(']');
+        fields(8);
+        CHECK(m.joy_buttons == 0u, "] let go");
+
+        /* A park empties the held set (core 0's keymatrix_init): the
+         * stick is where it was. Digital again, the next field centres
+         * it. */
+        was = PLACE(0, 0);
+        keymatrix_init(&k);
+        keymatrix_set_layout(&k, ra);
+        fields(5);
+        CHECK(PLACE(0, 0) == was, "after a park, the stick stays at %u, not %u", was,
+              PLACE(0, 0));
+        keymatrix_set_layout(&k, jr);
+        fields(1);
+        CHECK(PLACE(0, 0) == 31u, "digital again, the stick is centred");
+
+        /* A run cut short by a change of layout starts again from where
+         * the stick is when the analog way comes back: Left held, the
+         * digital way put it at its end. */
+        keymatrix_set_layout(&k, ra);
+        press(PICOCALC_KEY_LEFT);
+        fields(30);
+        keymatrix_set_layout(&k, jr);
+        fields(1);
+        keymatrix_set_layout(&k, ra);
+        fields(1);
+        CHECK(PLACE(0, 0) == 0u, "Left held across digital and back: at 0, not %u",
+              PLACE(0, 0));
+        release(PICOCALC_KEY_LEFT);
+        fields(10);
+
+        /* The left stick's layout moves the left stick alone. */
+        fresh();
+        keymatrix_set_layout(&k, keylayout_joystick(COCO_JOY_LEFT, true));
+        press(PICOCALC_KEY_DOWN);
+        fields(30);
+        CHECK(PLACE(1, 1) > 31u && PLACE(1, 0) == 31u && PLACE(0, 1) == 31u,
+              "Down under L ANALOG: the left stick's Y moves, at %u", PLACE(1, 1));
+        #undef PLACE
+    }
+
     /* ---- game layouts: the .map parser (§11.3) ------------------------- */
     {
         static keylayout_t l;
         unsigned line = 99;
         static const char ex[] =
             "# the keyboard joystick, as the built-in has it\n"
-            "name = Joy Right\n"
+            "name = R Digital\n"
             "left = JR-LEFT\nright = JR-RIGHT\nup = jr-up\ndown = JR-DOWN\n"
             "] = JR-FIRE\n";
         CHECK(keylayout_parse(&l, "mine", ex, strlen(ex), &line) == KL_OK && line == 0,
               "the example parses");
-        const keylayout_t *b = &keylayout_builtin[0];
+        const keylayout_t *b = keylayout_joystick(COCO_JOY_RIGHT, false);
         CHECK(strcmp(l.name, b->name) == 0 && l.n == b->n &&
                   memcmp(l.bind, b->bind, b->n * sizeof b->bind[0]) == 0,
               "the example is the built-in layout");

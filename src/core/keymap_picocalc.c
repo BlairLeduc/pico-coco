@@ -44,6 +44,7 @@
 #include "keymatrix.h"
 
 #include <ctype.h>
+#include <string.h>
 
 /* CoCo keys as "row, col" (§11.2). */
 #define CK_AT     0, 0
@@ -215,12 +216,31 @@ const size_t keymap_picocalc_len = sizeof keymap_picocalc / sizeof keymap_picoca
     { PICOCALC_KEY_DOWN,  stick, KJ_DOWN,  KM_JOY }, \
     { ']',                stick, KJ_FIRE,  KM_JOY }
 
+/* Named to fit the Setup page's column (§14). */
 const keylayout_t keylayout_builtin[] = {
-    { .name = "JOY RIGHT", .n = 5, .bind = { JOYSTICK(COCO_JOY_RIGHT) } },
-    { .name = "JOY LEFT",  .n = 5, .bind = { JOYSTICK(COCO_JOY_LEFT) } },
+    [KEYLAYOUT_L_ANALOG]  = { .name = "L ANALOG",  .n = 5, .bind = { JOYSTICK(COCO_JOY_LEFT) },
+                              .analog = true },
+    [KEYLAYOUT_L_DIGITAL] = { .name = "L DIGITAL", .n = 5, .bind = { JOYSTICK(COCO_JOY_LEFT) } },
+    [KEYLAYOUT_R_DIGITAL] = { .name = "R DIGITAL", .n = 5, .bind = { JOYSTICK(COCO_JOY_RIGHT) } },
+    [KEYLAYOUT_R_ANALOG]  = { .name = "R ANALOG",  .n = 5, .bind = { JOYSTICK(COCO_JOY_RIGHT) },
+                              .analog = true },
 };
 
 const size_t keylayout_builtin_len = sizeof keylayout_builtin / sizeof keylayout_builtin[0];
+_Static_assert(sizeof keylayout_builtin / sizeof keylayout_builtin[0] == KEYLAYOUT_BUILTINS,
+               "a built-in for each");
+
+const keylayout_t *keylayout_joystick(unsigned stick, bool analog) {
+    if (stick == COCO_JOY_LEFT)
+        return &keylayout_builtin[analog ? KEYLAYOUT_L_ANALOG : KEYLAYOUT_L_DIGITAL];
+    return &keylayout_builtin[analog ? KEYLAYOUT_R_ANALOG : KEYLAYOUT_R_DIGITAL];
+}
+
+const char *keylayout_current_name(const char *name) {
+    if (strcmp(name, "JOY RIGHT") == 0) return keylayout_builtin[KEYLAYOUT_R_DIGITAL].name;
+    if (strcmp(name, "JOY LEFT") == 0) return keylayout_builtin[KEYLAYOUT_L_DIGITAL].name;
+    return name;
+}
 
 /* strcasecmp is POSIX, not C11. */
 static bool same_name(const char *a, const char *b) {
