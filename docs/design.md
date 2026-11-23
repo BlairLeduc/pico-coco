@@ -526,6 +526,20 @@ is also the better build if SRAM is ever short: 63 % on the mix at tier
 0 against 101 %. Neither 300 MHz nor the loop's shape was needed. M11
 measures again with core 1 presenting, which shares the cache (HW §9.8).
 
+**A loop polling a PIA** (2026-11-23, the owner's Plus 2 W, tier 2):
+The Interbank Incident waits for the fire button in five instructions,
+a write to PIA0 B and a read of PIA0 A, 870 times a field. Each access
+brings HS, FS and the PIAs' rises up to its tick (§8.3), and that cost
+about 1,000 host cycles: 541 an instruction, core 0 95 % busy on the
+loop alone, and over 100 % in the game, which underran the audio for a
+second. Sampled by PC over SWD (HW §9.10): two of the path's functions
+in flash, 64-bit divides for HS's place in its line, and every rise
+looked at on every access. Each fix measured in turn on the same loop,
+typed in from BASIC: in SRAM, 81 %; HS's place from the field's start
+in 32 bits, 74 %; HS's next change of level kept, 65 %; the first rise
+due kept, **62 %, 352 cycles an instruction**. The trace diff agrees
+with XRoar after it.
+
 ---
 
 ## 8. Bus, SAM and PIAs
@@ -1996,7 +2010,7 @@ the milestones after it are kept, since documents and commits cite them.
 | **M12** | The tape signal, turbo, recording, the keyboard joystick and game layouts; split-field rendering (§9.4, the owner, 2026-11-16) | Edge-for-edge against the ROM's own save; a recording loads in XRoar; a joystick game played by the owner; the routine split titles of M11's archive run drawn by region and looked at |
 | **M13** | Discs for the CoCo: the WD1793, the RS-DOS controller with its HALT pacing, Disk BASIC, JVC/DSK images | Disk BASIC runs `DIR`, `LOAD`, `SAVE`, `DSKINI` and `BACKUP` on the host and the device; the CoCo disc archive held to XRoar by screen |
 | ~~M14~~ | **Withdrawn** (D6, the owner, 2026-11-16): the Dragon 32 and 64, DragonDOS and VDK images | — |
-| **M15** | HD6309 | Its oracle passes in both modes; a 6309 program runs on the device |
+| **M15** | HD6309: **deferred** by the owner, 2026-11-22 (§20) | Its oracle passes in both modes; a 6309 program runs on the device |
 | **M16** | Finish: README, the release build on a second board, attribution | A fresh card and board set up from the README alone |
 
 ---
@@ -2112,6 +2126,9 @@ configuration; once settled, it is a constant.
 
 - **CoCo 3** (GIME, 512 KB, 640-sample modes) and **MC-10** (a 6803):
   machines of their own, after release.
+- **The HD6309** (M15, §7.3): deferred by the owner on 2026-11-22, as
+  the software of the CoCo 1/2's time did not use it. §7.3 stands as
+  the design if it comes back.
 - **RAM expansions**: the MOOH (§21, D15) was moved by the owner on
   2026-11-22 to a separate project, an aspirational CoCo build for OS-9.
   Not to be built here.

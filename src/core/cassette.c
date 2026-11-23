@@ -6,6 +6,7 @@
 
 #include "cas.h"
 #include "coco.h"
+#include "hot.h"
 
 /* ---- the walk -------------------------------------------------------------- */
 
@@ -318,7 +319,7 @@ static void rec_cut(cassette_t *c) {
     c->rec_shift = 0;
 }
 
-void cassette_dac(coco_t *m, uint8_t dac, uint64_t t) {
+void COCO_HOT1(cassette_dac)(coco_t *m, uint8_t dac, uint64_t t) {
     cassette_t *c = &m->cas;
     bool level = dac >= 0x80u;
     if (level == c->rec_level) return;

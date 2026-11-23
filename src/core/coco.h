@@ -138,8 +138,14 @@ typedef struct coco_s {
     uint32_t tpc;
     uint64_t field_start;      /* the tick the current field began       */
     uint64_t hs_seen;          /* HS edges are accounted up to here     */
+    uint64_t hs_change;        /* HS's next change of level after it, or
+                                * 0 to work it out; not state            */
     uint64_t irq_due[COCO_PIA_PORTS]; /* PIA0 A, B, PIA1 A, B: a rise due */
+    uint64_t due_first;        /* the first of them, UINT64_MAX for none,
+                                * or 0 to work it out; not state         */
     uint32_t fields;
+    uint32_t slices;           /* coco_run's slices, since power-on: a
+                                * field cut fine costs core 0 (§6) */
     bool     sound_fed;        /* the sound has fed PIA1 PB1 back (coco.c) */
     uint32_t sound_level;      /* the bus now, to COCO_SOUND_LEVEL_MAX  */
     uint32_t sound_edges;      /* changes of it, since power-on         */

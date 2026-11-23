@@ -537,7 +537,9 @@ snap_status_t snapshot_load(coco_t *m, snap_read_fn read, void *ctx) {
     m->tpc = st[S_TPC];
     m->field_start = get64(st + S_FIELD_START);
     m->hs_seen = get64(st + S_HS_SEEN);
+    m->hs_change = 0;
     for (unsigned i = 0; i < COCO_PIA_PORTS; i++) m->irq_due[i] = get64(st + S_IRQ_DUE + 8u * i);
+    m->due_first = 0;
     m->fields = get32(st + S_FIELDS);
     m->sound_level = get32(st + S_SOUND_LEVEL);
     m->sound_edges = get32(st + S_SOUND_EDGES);
