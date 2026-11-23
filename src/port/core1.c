@@ -23,6 +23,7 @@
 #include "handoff.h"
 #include "kbd.h"
 #include "keymapio.h"
+#include "soundio.h"
 #include "lcd.h"
 #include "log.h"
 #include "menu.h"
@@ -112,6 +113,7 @@ static void apply_settings(const settings_t *st) {
     g_ui.artefact_phase = st->artefact_phase;
     g_ui.artefact_red = st->artefact_phase == SETTINGS_PHASE_RED;
     g_ui.smartwatch = st->smartwatch;
+    g_ui.disk_sounds = st->disk_sounds;
     uint8_t r[2];
     if (st->backlight) {
         g_ui.backlight = st->backlight;
@@ -141,6 +143,7 @@ static void boot_rom(void) {
              * cartridge or boot tape a layout names may choose another
              * after it. */
             keymapio_scan();
+            soundio_load();   /* the drives' recordings, if the card has them */
             if (st->layout[0]) {
                 int li = keymapio_find(st->layout);
                 if (li >= 0) keymapio_choose(keymapio_get((unsigned)li));

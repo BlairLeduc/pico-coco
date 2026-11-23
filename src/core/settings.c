@@ -21,6 +21,7 @@ void settings_default(settings_t *s) {
     s->vdg_t1    = false;       /* the MC6847 of the CoCo 1 and 2 (§9.2) */
     s->artefacts = SETTINGS_ARTEFACTS_SIMPLE;   /* §9.5 */
     s->artefact_phase = SETTINGS_PHASE_BLUE;
+    s->disk_sounds = true;      /* the drives heard (§10) */
 }
 
 /* strcasecmp is POSIX, not C11. */
@@ -128,7 +129,7 @@ static settings_status_t layout(settings_t *s, const char *v) {
  * cartridge, the boot tape and the boot disk may be left empty, meaning
  * none. */
 enum { K_BASIC, K_RAM, K_CART, K_VOLUME, K_PERF, K_STATUS, K_BACKLIGHT, K_LAYOUT, K_FAST_TAPE,
-       K_VDG, K_SMARTWATCH, K_ARTIFACTS, K_ARTIFACT_PHASE, K_BOOT_TAPE, K_BOOT_DISK,
+       K_VDG, K_SMARTWATCH, K_DISK_SOUNDS, K_ARTIFACTS, K_ARTIFACT_PHASE, K_BOOT_TAPE, K_BOOT_DISK,
        K_BOOT_DISK1, K_BOOT_DISK2, K_BOOT_DISK3, K_COUNT };
 _Static_assert(K_BOOT_DISK3 - K_BOOT_DISK + 1 == COCO_DISK_DRIVES, "a key for each drive");
 _Static_assert(K_COUNT <= 32, "the keys seen fit an unsigned");
@@ -137,7 +138,7 @@ _Static_assert(K_COUNT <= 32, "the keys seen fit an unsigned");
  * users spell the word. */
 static const char *const k_names[K_COUNT] = {
     "basic", "ram", "cart", "volume", "perf", "status", "backlight", "layout", "fast_tape",
-    "vdg", "smartwatch", "artifacts", "artifact_phase", "boot_tape", "boot_disk",
+    "vdg", "smartwatch", "disk_sounds", "artifacts", "artifact_phase", "boot_tape", "boot_disk",
     "boot_disk1", "boot_disk2", "boot_disk3",
 };
 
@@ -157,6 +158,7 @@ static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
     case K_FAST_TAPE: return on_off(v, &s->fast_tape);
     case K_VDG:       return vdg(v, &s->vdg_t1);
     case K_SMARTWATCH: return on_off(v, &s->smartwatch);
+    case K_DISK_SOUNDS: return on_off(v, &s->disk_sounds);
     case K_ARTIFACTS: return one_of(v, k_artefacts, 3u, &s->artefacts);
     case K_ARTIFACT_PHASE: return one_of(v, k_phases, 3u, &s->artefact_phase);
     case K_BOOT_TAPE: return path(v, s->boot_tape);
@@ -286,6 +288,7 @@ static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
     case K_FAST_TAPE: return a->fast_tape == b->fast_tape;
     case K_VDG:       return a->vdg_t1 == b->vdg_t1;
     case K_SMARTWATCH: return a->smartwatch == b->smartwatch;
+    case K_DISK_SOUNDS: return a->disk_sounds == b->disk_sounds;
     case K_ARTIFACTS: return a->artefacts == b->artefacts;
     case K_ARTIFACT_PHASE: return a->artefact_phase == b->artefact_phase;
     case K_BOOT_TAPE: return same_path(SETTINGS_TAPE_DIR, a->boot_tape, b->boot_tape);
@@ -316,6 +319,7 @@ static const char *value_of(unsigned k, const settings_t *s, char num[4]) {
     case K_FAST_TAPE: return s->fast_tape ? "on" : "off";
     case K_VDG:       return s->vdg_t1 ? "6847t1" : "6847";
     case K_SMARTWATCH: return s->smartwatch ? "on" : "off";
+    case K_DISK_SOUNDS: return s->disk_sounds ? "on" : "off";
     case K_ARTIFACTS: return settings_artefacts_str(s->artefacts);
     case K_ARTIFACT_PHASE: return settings_phase_str(s->artefact_phase);
     case K_BOOT_TAPE: return s->boot_tape;

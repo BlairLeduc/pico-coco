@@ -23,6 +23,7 @@
  *                                  2B's, with lower case (§9.2)
  *   smartwatch = on | off          a DS1216 at $FF78-$FF7F, set from the
  *                                  board's clock (§12.7)
+ *   disk_sounds = on | off         the drives' steps and motor heard (§10)
  *   boot_tape = <file>             a tape in /coco/tapes/ put in the deck
  *   artifacts = off | simple | full    the artefact colours (§9.5)
  *   artifact_phase = blue | red | random
@@ -67,6 +68,7 @@ typedef struct {
     bool       fast_tape;   /* blocks served by the trap (§12.3)         */
     bool       vdg_t1;      /* the MC6847T1 drawn, not the MC6847 (§9.2) */
     bool       smartwatch;  /* a DS1216 at $FF78-$FF7F (§12.7)           */
+    bool       disk_sounds; /* the drives' steps and motor (§10)         */
     /* The artefact colours (§9.5): how they are drawn, and their phase,
      * which "random" chooses afresh at each reset, as a real CoCo's VDG
      * comes up locked to either clock edge. */

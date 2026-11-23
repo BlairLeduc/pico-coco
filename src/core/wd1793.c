@@ -280,14 +280,14 @@ static void pulse(wd_drive_t *d, int dir) {
  * are pulsed and lost, and the track register counts them. */
 static void type1(wd1793_t *f, uint8_t v, uint64_t now) {
     wd_drive_t *d = sel(f);
-    unsigned steps = 0;
+    unsigned steps = 0, pulses = 0;
     if (v & 0x60u) {                 /* Step, Step-in, Step-out */
         if ((v & 0x60u) == 0x40u) f->step_in = true;
         if ((v & 0x60u) == 0x60u) f->step_in = false;
         int dir = f->step_in ? 1 : -1;
         if (v & 0x10u) f->track = (uint8_t)(f->track + dir);
         if (dir < 0 && d->cyl == 0) f->track = 0;
-        else pulse(d, dir);
+        else pulse(d, dir), pulses = 1;
         steps = 1;
     } else {                         /* Restore, Seek */
         if (!(v & 0x10u)) {
@@ -304,10 +304,14 @@ static void type1(wd1793_t *f, uint8_t v, uint64_t now) {
                 break;
             }
             pulse(d, dir);
+            pulses++;
         }
     }
     f->phase = PH_STEPPED;
     f->due = now + (uint64_t)steps * step_ticks[v & 3u];
+    f->pulse_from = now;
+    f->pulse_period = step_ticks[v & 3u];
+    f->pulse_n = (uint16_t)pulses;
 }
 
 static void force(wd1793_t *f, uint8_t v, uint64_t now) {
@@ -649,6 +653,7 @@ void wd_flush(wd1793_t *f) {
 void wd_restored(wd1793_t *f, uint64_t now, bool had, unsigned drive, unsigned side, unsigned cyl) {
     idle(f);
     memset(&f->req, 0, sizeof f->req);
+    f->pulse_n = 0;
     f->buf_ok = false;
     f->buf_dirty = false;
     f->index_due = f->index_intrq && sel(f)->loaded ? t_of(next_k(k_at(now), 0)) : WD_NEVER;

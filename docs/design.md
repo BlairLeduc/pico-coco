@@ -1087,6 +1087,65 @@ $7E, $FE, $7E for `SOUND`), `SOUND`'s period 20 (256 − T) + 100 cycles,
 A = 440 Hz by their loops, and the field interrupt makes what is heard
 about 0.7 % flatter than the loop.
 
+**The drives' sounds** (2026-11-22, the owner's request). A real CoCo's
+disk drives are heard beside it: the head's steps, and the motor while
+it turns. `drivesnd.c` synthesises them, so nothing is recorded or
+shipped, from what was measured in recordings of a drive (the owner's,
+below; `tools/drivesnd-analyse.py`, `tools/drivesnd-coeffs.py`, which
+writes `drivesnd_coeffs.h`). The drive's noise is a hump at 1 kHz: white
+noise through a resonance at 1,050 Hz, Q 1.4, behind a zero at 0.9 and
+before a low pass at 6 kHz, fitted to the recordings' bands by least
+squares and within 2.3 dB of them from 200 Hz to 8 kHz; it wanders a
+quarter either way in swells of about 28 ms, as the recordings' does,
+which have no sway once a revolution; under it, tones at 983 and
+3,995 Hz at the recordings' levels. A step is nine resonators at the
+frequencies a recorded step's excess over the noise peaks at, 590 Hz to
+7.7 kHz, their decays from 9 ms down to 1.5, struck, and struck again
+at half 11 ms on where the recordings rise again as the head settles;
+a burst of white noise on the strike; and the drive's noise raised to
+twice its level, falling in about 20 ms, as a recorded step's tail is
+of the noise's own colour. Set beside the recordings by the same
+measures: the noise's RMS 427 against 405, every band within 2.3 dB
+to 8 kHz, a step's excess within about 4 dB a band, and its RMS over
+the noise a millisecond at a time of the same shape. The levels and
+times are in `config.h`. The voice is the PCM's
+(`pcm_t.drive`), added to each sample after the DC blocker, so the
+guest's level, its filter and the bus's model are untouched, and with
+the sounds off nothing is added: the samples are those of a machine
+without them, which `test_drivesnd` holds.
+
+Its events are the cartridge's (§12.4). Each type I command leaves its
+step pulses in the WD1793 (`pulse_n` from `pulse_from`, a step's time
+apart), counted as the head is pulsed: a Step out at track 0 pulses
+nothing, the TR00 test that ends a Restore pulses nothing, and a step
+in at the drive's last track pulses as the head meets its stop. The
+latch's motor bit, which nothing else acts on, starts and stops the
+motor's sound. Before either is handed over the PCM is brought to the
+tick that starts the writing instruction, the stamp the bus's changes
+take, so a step is struck in the sample its pulse falls in and a train
+is never cut short by the next command. A restored state and a
+power-on drop what was to come. `disk_sounds = on | off`, on by
+default, and Setup's Disk sounds row (§14) choose; core 0 gives the
+setting to the machine each field, as it gives the SmartWatch's.
+
+**Recorded sounds** in place of the synthesised ones (2026-11-22, the
+owner's, from recordings of a drive under Pixabay's licence). They are
+the user's and live on the card, as the ROMs do (D10): `step.wav` and
+`motor.wav` in `/coco/sounds/`, read in the boot's card job by
+`soundio.c` through `wav.c` (PCM, 8 or 16 bits, mono or stereo, 8 to
+96 kHz) into two buffers outside the machine, a step of up to 2,048
+samples and a motor's loop of up to 8,192, 20 KB of SRAM. A file not
+there leaves its sound synthesised. A step is played from its start at
+each pulse, cutting short the last; the loop goes round at the motor's
+swelling and fading level. Neither the recordings nor anything cut from
+them enters the tree: Pixabay's licence is not the GPL's and forbids
+passing them on as they stand (D9). `tools/drive-sounds.py` cuts the
+two files from the user's recordings: a step from just before an onset
+that stands clear of the noise, 40 ms, its peak at 9,000; one
+revolution of the motor, 200 ms, from the steadiest stretch at its
+recording's usual level, its end cross-faded into its start, its RMS
+at 700; both at 36,621 Hz.
+
 ---
 
 ## 11. Keyboard and joysticks
@@ -1573,7 +1632,7 @@ not have is said on the status row and the standard keys kept. Files are written
 (§12.7). **M13** adds `vdg` (§9.2) and `smartwatch` (§12.7).
 **2026-11-22** adds `artifacts` and `artifact_phase` (§9.5), spelt as
 the CoCo's manuals and its users spell the word; the code and these
-documents keep *artefact*.
+documents keep *artefact*; and `disk_sounds` (§10).
 
 ### 12.7 The SmartWatch
 
@@ -1784,7 +1843,8 @@ tape line (the owner). Keys runs, in a row, `L ANALOG`, `L DIGITAL`,
 the standard map, `R DIGITAL`, `R ANALOG`, then the card's layouts, so
 from the standard map Left or Right chooses a stick and a second press
 its analog way (§11.4; the owner); Left and Right stop at the ends, and
-Enter steps right and comes round.
+Enter steps right and comes round. Setup's last row, Disk sounds, turns
+the drives' steps and motor on and off (§10).
 
 ---
 

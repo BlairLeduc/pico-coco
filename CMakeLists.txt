@@ -29,6 +29,8 @@ set(PICO_COCO_CORE_SOURCES
     src/core/mc6847_font_t1.c
     src/core/mfmdisk.c
     src/core/pcm.c
+    src/core/drivesnd.c
+    src/core/wav.c
     src/core/present.c
     src/core/romset.c
     src/core/rsdos.c
@@ -303,6 +305,7 @@ else()
         src/port/handoff.c
         src/port/kbd.c
         src/port/keymapio.c
+        src/port/soundio.c
         src/port/lcd.c
         src/port/log.c
         src/port/main.c

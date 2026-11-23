@@ -30,6 +30,7 @@ int main(void) {
         CHECK(d.fast_tape && !d.layout[0], "fast tape, the standard keys (§11.3, §12.3)");
         CHECK(!d.vdg_t1, "the MC6847, not the T1 (§9.2)");
         CHECK(!d.smartwatch, "no SmartWatch (§12.7)");
+        CHECK(d.disk_sounds, "the drives heard (§10)");
         CHECK(d.artefacts == SETTINGS_ARTEFACTS_SIMPLE && d.artefact_phase == SETTINGS_PHASE_BLUE,
               "simple artefacts, blue (§9.5)");
     }
@@ -55,6 +56,7 @@ int main(void) {
             "fast_tape = off\r\n"
             "vdg       = 6847T1\r\n"
             "smartwatch = on\r\n"
+            "disk_sounds = Off\r\n"
             "artifacts = Full\r\n"
             "artifact_phase = random\r\n"
             "boot_tape = /coco/tapes/My Tape.cas\r\n"
@@ -77,6 +79,7 @@ int main(void) {
               "fast_tape, and the layout in capitals with its space: %s", s.layout);
         CHECK(s.vdg_t1, "vdg = 6847T1");
         CHECK(s.smartwatch, "smartwatch = on");
+        CHECK(!s.disk_sounds, "disk_sounds = off");
         CHECK(s.artefacts == SETTINGS_ARTEFACTS_FULL, "artifacts = full");
         CHECK(s.artefact_phase == SETTINGS_PHASE_RANDOM, "artifact_phase = random");
     }
@@ -137,6 +140,8 @@ int main(void) {
             { "fast_tape = slow\n",    SET_BAD_VALUE },
             { "vdg = t1\n",            SET_BAD_VALUE },
             { "smartwatch = ds1216\n", SET_BAD_VALUE },
+            { "disk_sounds = loud\n", SET_BAD_VALUE },
+            { "disc_sounds = on\n",   SET_UNKNOWN },     /* the CoCo's word is disk */
             { "vdg = 6847T2\n",        SET_BAD_VALUE },
             { "artifacts = on\n",      SET_BAD_VALUE },
             { "artefacts = full\n",    SET_UNKNOWN },     /* the CoCo's spelling */

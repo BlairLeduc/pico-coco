@@ -716,9 +716,12 @@ void coco_power_on(coco_t *m) {
     m->sound_fed = false;
     m->sound_level = 0;   /* XRoar's bus starts at 0 */
     m->sound_edges = 0;
-    /* The tick count starts again, and the next sample with it. */
+    /* The tick count starts again, and the next sample with it; the
+     * drives fall silent, their motors stopped. */
     pcm_restart(&m->pcm, 0);
     pcm_set_level(&m->pcm, 0, 0);
+    drivesnd_motor(&m->pcm.drive, false);
+    drivesnd_quiet(&m->pcm.drive);
     m->video_split = false;
     m->split_fields = 0;
     m->n_split_now = m->n_split_last = 0;
@@ -1051,6 +1054,8 @@ void coco_restored(coco_t *m) {
     update_irq(m);
     if (m->cfg.rsdos) rsdos_lines(m);
     uint32_t now = (uint32_t)coco_ticks(m);
+    drivesnd_motor(&m->pcm.drive, m->cfg.rsdos && (m->dk.latch & DK_MOTOR));
+    drivesnd_quiet(&m->pcm.drive);
     pcm_restart(&m->pcm, now);
     pcm_set_level(&m->pcm, now, m->sound_level);
 }

@@ -26,14 +26,17 @@
  * INTRQ high, and low as INTRQ falls: XRoar's rule.
  *
  * The motor bit is kept and not acted on: the disk turns whether or not
- * it is set, as XRoar has it (§12.4, §18).
+ * it is set, as XRoar has it (§12.4, §18). It is heard, when the drives'
+ * sounds are on, and so are the WD1793's step pulses (drivesnd.h).
  */
 #ifndef PICO_COCO_RSDOS_H
 #define PICO_COCO_RSDOS_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
+#include "drivesnd.h"
 #include "wd1793.h"
 
 struct coco_s;
@@ -96,6 +99,24 @@ bool coco_disk_busy(const struct coco_s *m);
 /* A written track in hand asked to go back now (wd_flush), for the port
  * to serve before a power-on, a disk changed or a state saved. */
 void coco_disk_flush(struct coco_s *m);
+
+/* The drives' sounds, the steps and the motor, on or off (drivesnd.h).
+ * Off by default, and after every coco_init. */
+void coco_disk_sounds(struct coco_s *m, bool on);
+
+/* `n` samples of the drives' sounds alone, for a park that waits on the
+ * card for a track (park.c): the guest is stopped, but the drive goes on
+ * turning, as a real one does while the CPU waits on its head. Guest
+ * time does not pass, so no step falls due that was not due already;
+ * the motor's level and the steps' rings go on, and the next field's
+ * samples follow from where these leave them. The guest's own sound is
+ * left out, as silence is what a park plays. Zeros with the sounds off.
+ * Core 0, while core 1 serves the track, which never touches the PCM. */
+size_t coco_disk_park_sound(struct coco_s *m, int16_t *dst, size_t n);
+
+/* The drives' recorded sounds, or NULL for the synthesised ones
+ * (drivesnd_set_samples); coco_init leaves them synthesised. */
+void coco_disk_recordings(struct coco_s *m, const drivesnd_samples_t *rec);
 
 /* The drive whose head is loaded, for the status line, or -1. */
 int  coco_disk_active(const struct coco_s *m);

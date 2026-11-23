@@ -261,4 +261,33 @@
 #define COCO_DISK_LIST_MAX     320u
 #define COCO_DIR_POOL         8192u
 
+/* The drives' sounds (drivesnd.h), synthesised, at the nominal sample
+ * rate and in the PCM's units, where the guest's bus at its fullest is
+ * 32,767. Their shape is measured from recordings of a drive
+ * (tools/drivesnd-coeffs.py, drivesnd_coeffs.h); these are the levels
+ * and times around it. The motor's noise at NOISE RMS once it has spun
+ * up, over SPIN_SHIFT's 0.11 s, wandering by a quarter either way in
+ * swells of about 28 ms. A step struck at STEP, the sum of its modes'
+ * peaks, again at half 9 ms on as the head settles, its modes rung out
+ * by 60 ms; a burst of white noise on the strike falling in about 1 ms;
+ * and the drive's noise raised by TAIL (Q15 of NOISE) falling in about
+ * 15 ms. The measurements: a step's first 3 ms 2.5 times the noise's
+ * RMS, its tail 5 dB over it, gone by 45 ms. */
+#define COCO_DRIVESND_NOISE       330
+#define COCO_DRIVESND_SPIN_SHIFT   12u  /* 4,096 samples, 0.11 s           */
+#define COCO_DRIVESND_FLUTTER_SHIFT 10u /* a new level each 1,024 samples  */
+#define COCO_DRIVESND_STEP       7500
+#define COCO_DRIVESND_BOUNCE_MS    11u
+#define COCO_DRIVESND_RING_MS      60u
+#define COCO_DRIVESND_BURST      2500
+#define COCO_DRIVESND_BURST_DECAY 31886 /* exp(-1 / 1 ms), Q15 a sample    */
+#define COCO_DRIVESND_TAIL      32768   /* 1.0 of NOISE                    */
+#define COCO_DRIVESND_TAIL_DECAY 32723  /* exp(-1 / 20 ms), Q15 a sample   */
+/* Recorded sounds in place of these, off the card (drivesnd.h): a
+ * step of up to 56 ms and a motor's loop of up to 224 ms, more than a
+ * revolution, at 36,621 Hz; at another rate, as many samples. */
+#define COCO_DRIVESND_STEP_MAX   2048u
+#define COCO_DRIVESND_MOTOR_MAX  8192u
+#define COCO_DRIVESND_DIR        "/coco/sounds"
+
 #endif /* PICO_COCO_CONFIG_H */

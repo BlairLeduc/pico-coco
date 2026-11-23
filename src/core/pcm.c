@@ -26,6 +26,7 @@ void pcm_init(pcm_t *p, uint32_t now, uint32_t level_max, uint32_t tick_hz,
               uint32_t rate_num, uint32_t rate_den) {
     memset(p, 0, sizeof(*p));
     p->dc_block = true;
+    drivesnd_init(&p->drive);
     pcm_set_rate(p, now, level_max, tick_hz, rate_num, rate_den);
 }
 
@@ -88,6 +89,7 @@ static void COCO_HOT1(emit)(pcm_t *p, uint64_t acc) {
         p->hp_x = x;
         y = p->hp_y / 256;
     }
+    if (drivesnd_sounding(&p->drive)) y += drivesnd_next(&p->drive, p->start);
     if (y > INT16_MAX) y = INT16_MAX;
     if (y < INT16_MIN) y = INT16_MIN;
 
