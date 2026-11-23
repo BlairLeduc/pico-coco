@@ -1744,7 +1744,9 @@ siblings.
 help page Alt+O. The help page had fifteen rows of keys under its
 title on a page of sixteen, so the last were never shown; the function
 keys now share two rows, and each page's rows are checked against the
-status row at compile time.
+status row at compile time. The Keys value moved into the other rows' column, a
+layout's name cut to 11 characters there, and the main page dropped its
+tape line (the owner).
 
 ---
 

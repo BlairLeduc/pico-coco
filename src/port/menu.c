@@ -193,11 +193,9 @@ static void draw_main(void) {
     };
     for (int i = 0; i < I_COUNT; i++)
         textpage_line(s_scr, ROW_TOP + i, items[i], i == s.item);
+    /* Under the items, a row apart. The tape is not repeated here: the
+     * status line and the Tapes page show it (the owner, 2026-11-22). */
     char line[TEXT_COLS + 1];
-    const char *in = tapeio_inserted();
-    /* Straight under the items: the page has 16 rows (textpage.h). */
-    snprintf(line, sizeof line, " TAPE: %.25s", in[0] ? base(in) : "NONE");
-    textpage_line(s_scr, ROW_TOP + I_COUNT, line, false);
     snprintf(line, sizeof line, " %.30s", machine_name(g_machine.extended, g_machine.ram_k));
     textpage_line(s_scr, ROW_TOP + I_COUNT + 1, line, false);
     if (g_machine.rsdos) {
@@ -280,8 +278,9 @@ static void draw_setup(void) {
             snprintf(line, sizeof line, " VOLUME          < %u >", g_ui.volume);
             break;
         case D_KEYS:
-            /* A card layout's name is cut to keep the column. */
-            snprintf(line, sizeof line, " KEYS    < %.16s >",
+            /* In the column the others use; a card layout's name is cut
+             * to the 11 characters that leave room for " >". */
+            snprintf(line, sizeof line, " KEYS            < %.11s >",
                      g_ui.layout ? g_ui.layout->name : "STANDARD");
             break;
         case D_FAST:

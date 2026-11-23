@@ -94,7 +94,10 @@ owner on the Plus 2 W: the menus' borders are black at once.
 a page of sixteen, so its last rows were never shown; the function
 keys now share two rows, and the main, Setup and help pages are
 checked against the status row at compile time. The Setup page shows
-two rows of a layout's bindings, not three.
+two rows of a layout's bindings, not three. At the owner's request,
+seen on the panel: the Keys value is in the other rows' column, a card
+layout's name cut to 11 characters, and the main page no longer shows
+the tape, which the status line and the Tapes page do.
 
 **Not checked:**
 
