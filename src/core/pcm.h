@@ -30,6 +30,7 @@
 #include <stdint.h>
 
 #include "config.h"
+#include "drivesnd.h"
 
 /* The level `level_max` held for a whole sample, before the DC blocker.
  * The blocker's output for an input in [0, M] stays in [-M, M], so this
@@ -52,6 +53,10 @@ typedef struct {
     bool     dc_block;       /* on by default; tests turn it off          */
     int32_t  hp_x;           /* last input                                */
     int32_t  hp_y;           /* last output, Q8                           */
+
+    /* The disk drives' voice, added to each sample after the blocker
+     * (drivesnd.h); off, nothing is added. pcm_init leaves it off. */
+    drivesnd_t drive;
 
     int16_t  buf[COCO_AUDIO_BUF_LEN];
     uint32_t count;

@@ -6,7 +6,8 @@
  * machine is core 1's until core 1 writes PARK_NONE back. Core 0 keeps
  * the audio queue fed with silence meanwhile, at the rate it drains, so
  * audio neither underruns nor loses its pacing, and guest time does not
- * pass.
+ * pass. A disk's park feeds it the drives' sounds instead, the one part
+ * of the machine core 0 keeps while parked (coco_disk_park_sound).
  *
  * Five reasons: the UART's hold; a tape request or a recording to write
  * out (tapeio.h); a track for the disk controller (dskio.h); the menu;

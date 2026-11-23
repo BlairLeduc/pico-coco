@@ -142,6 +142,14 @@ typedef struct {
     uint8_t  nsec;
     wd_req_t req;
 
+    /* The last type I command's step pulses, for the drives' sound
+     * (drivesnd.h): pulse_n of them, the first at pulse_from, a step's
+     * time apart. Set by the command, taken by the cartridge (rsdos.c),
+     * which zeroes pulse_n; not state. */
+    uint64_t pulse_from;
+    uint32_t pulse_period;
+    uint16_t pulse_n;
+
     /* For the heartbeat: sectors moved, and tracks formatted. */
     uint32_t sectors_read, sectors_written, tracks_written;
 } wd1793_t;

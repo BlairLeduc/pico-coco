@@ -178,6 +178,9 @@ typedef struct {
     volatile bool     artefact_red;
     /* A SmartWatch fitted (smartwatch.h): core 0 takes it each field. */
     volatile bool     smartwatch;
+    /* The drives' steps and motor heard (drivesnd.h): core 0 takes it
+     * each field. */
+    volatile bool     disk_sounds;
     volatile bool     reset;       /* the menu's Reset: core 0 clears it  */
     volatile bool     power;       /* its Power off/on: core 0 clears it  */
     /* The Machine page's Apply: power on as restart_cfg, with the ROMs

@@ -4,6 +4,147 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## The disk drives' sounds
+
+On branch `disk-sounds`, from #19, 2026-11-22 (`design.md` §10,
+§12.4, §14). The owner's request: disk drive sound effects. **Built,
+and checked on the host, over the UART on the owner's board, and by
+the owner on the panel**, compiling under OS-9 and playing The
+Interbank Incident (2026-11-22).
+
+**Built.** `drivesnd.c`, a voice in the PCM (`pcm_t.drive`): a step's
+burst and ring, the motor's rush, synthesised, their constants in
+`config.h` chosen by ear. The WD1793 leaves each type I command's step
+pulses (`pulse_n`, `pulse_from`, `pulse_period`), counted as the head
+is pulsed; the cartridge hands them, and the latch's motor bit, to the
+voice with the PCM brought up to the writing instruction first.
+`coco_disk_sounds`; `disk_sounds = on | off`, on by default; Setup's
+Disk sounds row; core 0 gives the setting to the machine each field.
+Then, from the owner's recordings (three MP3s of a drive reading, from
+Pixabay): `step.wav` and `motor.wav` played in place of the
+synthesised sounds when `/coco/sounds/` has them (`wav.c`,
+`soundio.c`, `coco_disk_recordings`), and `tools/drive-sounds.py` to
+cut them. The recordings are busy throughout, the drive's noise at 200
+to 600 RMS, so the step chosen, at 11.013 s of the first, rises only
+three to five times over it, and is raised 5.6 times with that noise;
+the motor's loop is from 6.6 s of the third, raised 2.9 times.
+Then, at the owner's request, the synthesised sounds fitted to the
+recordings (`design.md` §10): `tools/drivesnd-analyse.py` measures the
+noise between steps and the steps over it, in 39 steps and 564 windows
+of noise; `tools/drivesnd-coeffs.py` turns the measurements into
+`drivesnd_coeffs.h`, nine modes for a step and the noise's filter,
+fitted by least squares; the voice strikes the modes, again at half 11
+ms on, with a burst and the noise's swell, and shapes the motor's
+noise, wandering, with two tones. The modes carry 8 bits under the
+output's: without them truncation left each humming at a few tens until
+it was cleared, which hid the swell from a check (below). Set beside
+the recordings (`out/calib/compare.txt`): noise RMS 427 against 405;
+the noise's bands, from its 1 kHz band, within 2.3 dB from 200 Hz to
+8 kHz (10 kHz 3.3 dB over); a step's excess over the noise within about
+4 dB a band, lightest at 1 kHz (5.9 dB against 9.8) and 3.2 kHz (4.5
+against 8.6); its RMS over the noise 1,459 in its first ms against
+1,038, then of the same shape, the head's rise at 11 ms and a tail of
+about 150 to 30 ms.
+
+**On the host** (Apple clang): the 36 tests pass. `test_drivesnd`,
+new: the voice alone strikes a step in the first sample at or after
+its pulse, three of a train of three, peaks between 2,000 and 16,000
+against the guest's 32,767, and falls to 0 to the sample within 15 ms
+of the last; a new train replaces the old; the motor swells (its first
+27 ms under a third of the steady rush), holds an RMS between 150 and
+3,000, and fades, not cut, to nothing within 2 s; turned off it is
+silent at once, and on again strikes nothing of an old train. Through
+the cartridge, with no ROM: on and idle, the samples equal a machine's
+that never had the sounds; the motor bit is heard; a Seek to 20 at
+6 ms strikes 20, the Restore 20, a Step out at track 0 none, a Step in
+one; two steps written in one field are both struck; a Restore from
+the head at 31, a step ahead of the track register after a Step in
+without its update flag, has 31 to come, and a restored state and a
+power-on drop them, the motor following the latch and the power-on
+respectively; the motor stopped, or the sounds turned off, the samples
+agree again. With Disk BASIC: booted and idle the samples agree; DIR
+strikes exactly 17 steps, the head from track 0 to the directory's 17,
+loudest 7,339, the motor heard between steps (2,188) and on while DIR
+ran; RS-DOS stops the motor itself, and then the samples agree again.
+`test_drivesnd --wav FILE` writes the DIR as heard, and `--sounds
+DIR` plays recordings in it: with the owner's cut, DIR still strikes
+17, loudest 10,337. The WAVE reader: 16-bit mono past an odd-sized
+LIST chunk, 8 and 16-bit stereo mixed, a file cut short taken in whole
+frames, 24 bits, three channels, 4 kHz, IEEE float and RIFX refused;
+36,621 Hz plays one for one. The voice with recordings: a step's
+samples in order from the sample its pulse falls in, a second step
+starting it again, the motor's loop round three times, and the
+synthesised step back without them. `test_settings` takes
+`disk_sounds`. Planted, one at a time, each failing
+`test_drivesnd`: the voice not mixed (9 failing checks), a Step's
+pulse not counted (2), the stop at track 0 counted as a pulse (7), a
+Seek's pulses not counted (7), the PCM not brought up before an event
+(1), the motor bit ignored (4), a restored state not quietened (1), a
+power-on not quietened (1), a motor fade that never ends (2), a ring
+never zeroed (3), a step struck a sample late (3), a train taken while
+off (1), a train left over a turn off and on (1). The power-on and the
+last were missed at first, the test's Restore refused while a Seek ran
+and its train over before it was turned off; both were fixed. In the
+recorded path, each failing `test_drivesnd`: a step not started again
+(1), the loop's last sample skipped (1), 16-bit stereo not mixed (1,
+after a check for it was added), 8-bit stereo not mixed (1), a chunk's
+pad byte ignored (2), a part frame kept (1), a format other than PCM
+taken (1), the rate's step halved (2), the synthesised step sounding
+under the recorded (3). In the fitted synthesis, each failing
+`test_drivesnd` unless said: no head settling (2), no swell after a
+step (1, once the modes' extra bits were in), the hump's zero left out
+(1), the 6 kHz low pass left out (1, once its bound was set from 17 to
+23 dB, the fit measuring 25), only the first mode rung (1), the
+wandering falling to silence (5), a quietened step left ringing (1,
+after a check was added). Not caught: the modes never cleared at 60 ms,
+which is harmless, a rung-out step no longer being computed and its
+state already near 0.
+
+**On the board**, the owner's Plus 2 W, UART0 build, 2026-11-22: the
+owner's settings, with no `disk_sounds` line, brought the sounds up
+on; DIR typed over the UART read the OS-9 disk in drive 0 and gave
+RS-DOS's `?FS ERROR`, as it should; the heartbeat after it showed no
+underrun samples, no late refills and no PCM overflow, core 0 27 %
+busy. The image (UART0): 225,252 bytes of text and 381,252 of bss,
+against #19's 224,260 and 381,188; with the recordings' buffers,
+226,852 and 402,836, the bss ending 61 KB below the stacks; with the
+fitted synthesis, 228,212 and 402,964. On the board with it: Tandy OS-9
+booted from drive 0 with `DOS` typed over the UART, and `dir -e
+/d0/cmds` listed, core 0 at most 13.6 % busy, no underrun samples, no
+late refills, no PCM overflow.
+
+**From the owner on the panel** (2026-11-22): a C program compiled
+under Tandy OS-9 with the fitted synthesis, no recordings on the card.
+The motor's sound dropped for a split second whenever the drive was
+used. The UART's log of the compile: 1,400 sectors read, 123 written,
+409 parks for tracks, 16.0 s of them, the longest 126 ms; no underruns,
+as a park feeds the audio queue silence, not counted. A park had always
+played silence, unheard while nothing sounded under it. Now a disk's
+park plays the drives' voice alone at the stopped guest's tick
+(`coco_disk_park_sound`, `park.c`): the motor goes on, as a real drive
+turns while the CPU waits on its head. `test_drivesnd`: a park with the
+motor on plays it at an RMS over 100, the machine without the sounds
+plays zeros, and guest time stands; a park of zeros planted fails it.
+Flashed after the owner's Interbank Incident session; then the owner
+compiled a C program under OS-9 again and played The Interbank
+Incident, and **the sounds were good**: no stutter (2026-11-22). The
+log of those: 417 sectors read, 478 tracks fetched, 100 put back, 479
+parks, the longest 66 ms; core 0 at most 38.8 % busy; no late refills,
+no PCM overflow.
+
+One short underrun in each of the two Interbank sessions, 2,356
+samples (64 ms) and 2,995 (82 ms), each in the window just after the
+menu closed and while the game loaded its first sectors. The heartbeat
+cannot place them closer, as its window starts again at every park.
+They are not this branch's: the session of #19's, before the drives'
+sounds, had 80,656 underrun samples on its boot, when and why not
+known. Left for its own look.
+
+**Not checked:** how the sounds compare with a real drive's by ear; the
+recordings measured are of a 3.5-inch PC drive, not a Tandy 5.25-inch
+one; their level against the guest's on the PicoCalc's
+speaker; a second drive's steps, which use the same voice.
+
 ## The analog joystick
 
 On branch `analog-joystick`, from #18, 2026-11-22 (`design.md` §11.4,

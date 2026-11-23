@@ -68,7 +68,7 @@ enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_POWER, I_SAVE, 
        I_ABOUT, I_COUNT };
 
 enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_VDG, D_ARTEFACTS, D_PHASE,
-       D_CLOCK, D_COUNT };
+       D_CLOCK, D_DISK_SOUNDS, D_COUNT };
 _Static_assert(ROW_TOP + I_COUNT + 2 <= ROW_STATUS, "the main page's rows fit");
 _Static_assert(ROW_TOP + D_COUNT < ROW_STATUS, "the Setup page's rows fit");
 
@@ -334,6 +334,10 @@ static void draw_setup(void) {
         case D_CLOCK:
             /* A DS1216 at $FF78-$FF7F, for OS-9's clock_tc3 (rtc.h). */
             snprintf(line, sizeof line, " SMARTWATCH      < %s >", on_off(g_ui.smartwatch));
+            break;
+        case D_DISK_SOUNDS:
+            /* The drives' steps and motor (drivesnd.h). */
+            snprintf(line, sizeof line, " DISK SOUNDS     < %s >", on_off(g_ui.disk_sounds));
             break;
         }
         textpage_line(s_scr, ROW_TOP + i, line, i == s.setup_sel);
@@ -671,6 +675,7 @@ static void save_settings(void) {
     out.artefacts = g_ui.artefacts;
     out.artefact_phase = g_ui.artefact_phase;
     out.smartwatch = g_ui.smartwatch;
+    out.disk_sounds = g_ui.disk_sounds;
     /* A layout a loaded file chose is not the user's choice, so the file
      * keeps the one it had (§11.3). */
     if (!keymapio_chosen_by()[0])
@@ -1130,6 +1135,10 @@ static void key_setup(uint8_t c) {
         }
         log_core1("  setup        : artifact phase %s\n",
                   settings_phase_str(g_ui.artefact_phase));
+        break;
+    case D_DISK_SOUNDS:
+        g_ui.disk_sounds = !g_ui.disk_sounds;
+        log_core1("  setup        : disk sounds %s\n", g_ui.disk_sounds ? "on" : "off");
         break;
     case D_CLOCK:
         g_ui.smartwatch = !g_ui.smartwatch;

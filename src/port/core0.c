@@ -29,6 +29,7 @@
 #include "park.h"
 #include "roms.h"
 #include "rtc.h"
+#include "soundio.h"
 #include "southbridge.h"
 #include "status.h"
 #include "tapeio.h"
@@ -467,6 +468,10 @@ void core0_run(coco_t *m, keymatrix_t *k) {
         /* The SmartWatch and the board's time (rtc.h). */
         m->clock.fitted = g_ui.smartwatch;
         smartwatch_set_host(&m->clock, g_clock.secs);
+        /* The drives heard, or not; after every power-on too, which
+         * leaves them off (rsdos.h). */
+        coco_disk_sounds(m, g_ui.disk_sounds);
+        coco_disk_recordings(m, soundio_samples());
 
         uint32_t t_run = time_us_32();
         uint32_t ran = coco_run_field(m);

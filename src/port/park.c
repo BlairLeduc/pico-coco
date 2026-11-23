@@ -89,8 +89,15 @@ uint32_t park(uint32_t why, unsigned page, bool alt) {
         }
 #if PICO_COCO_AUDIO
         /* Blocks while the queue is full, so this runs at the rate the
-         * PWM drains it (EL §6.3). */
-        audio_push(silence, sizeof silence / sizeof silence[0]);
+         * PWM drains it (EL §6.3). A disk's park plays the drives on,
+         * which otherwise fall silent under every track fetched
+         * (rsdos.h); core 1's serving never touches them. */
+        if (why == PARK_DISK) {
+            static int16_t drive[128];
+            audio_push(drive, coco_disk_park_sound(s_m, drive, sizeof drive / sizeof drive[0]));
+        } else {
+            audio_push(silence, sizeof silence / sizeof silence[0]);
+        }
 #else
         /* Core 0's own alarm: sleeping here interrupts nothing. */
         sleep_us(100);
