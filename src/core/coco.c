@@ -1069,6 +1069,23 @@ void coco_joystick_set(coco_t *m, unsigned stick, int x, int y, bool fire) {
     else      m->joy_buttons &= (uint8_t)~(1u << stick);
 }
 
+/* JOYSTK reads place p when the axis is at or above the DAC's level for
+ * p, (p << 10) | 512 (pia0a_pins), and below p + 1's: p << 10 | 1023 is
+ * the middle of that step. */
+_Static_assert(COCO_JOY_CENTRE == ((31u << 10) | 1023u), "the centre is place 31's middle");
+_Static_assert(COCO_JOY_PLACES == 64u, "JOYSTK's six bits");
+
+void coco_joystick_put(coco_t *m, unsigned stick, unsigned axis, unsigned place) {
+    if (stick >= COCO_JOYSTICKS || axis > 1u) return;
+    if (place >= COCO_JOY_PLACES) place = COCO_JOY_PLACES - 1u;
+    m->joy_axis[stick][axis] = (uint16_t)((place << 10) | 1023u);
+}
+
+unsigned coco_joystick_place(const coco_t *m, unsigned stick, unsigned axis) {
+    if (stick >= COCO_JOYSTICKS || axis > 1u) return 0;
+    return m->joy_axis[stick][axis] >> 10;
+}
+
 void coco_copy(coco_t *dst, const coco_t *src) {
     memcpy(dst, src, sizeof(*dst));
     map(dst);

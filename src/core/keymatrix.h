@@ -94,13 +94,30 @@ typedef struct keylayout_s {
      * a cartridge in the slot, named without the extension (§11.3). */
     uint8_t  n_files;
     char     files[COCO_KEYMAP_FILES][COCO_KEYMAP_FILE_LEN + 1];
+    /* Its joystick lines move the stick while they are held and leave
+     * it there, rather than put it at its ends (§11.4). */
+    bool     analog;
 } keylayout_t;
 
 /* The built-in ones, chosen by M12's survey of the archive
- * (docs/milestones.md): the keyboard joystick as the right stick and as
- * the left, the arrows its directions and ']' its button (§11.4). */
+ * (docs/milestones.md): the keyboard joystick as the left stick and as
+ * the right, analog or digital, the arrows its directions and ']' its
+ * button (§11.4). In the menu's order, the standard map between the
+ * left stick's and the right's (§14). */
+enum { KEYLAYOUT_L_ANALOG, KEYLAYOUT_L_DIGITAL, KEYLAYOUT_R_DIGITAL, KEYLAYOUT_R_ANALOG,
+       KEYLAYOUT_BUILTINS };
+#define KEYLAYOUT_STANDARD_AT KEYLAYOUT_R_DIGITAL   /* the standard map comes before it */
 extern const keylayout_t keylayout_builtin[];
 extern const size_t      keylayout_builtin_len;
+
+/* The keyboard joystick's layout for a stick, COCO_JOY_RIGHT or
+ * COCO_JOY_LEFT, analog or digital. */
+const keylayout_t *keylayout_joystick(unsigned stick, bool analog);
+
+/* A built-in's name as M12 had it, before the analog ones came: "JOY
+ * RIGHT" and "JOY LEFT", which a settings file may still name; else
+ * the name itself. */
+const char *keylayout_current_name(const char *name);
 
 typedef enum {
     KL_OK = 0,
@@ -209,6 +226,15 @@ typedef struct {
     uint8_t canon;        /* the physical key, decided as the event arrived */
 } keymatrix_event_t;
 
+/* An axis of the analog keyboard joystick on the move (§11.4): its
+ * direction, -1, 0 or 1, the place the run started from, and the fields
+ * it has run. */
+typedef struct {
+    int8_t   dir;
+    uint8_t  from;
+    uint16_t fields;
+} keymatrix_run_t;
+
 typedef struct {
     /* Events wait here and are replayed at field rate, in order. */
     keymatrix_event_t queue[COCO_KEY_EVENT_QUEUE];
@@ -245,6 +271,13 @@ typedef struct {
     /* The game layout over the standard map, or NULL (§11.3). */
     const keylayout_t *layout;
 
+    /* The layout's joystick lines move the stick while held and leave
+     * it there (§11.4), each axis's run here; else they put it at its
+     * ends. A stick stays where it is when the way changes, until a
+     * line moves it. */
+    bool analog;
+    keymatrix_run_t run[COCO_JOYSTICKS][2];
+
     /* Set on a press, cleared by whoever acts on it. */
     bool menu_request;
     uint8_t menu_page;    /* with menu_request: the entry's row */
@@ -260,6 +293,11 @@ void keymatrix_init(keymatrix_t *k);
 /* Takes effect from the next press; a key already down keeps the binding
  * it went down with. NULL is the standard map. */
 void keymatrix_set_layout(keymatrix_t *k, const keylayout_t *l);
+
+/* The places an analog run has moved a stick once it has run `fields`
+ * fields after the one it started in: 1 at once, then COCO_JOY_V0
+ * rising to COCO_JOY_V1 places a second (config.h). */
+unsigned keymatrix_run_places(unsigned fields);
 
 /* One [state, code] event off the southbridge FIFO. Queued, not applied:
  * see keymatrix_field. A press that finds no room for itself and for

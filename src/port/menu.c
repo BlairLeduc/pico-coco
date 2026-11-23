@@ -1057,12 +1057,24 @@ static void set_backlight(int dir) {
 
 /* Standard, then keymapio's list, round and round, as the siblings' Keys
  * row. */
+/* The layouts in a row: the left stick's, analog then digital, the
+ * standard map, the right stick's, digital then analog, then the card's
+ * (keymatrix.h), so Left and Right from the standard map choose a stick
+ * and a second press its analog way. Left and Right stop at the ends;
+ * Enter (0) steps right and comes round. */
 static void step_layout(int dir) {
-    int n = (int)keymapio_count() + 1, at = 0;
+    int n = (int)keymapio_count() + 1, at = KEYLAYOUT_STANDARD_AT;
     for (unsigned i = 0; i < keymapio_count(); i++)
-        if (keymapio_get(i) == g_ui.layout) at = (int)i + 1;
-    at = (at + n + dir) % n;
-    keymapio_choose(at ? keymapio_get((unsigned)(at - 1)) : NULL);
+        if (keymapio_get(i) == g_ui.layout) at = (int)i + (i >= KEYLAYOUT_STANDARD_AT);
+    if (dir) {
+        at += dir;
+        if (at < 0 || at >= n) return;
+    } else {
+        at = (at + 1) % n;
+    }
+    keymapio_choose(at == KEYLAYOUT_STANDARD_AT
+                        ? NULL
+                        : keymapio_get((unsigned)(at - (at > KEYLAYOUT_STANDARD_AT))));
 }
 
 static void key_setup(uint8_t c) {
@@ -1090,7 +1102,7 @@ static void key_setup(uint8_t c) {
         }
         break;
     case D_KEYS:
-        step_layout(dir ? dir : 1);
+        step_layout(dir);
         break;
     case D_FAST:
         g_ui.fast_tape = !g_ui.fast_tape;

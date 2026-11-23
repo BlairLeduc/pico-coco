@@ -137,6 +137,7 @@ const keylayout_t *keymapio_get(unsigned i) {
 }
 
 int keymapio_find(const char *name) {
+    name = keylayout_current_name(name);
     for (unsigned i = 0; i < keymapio_count(); i++) {
         if (strcmp(keymapio_get(i)->name, name) == 0) return (int)i;
     }

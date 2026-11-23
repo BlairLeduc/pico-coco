@@ -11,6 +11,41 @@ void keymatrix_init(keymatrix_t *k) {
 
 void keymatrix_set_layout(keymatrix_t *k, const keylayout_t *l) {
     k->layout = l;
+    bool analog = l && l->analog;
+    if (k->analog == analog) return;
+    k->analog = analog;
+    memset(k->run, 0, sizeof k->run);
+}
+
+/* The distance is the speed's integral, in places times ticks: V0 a
+ * second rising linearly over the ramp to V1 (picocalc-quest's pointer,
+ * config.h). Past four seconds a run has long crossed. */
+unsigned keymatrix_run_places(unsigned fields) {
+    const uint64_t hz = COCO_TICK_HZ;
+    const uint64_t ramp = (uint64_t)COCO_JOY_RAMP_MS * hz / 1000u;
+    const uint64_t rise = COCO_JOY_V1 - COCO_JOY_V0;
+    if (fields > 240u) fields = 240u;
+    uint64_t t = (uint64_t)fields * COCO_FIELD_TICKS, d;
+    if (t <= ramp) d = COCO_JOY_V0 * t + rise * t * t / (2u * ramp);
+    else           d = COCO_JOY_V0 * ramp + rise * ramp / 2u + COCO_JOY_V1 * (t - ramp);
+    return 1u + (unsigned)(d / hz);
+}
+
+/* One axis of the analog joystick a field on: a run starts, from where
+ * the stick is, when its direction changes, and stops where it is. */
+static void analog_axis(keymatrix_t *k, coco_t *m, unsigned s, unsigned axis, int dir) {
+    keymatrix_run_t *r = &k->run[s][axis];
+    if (dir != r->dir) {
+        r->dir = (int8_t)dir;
+        r->from = (uint8_t)coco_joystick_place(m, s, axis);
+        r->fields = 0;
+    }
+    if (dir == 0) return;
+    int p = (int)r->from + dir * (int)keymatrix_run_places(r->fields);
+    if (p < 0) p = 0;
+    if (p > (int)COCO_JOY_PLACES - 1) p = COCO_JOY_PLACES - 1;
+    coco_joystick_put(m, s, axis, (unsigned)p);
+    if (r->fields < UINT16_MAX) r->fields++;
 }
 
 static void enqueue(keymatrix_t *k, uint8_t state, uint8_t code, uint8_t canon) {
@@ -196,11 +231,21 @@ void keymatrix_field(keymatrix_t *k, coco_t *m) {
         if ((e->flags & KM_NOCELL) || !shown) continue;
         m->keys[e->col] |= (uint8_t)(1u << e->row);
     }
-    /* Opposite directions held together leave the axis at its centre. */
-    for (unsigned s = 0; s < COCO_JOYSTICKS; s++)
-        coco_joystick_set(m, s, ((joy[s] >> KJ_RIGHT) & 1) - ((joy[s] >> KJ_LEFT) & 1),
-                          ((joy[s] >> KJ_DOWN) & 1) - ((joy[s] >> KJ_UP) & 1),
-                          (joy[s] >> KJ_FIRE) & 1u);
+    /* Opposite directions held together leave the axis at its centre,
+     * or, analog, where it is. */
+    for (unsigned s = 0; s < COCO_JOYSTICKS; s++) {
+        int x = ((joy[s] >> KJ_RIGHT) & 1) - ((joy[s] >> KJ_LEFT) & 1);
+        int y = ((joy[s] >> KJ_DOWN) & 1) - ((joy[s] >> KJ_UP) & 1);
+        bool fire = (joy[s] >> KJ_FIRE) & 1u;
+        if (!k->analog) {
+            coco_joystick_set(m, s, x, y, fire);
+            continue;
+        }
+        analog_axis(k, m, s, 0, x);
+        analog_axis(k, m, s, 1, y);
+        if (fire) m->joy_buttons |= (uint8_t)(1u << s);
+        else      m->joy_buttons &= (uint8_t)~(1u << s);
+    }
     if (k->shift && k->shift_fields < UINT8_MAX) k->shift_fields++;
     k->shift_shown = shift_wanted(k);
     if (k->shift_shown) m->keys[CK_COL_SHIFT] |= 1u << CK_ROW_SHIFT;
