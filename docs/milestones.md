@@ -4,6 +4,31 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## Sea Dragon's stray dots and lines
+
+On branch `sea-dragon`, from #21, 2026-11-23 (`design.md` §9.4, §18).
+The owner saw stray dots and lines on the panel as Sea Dragon's playing
+field scrolled in (1 player, level 0, music off), on both of the
+archive's images. **Found on the host; the behaviour is the chip's as
+modelled, and is kept** (the owner, 2026-11-23).
+
+**Found.** `coco-corpus` was given scripted keys and a dump of every
+field, both as scaffolding not committed. The game reads its keys
+itself and needed each one held for 90 fields, not BASIC's two or
+three. In fields 1909–2033 of the run each page flip's field drew
+exactly one line part-way in another colour, green or blue, at a
+different height each time. Each of the game's mode changes was traced
+with the PC: the flip routine at $5874 writes $FF22 twice, the first
+clearing the mode bits, and the line is drawn alphanumeric for the 14
+cycles between (`design.md` §9.4). The SAM's F changes at the same
+moment and takes effect as FS rises, as XRoar's SAM has it, so neither
+the fetch of each line as it is shown nor Dragonfire's 1 µs delay is
+involved.
+
+**Not checked:** XRoar's picture of the same fields, since its typing
+goes through BASIC's keyboard routine and the game reads its keys
+itself; and a real CoCo, which the owner will try (`design.md` §18).
+
 ## The underrun as The Interbank Incident loads
 
 On branch `audio-underrun`, from #20, 2026-11-23 (`design.md` §7.5,

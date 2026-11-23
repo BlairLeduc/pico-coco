@@ -936,6 +936,22 @@ picture has it, and every one of the field's 284 changes is drawn;
 `test_video` makes six changes on a line, and a planted limit of four
 fails it.
 
+**A change undone within a line is drawn** (2026-11-23). Sea Dragon
+flips its screen page every three or four fields as its playing field
+scrolls in, and its routine at $5874 clears the VDG's mode before
+setting it again: `LDA #$07`, `ANDA $FF22`, `STA $FF22`, then `LDA
+#$FE`, `ANDA #$F8`, `ORA $FF22`, `STA $FF22`. For the 14 cycles between
+the two writes the VDG is alphanumeric, so about 112 pixels of the line
+the beam is on are drawn as text: a blank byte is an inverse `@`, a
+row of green dots, and the game's striped $AA a semigraphics block, a
+short blue bar. One such segment, on a different line each flip, is
+the stray dots and lines the owner saw on the panel. It is the chip's
+behaviour as modelled here and in XRoar (the mode pins are not
+latched, and Dragonfire's photographs show changes taking effect along
+a line), and the owner chose to keep it. The flip itself is drawn
+right: the SAM loads F as FS rises, so the rest of the field stays on
+the old page. Whether a real CoCo shows the segments is in §18.
+
 ### 9.5 Colour, artefacts and the border
 
 - The palette is the Atom's `mc6847_palette`, with the mono palette from
@@ -2037,6 +2053,7 @@ configuration; once settled, it is a constant.
 | The keyboard matrix (§11.2) | **M3, the CoCo**: every letter, digit and shifted symbol typed through the matrix and printed back by Color BASIC 1.3 and Extended 1.1 (`test_boot`). **Settled in M5** for the CoCo (2026-11-15): all 56 cells pressed at the prompt alone and with SHIFT in Color BASIC 1.1, 1.3 and Extended 1.1, and what POLCAT returned read back; the three agree in every cell, the four empty cells of row 6 decoding whatever follows the ROM's table (`test_keyboard`, `keymap_picocalc.c`) | — | Each ROM executed |
 | Key hold and gap for each ROM (§11.1) | **Settled in M5** for the CoCo (2026-11-15): 2 fields down in Color BASIC 1.3, 3 in 1.1 and Extended 1.1, 1 up in all, no repeat; the replay's 4 and 2 (§11.1) | High | Each ROM executed |
 | The sound bus: each source's gain and offset by the single bit's state, the bus holding its level with nothing driving it, PB1's feedback at 0.3 of 4.70 V, the idle tape at half scale (§10) | **M8**: XRoar's `sound.c` and `dragon.c`, measured there on a real Dragon; the CoCo assumed the same. The trace diff holds PB1's feedback to XRoar through boot, typing, `SOUND` and `PLAY` (2026-11-15), and BASIC's `SOUND` relies on the hold; no CoCo measured | Low | A CoCo's audio output measured; schematics |
+| A change of the VDG's mode undone 14 cycles later, part-way along a line, is seen on a real CoCo (§9.4, Sea Dragon's page flip) | Drawn, as XRoar draws it | Medium | The owner, Sea Dragon on a CoCo |
 | PIA Cx2 as an input: high on the A side, low on the B side; the pulse modes (§10) | **M8**: as XRoar's PIA has them; the pulse modes not modelled, as no ROM sounds through them | Medium | MC6821 datasheet; schematics |
 | The ROMs' tape block routines, their entry bytes and what they leave (§12.3) | **Settled 2026-11-15** for Color BASIC 1.1 and 1.3, read off both ROMs and held by `test_tape` to the ROMs' own routines executed on the host (`tape.h` lists them) | High | — |
 | Tape bit timing as each ROM reads and writes it | Two tones, about 1200 and 2400 Hz. **Settled 2026-11-16** (M12) for Color BASIC 1.1 and 1.3, whose writer and reader are the same bytes: the writer's half-cycles counted off its own save run on the host, 207 and 396 cycles high and 227 and 417 low for a 1 and a 0, about 2,060 and 1,100 Hz at 0.895 MHz, with each caller's cycles between bytes and blocks (`cassette.h`); the reader's threshold 18 passes of a 28-cycle loop a cycle. `test_cassette` holds the player to the ROM's save edge for edge | High | — |
