@@ -973,7 +973,15 @@ the old page. Whether a real CoCo shows the segments is in §18.
   than their green. The derived cyan, $2FCAB1, is a blue-green; red and
   blue each turn about 10°; **orange is unchanged**, $FF8200 against
   $FF8000, its hue 31° against 30°. So the datasheet does not make
-  orange less red. XRoar's own composite renderer, linked from the
+  orange less red. **The text screen's orange is another colour**
+  (the owner asked, 2026-11-23): the alphanumeric ink with CSS high has
+  graphics orange's chroma at white's luminance, 0.42 V, in XRoar's
+  typical set and in its set measured from a Dragon 64 (0.43 V). That
+  is past what RGB holds (red 1.41), and each channel clipped, as a
+  CRT's guns saturate, gives $FFE860, a light yellow-orange; keeping
+  the hue and scaling the whole down instead would give $FFA445. The
+  first build had given it graphics orange's $FF8200, and the mono
+  palette had it at 0.54 V; both now take 0.42 V. XRoar's own composite renderer, linked from the
   checkout and given XRoar's set-up for a CoCo, draws cyan $2EAD73 and
   orange $FF703B, a redder orange still (its black is the blanking
   level, 0.77 V, and it applies its colour space and gamma). The dark

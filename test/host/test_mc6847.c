@@ -65,7 +65,7 @@ static const struct { vdg_colour_t c; double y, phb, pha; } k_volts[] = {
     { VDG_BLUE,    0.65, 2.0, 1.5 }, { VDG_RED,     0.65, 1.5, 2.0 },
     { VDG_BUFF,    0.42, 1.5, 1.5 }, { VDG_CYAN,    0.54, 1.5, 1.0 },
     { VDG_MAGENTA, 0.54, 2.0, 2.0 }, { VDG_ORANGE,  0.54, 1.0, 2.0 },
-    { VDG_BLACK,   0.72, 1.5, 1.5 }, { VDG_BRIGHT_ORANGE, 0.54, 1.0, 2.0 },
+    { VDG_BLACK,   0.72, 1.5, 1.5 }, { VDG_BRIGHT_ORANGE, 0.42, 1.0, 2.0 },
 };
 
 int main(void) {

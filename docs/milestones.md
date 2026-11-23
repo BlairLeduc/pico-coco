@@ -27,6 +27,13 @@ primaries' hue, and $FF703B in XRoar, redder. The host suite passes,
 36 of 36; the UART0, release and UART1 builds are clean. The UART0
 build was flashed to the owner's Plus 2 W.
 
+Then, at the owner's question about the text screen's orange: it has
+white's luminance in the datasheet's set, not graphics orange's, and
+the first build had drawn it as graphics orange, as the mono palette
+had its grey. Now $FFE860, clipped, and white's grey in mono; the old
+value planted back in the table failed `test_mc6847`. Reflashed to the
+UART0 build.
+
 **Not checked:** the two palettes on the panel by the owner, which
 decides the default; whether the panel itself pushes orange towards
 red; and a CoCo on a television.

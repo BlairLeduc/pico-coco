@@ -39,6 +39,9 @@ const uint16_t mc6847_palette[VDG_COLOUR_COUNT] = {
  * φB and φA for each, through the MC1372's gain of 0.6 and its φA 100°
  * from φB, decoded as an NTSC set decodes them, black at black's 0.72 V
  * and white at 0.42 V. test_mc6847 derives them again from the voltages.
+ * The text screen's orange (CSS high) is not graphics orange: it has
+ * white's luminance, past what RGB holds, and each channel is clipped,
+ * as a CRT's guns saturate, to a light orange.
  * The dark backgrounds fall outside RGB, so they are a quarter of the
  * ink, as above; the artefacts are XRoar's simple renderer's, as above. */
 const uint16_t mc6847_palette_datasheet[VDG_COLOUR_COUNT] = {
@@ -53,14 +56,15 @@ const uint16_t mc6847_palette_datasheet[VDG_COLOUR_COUNT] = {
     [VDG_BLACK]   = RGB565(0x00, 0x00, 0x00),
     [VDG_DARK_GREEN]    = RGB565(0x0C, 0x39, 0x0A),
     [VDG_DARK_ORANGE]   = RGB565(0x40, 0x20, 0x00),
-    [VDG_BRIGHT_ORANGE] = RGB565(0xFF, 0x82, 0x00),
+    [VDG_BRIGHT_ORANGE] = RGB565(0xFF, 0xE8, 0x60),
     [VDG_ARTEFACT_BLUE] = RGB565(0x00, 0x80, 0xFF),
     [VDG_ARTEFACT_RED]  = RGB565(0xFF, 0x80, 0x00),
 };
 
 /* The luminance output alone (§9.5). The datasheet's Y levels are 0.72 V
  * for black, 0.65 V for blue and red, 0.54 V for green, cyan, magenta and
- * orange, and 0.42 V for yellow and buff; lower is brighter. Scaled so
+ * orange, and 0.42 V for yellow, buff and the text screen's orange;
+ * lower is brighter. Scaled so
  * black is black and 0.42 V white. A monochrome set has no artefacts, so
  * their entries are never drawn. */
 #define GREY(y_mv) RGB565((720u - (y_mv)) * 255u / 300u, (720u - (y_mv)) * 255u / 300u, \
@@ -77,7 +81,7 @@ const uint16_t mc6847_palette_mono[VDG_COLOUR_COUNT] = {
     [VDG_BLACK]   = GREY(720u),
     [VDG_DARK_GREEN]    = GREY(720u),
     [VDG_DARK_ORANGE]   = GREY(720u),
-    [VDG_BRIGHT_ORANGE] = GREY(540u),
+    [VDG_BRIGHT_ORANGE] = GREY(420u),
     [VDG_ARTEFACT_BLUE] = GREY(720u),
     [VDG_ARTEFACT_RED]  = GREY(720u),
 };
