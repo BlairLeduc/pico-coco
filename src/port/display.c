@@ -104,6 +104,13 @@ void display_set_artefacts(unsigned how, bool red) {
     present_invalidate(&s_present);
 }
 
+void display_set_palette(bool datasheet) {
+    const uint16_t *pal = datasheet ? mc6847_palette_datasheet : mc6847_palette;
+    if (pal == s_vdg.pal) return;
+    for (unsigned i = 0; i < VDGS; i++) mc6847_set_palette(&s_vdgs[i], pal);
+    present_invalidate(&s_present);
+}
+
 void display_set_t1(bool t1) {
     if (t1 == mc6847_is_t1(&s_vdg)) return;
     for (unsigned i = 0; i < VDGS; i++) mc6847_set_t1(&s_vdgs[i], t1 ? font_6847t1 : NULL);

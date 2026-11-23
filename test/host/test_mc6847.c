@@ -5,12 +5,14 @@
  * pixels: the CoCo's wiring (§3.4), SG4 and SG6 by GM0, INV on bit 6, the
  * external-ROM case, the colour sets, artefacts, the mono palette, the
  * character ROM's layout against its data, the dirty-band span, and the
- * MC6847T1's lower case, inverse and border (mc6847.h).
+ * MC6847T1's lower case, inverse and border (mc6847.h), and the
+ * datasheet palette derived again from the chip's voltages (§9.5).
  * test_vdg_oracle holds the same decode to XRoar's for random bytes;
  * this test says what each part of it is, so a failure there can be
  * read here.
  */
 
+#include <math.h>
 #include <string.h>
 
 #include "config.h"
@@ -38,6 +40,33 @@ static bool t1_shows(unsigned g, unsigned row, bool inv, vdg_colour_t ink, vdg_c
         if (px[x] != P(((bits >> (7u - x)) & 1u) ? ink : bg)) return false;
     return true;
 }
+
+/* A colour from the MC6847 datasheet's typical Y, φB and φA (volts,
+ * the chroma about 1.5 V), as §9.5 derives it: the MC1372's gain of 0.6
+ * with φA `lag` degrees from φB, demodulated on axes 90° apart, black at
+ * 0.72 V and white at 0.42 V, Y'PbPr to R'G'B' and clipped. */
+static uint16_t from_volts(double y, double phb, double pha, double lag) {
+    double l = (0.72 - y) / (0.72 - 0.42);
+    double pb = 0.6 * (phb - 1.5), pr = 0.6 * (pha - 1.5);
+    double th = lag * M_PI / 180.0;
+    double u = pb + pr * cos(th), w = pr * sin(th);
+    double c[3] = { l + 1.402 * w, l - 0.344136 * u - 0.714136 * w, l + 1.772 * u };
+    unsigned b[3];
+    for (unsigned i = 0; i < 3u; i++) {
+        double x = c[i] < 0.0 ? 0.0 : c[i] > 1.0 ? 1.0 : c[i];
+        b[i] = (unsigned)lround(x * 255.0);
+    }
+    return (uint16_t)(((b[0] & 0xF8u) << 8) | ((b[1] & 0xFCu) << 3) | (b[2] >> 3));
+}
+
+/* The datasheet's figure 10, typical values, by colour. */
+static const struct { vdg_colour_t c; double y, phb, pha; } k_volts[] = {
+    { VDG_GREEN,   0.54, 1.0, 1.0 }, { VDG_YELLOW,  0.42, 1.0, 1.5 },
+    { VDG_BLUE,    0.65, 2.0, 1.5 }, { VDG_RED,     0.65, 1.5, 2.0 },
+    { VDG_BUFF,    0.42, 1.5, 1.5 }, { VDG_CYAN,    0.54, 1.5, 1.0 },
+    { VDG_MAGENTA, 0.54, 2.0, 2.0 }, { VDG_ORANGE,  0.54, 1.0, 2.0 },
+    { VDG_BLACK,   0.72, 1.5, 1.5 }, { VDG_BRIGHT_ORANGE, 0.54, 1.0, 2.0 },
+};
 
 int main(void) {
     /* ---- the mode table --------------------------------------------- */
@@ -349,6 +378,35 @@ int main(void) {
                   "graphics mode %02X: the T1's border is the MC6847's", m);
         mc6847_set_t1(&v, NULL);
         CHECK(!mc6847_is_t1(&v), "the MC6847 again");
+    }
+
+    /* ---- the datasheet palette (§9.5) --------------------------------- */
+    {
+        const uint16_t *d = mc6847_palette_datasheet;
+        for (unsigned i = 0; i < sizeof k_volts / sizeof k_volts[0]; i++) {
+            vdg_colour_t c = k_volts[i].c;
+            uint16_t want = from_volts(k_volts[i].y, k_volts[i].phb, k_volts[i].pha, 100.0);
+            CHECK(d[c] == want, "colour %u from the datasheet's voltages: %04X, not %04X",
+                  (unsigned)c, d[c], want);
+        }
+        /* The control: decoded as if φA were 90° from φB, cyan and red
+         * are other colours, so the MC1372's 100° is what the table says. */
+        CHECK(from_volts(0.54, 1.5, 1.0, 90.0) != d[VDG_CYAN] &&
+              from_volts(0.65, 1.5, 2.0, 90.0) != d[VDG_RED], "a 90° decode differs");
+        /* The four of white medium have one luminance, as figure 10 says;
+         * the primaries' cyan is brighter than their green. */
+        CHECK(mc6847_palette[VDG_CYAN] != d[VDG_CYAN], "the primaries' cyan is not the chip's");
+        /* Drawn: CG2 with CSS high, buff cyan magenta orange. */
+        mc6847_init(&v);
+        mc6847_set_font(&v, font_6847);
+        mc6847_set_palette(&v, d);
+        memset(line, 0, sizeof line);
+        line[0] = 0x1Bu;                      /* 00 01 10 11 */
+        mc6847_set_mode(&v, gfx(2, true));
+        mc6847_render_line(&v, line, 0, px);
+        CHECK(px[0] == d[VDG_BUFF] && px[2] == d[VDG_CYAN] && px[4] == d[VDG_MAGENTA] &&
+              px[6] == d[VDG_ORANGE], "CG2, CSS: drawn from the datasheet palette");
+        mc6847_set_palette(&v, mc6847_palette);
     }
 
     TEST_DONE();

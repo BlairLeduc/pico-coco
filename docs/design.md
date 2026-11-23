@@ -956,6 +956,35 @@ the old page. Whether a real CoCo shows the segments is in §18.
 
 - The palette is the Atom's `mc6847_palette`, with the mono palette from
   the datasheet's luminance levels (EL §5.2), chosen by a setting.
+  **The chip's own colours** (the owner, 2026-11-23, who found orange
+  too red and cyan too light a blue on the panel). The Atom's are the
+  idealised primaries, a rendering choice that was never checked;
+  pico-atom confirmed only which colour a byte picks and its mono
+  levels. The VDG puts out no RGB: it gives luminance Y and two
+  colour-difference signals φB and φA, at the levels the datasheet's
+  figure 10 gives for each colour (typical values, as XRoar's "ideal"
+  set has them). On the CoCo the MC1372 modulates them, with a gain of
+  0.6 on each and φA 100° from φB rather than 90° (as XRoar models the
+  CoCo; the LM1889 of the Dragon is at 90°), and the set decodes them
+  on axes 90° apart. `mc6847_palette_datasheet` is that decode, black
+  at black's 0.72 V and white at 0.42 V as the mono palette has them,
+  through Y'PbPr to R'G'B', clipped. Green, cyan, magenta and orange
+  have one luminance in figure 10; the primaries' cyan is far brighter
+  than their green. The derived cyan, $2FCAB1, is a blue-green; red and
+  blue each turn about 10°; **orange is unchanged**, $FF8200 against
+  $FF8000, its hue 31° against 30°. So the datasheet does not make
+  orange less red. XRoar's own composite renderer, linked from the
+  checkout and given XRoar's set-up for a CoCo, draws cyan $2EAD73 and
+  orange $FF703B, a redder orange still (its black is the blanking
+  level, 0.77 V, and it applies its colour space and gamma). The dark
+  backgrounds fall outside RGB in the decode (dark orange comes out
+  $6A0000, red), so they stay a quarter of the ink, and the artefact
+  colours stay XRoar's simple table's. `palette = primary | datasheet`
+  and Setup's PALETTE choose; the primaries by default until the owner
+  has judged both on the panel. `test_mc6847` derives each entry again
+  from the voltages, with a 90° decode as the control that must differ;
+  a planted cyan of $2FCAFF fails it. The Setup page has no row left
+  for the layout's bindings with PALETTE on it (§14).
 - **Artefact colours.** On NTSC machines the two-colour 256-pixel mode
   with the black-and-white colour set shows pairs of pixels as colours,
   and CoCo software draws with them. This fits the row table directly: a
@@ -1663,6 +1692,7 @@ not have is said on the status row and the standard keys kept. Files are written
 **2026-11-22** adds `artifacts` and `artifact_phase` (§9.5), spelt as
 the CoCo's manuals and its users spell the word; the code and these
 documents keep *artefact*; and `disk_sounds` (§10).
+**2026-11-23** adds `palette`, `primary` or `datasheet` (§9.5).
 
 ### 12.7 The SmartWatch
 
@@ -1876,6 +1906,11 @@ its analog way (§11.4; the owner); Left and Right stop at the ends, and
 Enter steps right and comes round. Setup's last row, Disk sounds, turns
 the drives' steps and motor on and off (§10).
 
+**2026-11-23**: Setup gains Palette (primary, datasheet) after Phase,
+§9.5. Its twelve rows reach the status row, so the bindings of the
+layout in force are no longer shown under them; there had been room
+for only the first two.
+
 ---
 
 ## 15. Testing
@@ -2068,6 +2103,7 @@ configuration; once settled, it is a constant.
 | Artefact colours: which pair gives which colour in each phase (§9.5) | Blue and red, swapped by phase. **M4**: XRoar's simple renderer's rule, its colours, and its two phases, KBRW its NTSC default; held to that rule applied to XRoar's VDG output by the oracle; no photograph compared. **2026-11-22**: the simple and full renderers held to XRoar's own 2-bit and 5-bit renderers; still XRoar's model, and no photograph compared | Low | XRoar's table; photographs of a real set |
 | The VDG's fetches on a line (§9.2) | **M4**: 42 bytes in the 32-byte modes and 22 in the 16-byte ones, on to the right border, each counted by the SAM; XRoar's VDG | Medium | MC6847 datasheet's timing; a mismatched pair on a real machine |
 | The VDG's address through the multiplexer (§9.2) | **M4**: no page bit P, and the first bank, as XRoar's fetch; only a machine with two banks or P set could tell | Low | MC6883 datasheet |
+| The colours a CoCo's VDG and MC1372 show (§9.5) | `mc6847_palette` the primaries, by default; `mc6847_palette_datasheet` derived from figure 10's typical Y, φB and φA through a gain of 0.6 and φA at 100° (2026-11-23). Orange's hue is the same in both; the owner finds the primaries' too red on the panel | Medium for the hues; low for saturation and brightness, which were the TV's | The owner, the two on the panel; a photograph of a CoCo on a set |
 | The VDG's mode pins while PIA1 port B is an input (§9.3) | **M4**: low, as XRoar's PIA has an undriven pin; seen only before BASIC sets the port's direction | Low | Schematics |
 | The DS1216 SmartWatch's protocol at $FF78–$FF7F, and its year as the years since 1900 (§12.7) | **M13** (2026-11-17): as Tandy's `clock_tc3` drives it, read off the module, and the datasheet's key and register order as remembered; held by `test_os9` booting it. The address and what "tc3" was are the module's alone | Medium | The DS1216 datasheet; the card `clock_tc3` was written for |
 | The MC6847T1: its glyphs, and GM0 as lower case, GM1 as inverse, GM2 as the border, no SG6, orange for bright orange (§9.2) | **M13** (2026-11-17): XRoar 1.13's model and its ROM, held pixel for pixel by `test_vdg_oracle t1`; OS-9's use of GM0 executed on the host. No CoCo 2B compared, and no T1 datasheet read | Medium | The MC6847T1 datasheet; a photograph of a CoCo 2B's lower case |

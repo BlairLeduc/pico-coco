@@ -68,9 +68,11 @@ enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_POWER, I_SAVE, 
        I_ABOUT, I_COUNT };
 
 enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_VDG, D_ARTEFACTS, D_PHASE,
-       D_CLOCK, D_DISK_SOUNDS, D_COUNT };
+       D_PALETTE, D_CLOCK, D_DISK_SOUNDS, D_COUNT };
 _Static_assert(ROW_TOP + I_COUNT + 2 <= ROW_STATUS, "the main page's rows fit");
-_Static_assert(ROW_TOP + D_COUNT < ROW_STATUS, "the Setup page's rows fit");
+/* The layout's bindings go below the rows when there is room; with the
+ * palette's row there is none (design.md §9.5). */
+_Static_assert(ROW_TOP + D_COUNT <= ROW_STATUS, "the Setup page's rows fit");
 
 /* The Tapes page: three things to do with the deck, then the card's
  * tapes. */
@@ -331,6 +333,11 @@ static void draw_setup(void) {
                 snprintf(line, sizeof line, " PHASE           < %s >", now);
             break;
         }
+        case D_PALETTE:
+            /* The idealised primaries, or the chip's own (§9.5). */
+            snprintf(line, sizeof line, " PALETTE         < %s >",
+                     g_ui.palette == SETTINGS_PALETTE_DATASHEET ? "DATASHEET" : "PRIMARY");
+            break;
         case D_CLOCK:
             /* A DS1216 at $FF78-$FF7F, for OS-9's clock_tc3 (rtc.h). */
             snprintf(line, sizeof line, " SMARTWATCH      < %s >", on_off(g_ui.smartwatch));
@@ -674,6 +681,7 @@ static void save_settings(void) {
     out.vdg_t1 = g_ui.vdg_t1;
     out.artefacts = g_ui.artefacts;
     out.artefact_phase = g_ui.artefact_phase;
+    out.palette = g_ui.palette;
     out.smartwatch = g_ui.smartwatch;
     out.disk_sounds = g_ui.disk_sounds;
     /* A layout a loaded file chose is not the user's choice, so the file
@@ -1135,6 +1143,12 @@ static void key_setup(uint8_t c) {
         }
         log_core1("  setup        : artifact phase %s\n",
                   settings_phase_str(g_ui.artefact_phase));
+        break;
+    case D_PALETTE:
+        g_ui.palette = g_ui.palette == SETTINGS_PALETTE_DATASHEET ? SETTINGS_PALETTE_PRIMARY
+                                                                  : SETTINGS_PALETTE_DATASHEET;
+        display_set_palette(g_ui.palette == SETTINGS_PALETTE_DATASHEET);
+        log_core1("  setup        : palette %s\n", settings_palette_str(g_ui.palette));
         break;
     case D_DISK_SOUNDS:
         g_ui.disk_sounds = !g_ui.disk_sounds;

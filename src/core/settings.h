@@ -27,6 +27,8 @@
  *   boot_tape = <file>             a tape in /coco/tapes/ put in the deck
  *   artifacts = off | simple | full    the artefact colours (§9.5)
  *   artifact_phase = blue | red | random
+ *   palette   = primary | datasheet    the idealised primaries, or the
+ *                                  colours the VDG's outputs make (§9.5)
  *   boot_disk = <file>             a disk in /coco/disks/ put in drive 0;
  *   boot_disk1 .. boot_disk3       and in drives 1 to 3 (§12.4)
  *
@@ -56,6 +58,9 @@
 enum { SETTINGS_ARTEFACTS_OFF, SETTINGS_ARTEFACTS_SIMPLE, SETTINGS_ARTEFACTS_FULL };
 enum { SETTINGS_PHASE_BLUE, SETTINGS_PHASE_RED, SETTINGS_PHASE_RANDOM };
 
+/* The colours (§9.5): mc6847_palette or mc6847_palette_datasheet. */
+enum { SETTINGS_PALETTE_PRIMARY, SETTINGS_PALETTE_DATASHEET };
+
 typedef struct {
     bool       extended;    /* Extended Color BASIC, else Color BASIC alone */
     unsigned   ram_k;       /* 4, 16, 32 or 64 (§8.1)                    */
@@ -74,6 +79,7 @@ typedef struct {
      * comes up locked to either clock edge. */
     uint8_t    artefacts;       /* SETTINGS_ARTEFACTS_*                  */
     uint8_t    artefact_phase;  /* SETTINGS_PHASE_*                      */
+    uint8_t    palette;         /* SETTINGS_PALETTE_* (§9.5)             */
     /* A layout's name, upper case; "" is the standard map (§11.3). */
     char       layout[COCO_KEYMAP_NAME_LEN + 1];
 
@@ -144,5 +150,8 @@ const char *settings_ram_str(unsigned ram_k);
  * "simple", "full"; "blue", "red", "random". */
 const char *settings_artefacts_str(unsigned a);
 const char *settings_phase_str(unsigned p);
+
+/* The palette as the file writes it: "primary", "datasheet". */
+const char *settings_palette_str(unsigned p);
 
 #endif /* PICO_COCO_SETTINGS_H */

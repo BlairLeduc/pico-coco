@@ -35,6 +35,29 @@ const uint16_t mc6847_palette[VDG_COLOUR_COUNT] = {
     [VDG_ARTEFACT_RED]  = RGB565(0xFF, 0x80, 0x00),
 };
 
+/* The colours the chip's outputs make (§9.5): the datasheet's typical Y,
+ * φB and φA for each, through the MC1372's gain of 0.6 and its φA 100°
+ * from φB, decoded as an NTSC set decodes them, black at black's 0.72 V
+ * and white at 0.42 V. test_mc6847 derives them again from the voltages.
+ * The dark backgrounds fall outside RGB, so they are a quarter of the
+ * ink, as above; the artefacts are XRoar's simple renderer's, as above. */
+const uint16_t mc6847_palette_datasheet[VDG_COLOUR_COUNT] = {
+    [VDG_GREEN]   = RGB565(0x2F, 0xE5, 0x29),
+    [VDG_YELLOW]  = RGB565(0xFF, 0xFF, 0x77),
+    [VDG_BLUE]    = RGB565(0x3B, 0x21, 0xC3),
+    [VDG_RED]     = RGB565(0xA5, 0x0A, 0x24),
+    [VDG_BUFF]    = RGB565(0xFF, 0xFF, 0xFF),
+    [VDG_CYAN]    = RGB565(0x2F, 0xCA, 0xB1),
+    [VDG_MAGENTA] = RGB565(0xFF, 0x4D, 0xFF),
+    [VDG_ORANGE]  = RGB565(0xFF, 0x82, 0x00),
+    [VDG_BLACK]   = RGB565(0x00, 0x00, 0x00),
+    [VDG_DARK_GREEN]    = RGB565(0x0C, 0x39, 0x0A),
+    [VDG_DARK_ORANGE]   = RGB565(0x40, 0x20, 0x00),
+    [VDG_BRIGHT_ORANGE] = RGB565(0xFF, 0x82, 0x00),
+    [VDG_ARTEFACT_BLUE] = RGB565(0x00, 0x80, 0xFF),
+    [VDG_ARTEFACT_RED]  = RGB565(0xFF, 0x80, 0x00),
+};
+
 /* The luminance output alone (§9.5). The datasheet's Y levels are 0.72 V
  * for black, 0.65 V for blue and red, 0.54 V for green, cyan, magenta and
  * orange, and 0.42 V for yellow and buff; lower is brighter. Scaled so

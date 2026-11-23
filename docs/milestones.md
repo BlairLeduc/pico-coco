@@ -4,6 +4,33 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## The VDG's colours from its datasheet
+
+On branch `vdg-colours`, from #22, 2026-11-23 (`design.md` §9.5,
+§18). The owner found orange too red and cyan too light a blue on the
+panel, and asked whether pico-atom's colours had been checked. They
+had not: pico-atom confirmed which colour a byte selects, by eye
+against another Atom emulator, and its mono levels from the datasheet;
+the colours themselves are the idealised primaries, and this tree has
+the same nine.
+
+**Built.** `mc6847_palette_datasheet`, the datasheet's typical Y, φB
+and φA through the MC1372's gain of 0.6 and φA at 100°, decoded on 90°
+axes (`design.md` §9.5); `palette = primary | datasheet` in
+`coco.ini` and PALETTE on the Setup page, the primaries by default.
+Derived first in a script and then again in `test_mc6847` from the
+voltages; a planted cyan of $2FCAFF failed it. XRoar's renderer, linked
+from the checkout in a scratch probe with its CoCo set-up, gave its
+own on-screen colours as a second opinion. Cyan is a blue-green in
+both, $2FCAB1 here and $2EAD73 in XRoar. Orange is $FF8200 here, the
+primaries' hue, and $FF703B in XRoar, redder. The host suite passes,
+36 of 36; the UART0, release and UART1 builds are clean. The UART0
+build was flashed to the owner's Plus 2 W.
+
+**Not checked:** the two palettes on the panel by the owner, which
+decides the default; whether the panel itself pushes orange towards
+red; and a CoCo on a television.
+
 ## Sea Dragon's stray dots and lines
 
 On branch `sea-dragon`, from #21, 2026-11-23 (`design.md` §9.4, §18).

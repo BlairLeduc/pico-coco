@@ -112,6 +112,7 @@ static void apply_settings(const settings_t *st) {
     g_ui.artefacts = st->artefacts;
     g_ui.artefact_phase = st->artefact_phase;
     g_ui.artefact_red = st->artefact_phase == SETTINGS_PHASE_RED;
+    g_ui.palette = st->palette;
     g_ui.smartwatch = st->smartwatch;
     g_ui.disk_sounds = st->disk_sounds;
     uint8_t r[2];
@@ -271,6 +272,7 @@ void core1_main(void) {
         if (i >= 0) {
             display_stats_t st;
             display_set_t1(g_ui.vdg_t1);
+            display_set_palette(g_ui.palette == SETTINGS_PALETTE_DATASHEET);
             /* A random phase is chosen afresh at each reset, as a real
              * VDG comes up locked to either edge of its clock (§9.5);
              * the microsecond core 1 sees it on is as random as that. */

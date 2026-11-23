@@ -21,6 +21,7 @@ void settings_default(settings_t *s) {
     s->vdg_t1    = false;       /* the MC6847 of the CoCo 1 and 2 (§9.2) */
     s->artefacts = SETTINGS_ARTEFACTS_SIMPLE;   /* §9.5 */
     s->artefact_phase = SETTINGS_PHASE_BLUE;
+    s->palette = SETTINGS_PALETTE_PRIMARY;      /* §9.5, until judged on the panel */
     s->disk_sounds = true;      /* the drives heard (§10) */
 }
 
@@ -62,6 +63,7 @@ static settings_status_t one_of(const char *v, const char *const *names, unsigne
 /* In SETTINGS_ARTEFACTS_* and SETTINGS_PHASE_* order. */
 static const char *const k_artefacts[] = { "off", "simple", "full" };
 static const char *const k_phases[] = { "blue", "red", "random" };
+static const char *const k_palettes[] = { "primary", "datasheet" };
 
 const char *settings_artefacts_str(unsigned a) {
     return a < 3u ? k_artefacts[a] : "simple";
@@ -69,6 +71,10 @@ const char *settings_artefacts_str(unsigned a) {
 
 const char *settings_phase_str(unsigned p) {
     return p < 3u ? k_phases[p] : "blue";
+}
+
+const char *settings_palette_str(unsigned p) {
+    return p < 2u ? k_palettes[p] : "primary";
 }
 
 static settings_status_t number(const char *v, unsigned lo, unsigned hi, unsigned *out) {
@@ -129,7 +135,8 @@ static settings_status_t layout(settings_t *s, const char *v) {
  * cartridge, the boot tape and the boot disk may be left empty, meaning
  * none. */
 enum { K_BASIC, K_RAM, K_CART, K_VOLUME, K_PERF, K_STATUS, K_BACKLIGHT, K_LAYOUT, K_FAST_TAPE,
-       K_VDG, K_SMARTWATCH, K_DISK_SOUNDS, K_ARTIFACTS, K_ARTIFACT_PHASE, K_BOOT_TAPE, K_BOOT_DISK,
+       K_VDG, K_SMARTWATCH, K_DISK_SOUNDS, K_ARTIFACTS, K_ARTIFACT_PHASE, K_PALETTE, K_BOOT_TAPE,
+       K_BOOT_DISK,
        K_BOOT_DISK1, K_BOOT_DISK2, K_BOOT_DISK3, K_COUNT };
 _Static_assert(K_BOOT_DISK3 - K_BOOT_DISK + 1 == COCO_DISK_DRIVES, "a key for each drive");
 _Static_assert(K_COUNT <= 32, "the keys seen fit an unsigned");
@@ -138,7 +145,8 @@ _Static_assert(K_COUNT <= 32, "the keys seen fit an unsigned");
  * users spell the word. */
 static const char *const k_names[K_COUNT] = {
     "basic", "ram", "cart", "volume", "perf", "status", "backlight", "layout", "fast_tape",
-    "vdg", "smartwatch", "disk_sounds", "artifacts", "artifact_phase", "boot_tape", "boot_disk",
+    "vdg", "smartwatch", "disk_sounds", "artifacts", "artifact_phase", "palette", "boot_tape",
+    "boot_disk",
     "boot_disk1", "boot_disk2", "boot_disk3",
 };
 
@@ -161,6 +169,7 @@ static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
     case K_DISK_SOUNDS: return on_off(v, &s->disk_sounds);
     case K_ARTIFACTS: return one_of(v, k_artefacts, 3u, &s->artefacts);
     case K_ARTIFACT_PHASE: return one_of(v, k_phases, 3u, &s->artefact_phase);
+    case K_PALETTE:   return one_of(v, k_palettes, 2u, &s->palette);
     case K_BOOT_TAPE: return path(v, s->boot_tape);
     }
     return SET_UNKNOWN;
@@ -291,6 +300,7 @@ static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
     case K_DISK_SOUNDS: return a->disk_sounds == b->disk_sounds;
     case K_ARTIFACTS: return a->artefacts == b->artefacts;
     case K_ARTIFACT_PHASE: return a->artefact_phase == b->artefact_phase;
+    case K_PALETTE:   return a->palette == b->palette;
     case K_BOOT_TAPE: return same_path(SETTINGS_TAPE_DIR, a->boot_tape, b->boot_tape);
     case K_BOOT_DISK: case K_BOOT_DISK1: case K_BOOT_DISK2: case K_BOOT_DISK3:
         return same_path(SETTINGS_DISK_DIR, a->boot_disk[k - K_BOOT_DISK],
@@ -322,6 +332,7 @@ static const char *value_of(unsigned k, const settings_t *s, char num[4]) {
     case K_DISK_SOUNDS: return s->disk_sounds ? "on" : "off";
     case K_ARTIFACTS: return settings_artefacts_str(s->artefacts);
     case K_ARTIFACT_PHASE: return settings_phase_str(s->artefact_phase);
+    case K_PALETTE:   return settings_palette_str(s->palette);
     case K_BOOT_TAPE: return s->boot_tape;
     case K_BOOT_DISK: case K_BOOT_DISK1: case K_BOOT_DISK2: case K_BOOT_DISK3:
         return s->boot_disk[k - K_BOOT_DISK];
