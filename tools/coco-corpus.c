@@ -238,9 +238,9 @@ static void field(void) {
     struct timespec t0, t1;
     uint64_t cyc0 = g.m.cpu.cycles, ins0 = g.m.cpu.instructions;
     uint32_t sl0 = g.m.slices;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
+    timespec_get(&t0, TIME_UTC);   /* C11, needing no POSIX feature macro */
     coco_run_field(&g.m);
-    clock_gettime(CLOCK_MONOTONIC, &t1);
+    timespec_get(&t1, TIME_UTC);
     if (times)
         fprintf(times, "%ld\t%ld\t%llu\t%llu\t%u\n", s_field,
                 (long)((t1.tv_sec - t0.tv_sec) * 1000000000L + (t1.tv_nsec - t0.tv_nsec)),
