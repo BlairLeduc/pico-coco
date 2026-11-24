@@ -1044,7 +1044,9 @@ the old page. Whether a real CoCo shows the segments is in §18.
   swatch ($41AF71, a sea green in keeping with the model's teal) then
   saturated to $12AF56; graphics orange, deepened to $FF6000; and the
   text screen's dark orange, which a quarter of the ink ($402000)
-  showed too green, a dark red ($440400), as the chip's own is. The
+  showed too green, a dark red ($440400), as the chip's own is; and
+  the dark green, a quarter of the ink ($004000) and three times as
+  bright as that, stepped down beside it to $002C00. The
   text's orange stays $FF8000. Each is drawn through the curve like the
   rest; the goldens changed in those pixels alone, and were looked at.
 - **Artefact colours.** On NTSC machines the two-colour 256-pixel mode
