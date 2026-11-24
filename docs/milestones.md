@@ -63,7 +63,8 @@ alone; the dark orange is in none, the goldens drawing black
 backgrounds. On the panel the dark orange was still too bright and too green:
 $440400. The dark green ($004000) was then three times its luminance,
 where the chip gives both black's; stepped down to $002C00 to be seen
-beside it in the menu.
+beside it in the menu. Cyan, still short of saturation: $00B850, the
+same hue with no red, a little brighter.
 
 **Not checked:** the dark backgrounds and the curve's primaries on the
 panel by the owner since the TV palettes went; the `color_` keys on the

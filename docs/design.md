@@ -1042,7 +1042,7 @@ the old page. Whether a real CoCo shows the segments is in §18.
   Three colours are the owner's, judged on the corrected panel
   (2026-11-24): cyan, which $00FFFF showed too light a blue, from a
   swatch ($41AF71, a sea green in keeping with the model's teal) then
-  saturated to $12AF56; graphics orange, deepened to $FF6000; and the
+  saturated to $12AF56 and to $00B850; graphics orange, deepened to $FF6000; and the
   text screen's dark orange, which a quarter of the ink ($402000)
   showed too green, a dark red ($440400), as the chip's own is; and
   the dark green, a quarter of the ink ($004000) and three times as
