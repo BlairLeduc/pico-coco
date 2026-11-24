@@ -494,6 +494,16 @@ static void choice_info(int c, unsigned slot, bool in_mpi, char a[TEXT_COLS], ch
 static void machine_info(int row) {
     char a[TEXT_COLS], b[TEXT_COLS], line[TEXT_COLS + 1];
     bool mpi = mpi_staged();
+    /* A cartridge only for the rows about one: on BASIC, RAM and Apply,
+     * the machine alone. */
+    bool about_cart = s.machine_sel == M_CART || s.machine_sel == M_SWITCH ||
+                      (s.machine_sel >= M_SLOT1 && s.machine_sel <= M_SLOT4);
+    if (!about_cart) {
+        snprintf(line, sizeof line, " = %.28s", machine_name(s.st_ext, k_rams[s.st_ram]));
+        textpage_line(s_scr, row, line, false);
+        if (!s.card && !mpi) textpage_line(s_scr, row + 5, " NO CARD: NO CARTRIDGES", false);
+        return;
+    }
     int c = s.st_cart;
     unsigned k = 0;
     if (s.machine_sel >= M_SLOT1 && s.machine_sel <= M_SLOT4) k = (unsigned)(s.machine_sel - M_SLOT1);
