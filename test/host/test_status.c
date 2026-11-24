@@ -69,11 +69,17 @@ int main(void) {
     /* ---- the status line (§9.6, §14) ------------------------------- */
     status_format("", false, STATUS_DECK_IDLE, -1, "", line);
     CHECK(strlen(line) == COCO_TEXT_COLS && trimmed()[0] == 0, "nothing: [%s]", line);
+    /* The tape only while the deck is at work, as a disk only while its
+     * drive's head is loaded. */
     status_format("/coco/tapes/PIPES.CAS", false, STATUS_DECK_IDLE, -1, "", line);
-    CHECK(strcmp(trimmed(), "TAPE: PIPES.CAS") == 0, "a tape: [%s]", line);
+    CHECK(trimmed()[0] == 0, "a tape in the deck, idle: nothing [%s]", line);
     status_format("/coco/tapes/PIPES.CAS", true, STATUS_DECK_IDLE, -1, "", line);
-    CHECK(strcmp(trimmed(), "TAPE: PIPES.CAS, NEW") == 0, "a recording: [%s]", line);
-    status_format("", true, STATUS_DECK_IDLE, -1, "", line);
+    CHECK(trimmed()[0] == 0, "a recording not on the card, idle: nothing [%s]", line);
+    status_format("/coco/tapes/PIPES.CAS", false, STATUS_DECK_TRAP, -1, "", line);
+    CHECK(strcmp(trimmed(), "TAPE: PIPES.CAS") == 0, "the trap at work: [%s]", line);
+    status_format("/coco/tapes/PIPES.CAS", true, STATUS_DECK_TRAP, -1, "", line);
+    CHECK(strcmp(trimmed(), "TAPE: PIPES.CAS, NEW") == 0, "the trap, a recording: [%s]", line);
+    status_format("", true, STATUS_DECK_TRAP, -1, "", line);
     CHECK(strcmp(trimmed(), "TAPE: NEW TAPE, NEW") == 0, "a new tape, unnamed: [%s]", line);
     status_format("/coco/tapes/PIPES.CAS", false, STATUS_DECK_PLAYING, -1, "", line);
     CHECK(strcmp(trimmed(), "TAPE: PIPES.CAS, PLAY") == 0, "the signal playing: [%s]", line);
@@ -83,13 +89,13 @@ int main(void) {
     CHECK(strcmp(trimmed(), "TAPE: NEW TAPE, REC") == 0, "writing a tape not yet made: [%s]", line);
     /* A long tape's name has the whole line, with no drive at work. */
     status_format("/coco/tapes/A VERY LONG TAPE NAME INDEED, LONGER STILL.CAS", true,
-                  STATUS_DECK_IDLE, -1, "", line);
+                  STATUS_DECK_TRAP, -1, "", line);
     CHECK(strlen(line) == COCO_TEXT_COLS &&
               strncmp(line, "TAPE: A VERY LONG TAPE NAME INDEED,", 35) == 0 &&
               strcmp(line + COCO_TEXT_COLS - 5, ", NEW") == 0,
           "a long tape, the whole line: [%s]", line);
     /* The drive at work on the right (rsdos.h). */
-    status_format("/coco/tapes/PIPES.CAS", false, STATUS_DECK_IDLE, 1, "/coco/disks/GAMES.DSK",
+    status_format("/coco/tapes/PIPES.CAS", false, STATUS_DECK_TRAP, 1, "/coco/disks/GAMES.DSK",
                   line);
     CHECK(strncmp(line, "TAPE: PIPES.CAS", 15) == 0 && line[COCO_TEXT_COLS - 18] == ' ' &&
           strcmp(line + COCO_TEXT_COLS - 17, "DISK 1: GAMES.DSK") == 0, "a drive at work: [%s]", line);

@@ -100,7 +100,7 @@ typedef struct {
     uint32_t underruns;      /* underrun samples since boot (§10)        */
     uint32_t late_refills;   /* late DMA refills since boot              */
     uint32_t tape_unsaved;   /* the deck holds a recording not on the card */
-    uint32_t deck;           /* the signal: a STATUS_DECK_ state (status.h) */
+    uint32_t deck;           /* the deck at work: a STATUS_DECK_ state (status.h) */
     int32_t  disk;           /* the drive whose head is loaded, -1 none (rsdos.h) */
     uint32_t resets;         /* RESETs and power-ons since boot: core 1
                               * chooses a random artefact phase on each (§9.5) */

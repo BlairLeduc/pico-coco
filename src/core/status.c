@@ -66,7 +66,7 @@ void status_format(const char *tape, bool unsaved, unsigned deck, int drive, con
 
     char left[W + 1] = "";
     int ln = 0;
-    if ((tape && tape[0]) || unsaved || deck == STATUS_DECK_RECORDING) {
+    if (deck != STATUS_DECK_IDLE) {
         const char *tail = deck == STATUS_DECK_RECORDING ? ", REC"
                          : deck == STATUS_DECK_PLAYING ? ", PLAY" : unsaved ? ", NEW" : "";
         const char *name = tape && tape[0] ? base_name(tape) : "NEW TAPE";

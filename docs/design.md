@@ -2221,7 +2221,12 @@ image apart from 1.3's for it. Setting RAM to 4K on the page sets BASIC
 to Color 1.1; `ram = 4` with no `bas11.rom` on the card boots 16 KB
 and says why. There is no machine or television choice (D6). The status line
 shows the deck and the cartridge (`status_format`, `test_status`); the
-cartridge went from it on 2026-11-24 (§12.8).
+cartridge went from it on 2026-11-24 (§12.8). From the same day the
+tape shows only while the deck is at work, as a drive shows only while
+its head is loaded: its signal playing or recording, or the trap
+serving a block within the last 3 s, a head's unload time
+(`STATUS_DECK_TRAP`); a tape that sits in the deck shows nothing (the
+owner, 2026-11-24).
 F6's screenshot is not yet in.
 
 **As built in M10** (2026-11-15): the Snapshots page, F3, pico-oric's

@@ -422,6 +422,8 @@ void core0_run(coco_t *m, keymatrix_t *k) {
      * with PICO_COCO_TURBO=OFF core 0's share while it plays. */
     bool deck_was = false;
     uint64_t deck_us = 0, deck_ticks = 0, deck_busy = 0;
+    /* The trap's requests as last seen, and the field its tape shows to. */
+    uint32_t trap_requests = m->tape.requests, trap_until = 0;
     /* The disk's parks, a track each (§12.4). */
     uint32_t disk_parks = 0, disk_park_max = 0;
     uint64_t disk_parked_us = 0;
@@ -593,9 +595,15 @@ void core0_run(coco_t *m, keymatrix_t *k) {
         bool turbo = turbo_now(m);
         if (turbo) turbo_fields++;
         bool deck = coco_cassette_running(m);
-        g_c0.deck = !deck ? STATUS_DECK_IDLE
-                  : m->cas.rec_wrote ? STATUS_DECK_RECORDING
-                  : m->cas.playing ? STATUS_DECK_PLAYING : STATUS_DECK_IDLE;
+        /* The trap at work: a request within the last 3 s, as long as a
+         * drive's head stays loaded after its last command (wd1793.h), so
+         * the status line shows the tape as it shows the disk (§14). */
+        if (m->tape.requests > trap_requests) trap_until = m->fields + 3u * 60u;
+        trap_requests = m->tape.requests;   /* a power-on clears the count */
+        bool trap = (int32_t)(trap_until - m->fields) > 0;
+        g_c0.deck = deck && m->cas.rec_wrote ? STATUS_DECK_RECORDING
+                  : deck && m->cas.playing   ? STATUS_DECK_PLAYING
+                  : trap                     ? STATUS_DECK_TRAP : STATUS_DECK_IDLE;
         if (deck && !deck_was) {
             deck_us = time_us_64();
             deck_ticks = coco_ticks(m);
