@@ -1816,6 +1816,34 @@ owner): `DATE T` right from the shell's time, 2026-11-17, and from the
 DS3231's after the loader's menu, as UTC, 2026-11-22. No DS1216 or
 DS3231 read here was compared with a real one.
 
+**A cartridge, for `clock_bb` alone** (the owner, 2026-11-24, for
+M17). The SmartWatch becomes a kind of cartridge (§12.8), fitted by
+putting it in a Multi-Pak slot; the `smartwatch` setting, its Setup
+row and the chip at $FF78–$FF7F go, and with them `clock_tc3` and
+`tools/os9-clock.py`'s disk built on it. `clock_bb` is the one module
+supported.
+
+`clock_bb`, read off the module (the 488-byte Clock at offset $3700 of
+`OS9-L1V201B.DSK`, 2026-11-24): with interrupts masked, it saves $FF7F,
+writes `($FF7F & $F0) | $53` there, reads $FF5C to start the key again,
+sends the key a bit a read, $FF58 for a 0 and $FF59 for a 1, then reads
+or writes the eight registers a bit at a time at $FF5C or through
+$FF58/$FF59, and puts $FF7F back. The protocol, the register order and
+the year's sum are `clock_tc3`'s, eight addresses lower: a DS1216 on a
+slot's SCS at $FF58–$FF5F, A2 low a bit written, A2 high a bit read.
+SETIME writes the chip through the same path. The base, $FF5C, is a
+word of the module's data at offset $0B.
+
+**It selects slot 4.** The $53's low bits make SCS slot 4, whatever the
+switch says; its bit 4 also turns on the CTS field's low bit while the
+clock is read, which OS-9 Level One, running all from RAM, does not
+see. So the SmartWatch goes in slot 4, and the RS-DOS controller in
+another slot with the switch at it: Tandy's CCDisk and NitrOS-9's
+rb1773 never write $FF7F (read off the modules, 2026-11-24), so they
+reach the controller through the SCS slot the switch chose. What card
+"bb" was is not known; the same disk's CCHDisk, a hard disk driver at
+$FF50–$FF5F, suggests a hard disk interface that carried a clock.
+
 ### 12.8 The cartridge port and the Multi-Pak
 
 **Planned for M17** (the owner, 2026-11-24). Nothing here is built yet.
@@ -1901,19 +1929,16 @@ selects it through $FF7F; the ROMs in the slots are held at once, so
 their room is a pool sized in `config.h`, measured against what each
 SRAM tier has left (HW §9.8) before its size is a constant.
 
-**The SmartWatch** sits at $FF78–$FF7F (§12.7), across the Multi-Pak's
-register and the Speech/Sound Cartridge's ports. `clock_bb`, the other
-OS-9 module that reads a DS1216, finds it at $FF5C behind a Multi-Pak
-slot that it selects through $FF7F (§12.7). **With a Multi-Pak, the
-SmartWatch goes where `clock_bb` finds it** (the owner, 2026-11-24):
-behind a slot's SCS, out of the way of $FF7A–$FF7F. M17 reads
-`clock_bb` off the module for the address and the slot before it is
-built; without a Multi-Pak, the SmartWatch stays where `clock_tc3`
-finds it.
+**The SmartWatch** is a cartridge kind, `CART_SMARTWATCH`, fitted in a
+Multi-Pak slot (the owner, 2026-11-24): a DS1216 on its slot's SCS at
+$FF58–$FF5F, as `clock_bb` drives it, and nothing else on SCS. Slot 4
+is the one `clock_bb` selects (§12.7). Nothing answers at $FF78–$FF7F
+any more, which leaves the Multi-Pak's register and the sound
+cartridges' ports clear.
 
 **Settings and the menu.** `cart = mpi`, `slot1` to `slot4`, each a
-cartridge file, `RS-DOS` or, from M18 and M19, `SSC`, `ORCH90` and
-`RS232`, and `mpi_switch = 1` to
+cartridge file, `RS-DOS`, `SMARTWATCH` or, from M18 and M19, `SSC`,
+`ORCH90` and `RS232`, and `mpi_switch = 1` to
 `4`. The Machine page's cartridge row gains Multi-Pak, which opens a
 page of four slots and the switch; the status line names the CTS
 slot's cartridge.
@@ -2323,7 +2348,7 @@ the milestones after it are kept, since documents and commits cite them.
 | ~~M14~~ | **Withdrawn** (D6, the owner, 2026-11-16): the Dragon 32 and 64, DragonDOS and VDK images | — |
 | **M15** | HD6309: **deferred** by the owner, 2026-11-22 (§20) | Its oracle passes in both modes; a 6309 program runs on the device |
 | **M16** | Finish: README, the release build on a second board, attribution | A fresh card and board set up from the README alone |
-| **M17** | The cartridge port as one interface, the ROM cartridge and RS-DOS moved behind it; the Multi-Pak (§12.8; the owner, 2026-11-24) | The move changes nothing the tests and the trace diff see; `test_mpi` with its planted bugs; Disk BASIC in slot 4 held to XRoar's Multi-Pak by the trace diff; OS-9 booted with the controller in a Multi-Pak, on the host and the device |
+| **M17** | The cartridge port as one interface, the ROM cartridge and RS-DOS moved behind it; the Multi-Pak; the SmartWatch as a cartridge for `clock_bb`, its setting and `clock_tc3` dropped (§12.7, §12.8; the owner, 2026-11-24) | The move changes nothing the tests and the trace diff see; `test_mpi` with its planted bugs; Disk BASIC in a Multi-Pak held to XRoar's by the trace diff; OS-9 booted with the controller in a Multi-Pak, and Tandy OS-9 2.01 reading and setting the date through `clock_bb` with the SmartWatch in slot 4, on the host and the device |
 | **M18** | The sound cartridges: the Speech/Sound Cartridge, its AY-3-8913 and SP0256-AL2, and the Orchestra-90 CC (§12.9, §12.10; the owner, 2026-11-24) | Their registers settled from a primary source; the AY's tests from pico-oric passing; the Orchestra-90 held to XRoar's by the trace diff and the audio test; the speech held to whatever M18 settles first; The Interbank Incident speaking on the device, with Disk BASIC beside it in the Multi-Pak |
 | **M19** | The Deluxe RS-232 Program Pak: its 6551 ACIA and its ROM (§12.11; the owner, 2026-11-24) | Its registers settled from a primary source; the pak's terminal program and an OS-9 serial port exchanging bytes with the host, on the host and the device |
 
@@ -2369,10 +2394,10 @@ configuration; once settled, it is a constant.
 | The colours a CoCo's VDG and MC1372 show (§9.5) | Modelled 2026-11-23 from figure 10's typical levels, the MC1372's 100° and equal gains (its datasheet), the saturation from the burst and NTSC's decode; held at 90° to MAME's capture of a PAL Dragon. White's place depended on the set. **2026-11-24**: not drawn; the owner kept the idealised primaries, and the settings file's `color_` keys give any other | Medium: no capture of an NTSC CoCo; the MC1372's angle is 85–115° from chip to chip | A capture of an NTSC CoCo's composite output |
 | The owner's panel's tone response (§9.5, HW §4.12) | Three points per channel by eye, 2026-11-23: half of full code gives about 4% of the light; corrected through `mc6847_curve_t` | Medium: by eye, with line patterns that may be biased; nothing below a quarter of the light | A colorimeter; the panel's own gamma table from the ST7365P's register format |
 | The VDG's mode pins while PIA1 port B is an input (§9.3) | **M4**: low, as XRoar's PIA has an undriven pin; seen only before BASIC sets the port's direction | Low | Schematics |
-| The DS1216 SmartWatch's protocol at $FF78–$FF7F, and its year as the years since 1900 (§12.7) | **M13** (2026-11-17): as Tandy's `clock_tc3` drives it, read off the module, and the datasheet's key and register order as remembered; held by `test_os9` booting it. The address and what "tc3" was are the module's alone | Medium | The DS1216 datasheet; the card `clock_tc3` was written for |
+| The DS1216 SmartWatch's protocol, and its year as the years since 1900 (§12.7) | **M13** (2026-11-17): as Tandy's `clock_tc3` drives it at $FF78–$FF7F, read off the module, and the datasheet's key and register order as remembered; held by `test_os9` booting it. **2026-11-24**: `clock_bb` drives the same protocol at $FF58–$FF5F; `clock_tc3` dropped by the owner | Medium | The DS1216 datasheet; the card `clock_tc3` was written for |
 | The MC6847T1: its glyphs, and GM0 as lower case, GM1 as inverse, GM2 as the border, no SG6, orange for bright orange (§9.2) | **M13** (2026-11-17): XRoar 1.13's model and its ROM, held pixel for pixel by `test_vdg_oracle t1`; OS-9's use of GM0 executed on the host. No CoCo 2B compared, and no T1 datasheet read | Medium | The MC6847T1 datasheet; a photograph of a CoCo 2B's lower case |
 | The Multi-Pak's register at $FF7F, its routing of CTS, SCS, CART, NMI and HALT, and RESET to the front switch (§12.8) | As XRoar 1.13's `mpi.c`, read 2026-11-24 | Medium | The Multi-Pak's service manual and schematic; Disk BASIC and OS-9 executed through it |
-| Where a DS1216 answers behind a Multi-Pak, for `clock_bb` (§12.7, §12.8) | $FF5C in a selected slot, as `clock_bb` reads it; not yet read off the module. Chosen as the SmartWatch's place with a Multi-Pak (the owner, 2026-11-24) | Low | `clock_bb` read off the module; the card it was written for |
+| Where a DS1216 answers behind a Multi-Pak, for `clock_bb` (§12.7, §12.8) | **Read off the module** (2026-11-24): $FF58–$FF5F on SCS, slot 4, which `clock_bb` selects through $FF7F. The card it was written for is not known | Medium | `clock_bb` read off the module; the card it was written for |
 | The Speech/Sound Cartridge: its chips, its ports at $FF7D and $FF7E, how the AY is reached, its status bits, its clocks, whether it carries a ROM (§12.9) | From memory | Low | The cartridge's manual and schematic; The Interbank Incident executed on the host |
 | The Orchestra-90's DACs at $FF7A and $FF7B, and its audio beside the multiplexer rather than through it (§12.10) | As XRoar 1.13's `orch90.c`, read 2026-11-24 | Medium | The cartridge's schematic; its ROM executed |
 | The Deluxe RS-232 Program Pak: its 6551 at $FF68–$FF6B, its interrupt, its ROM (§12.11) | From memory | Low | The pak's manual and schematic; its ROM and OS-9's driver read |
