@@ -1930,9 +1930,12 @@ needs both, and so needs M17's Multi-Pak.
   driven by the AL2's 2 KB mask ROM of allophones. The ROM is the
   chip's maker's: it comes from `/coco/roms/` by SHA-1, as every ROM
   does (D10), and without it the cartridge is refused by name, as a
-  missing ROM is (§12.1). XRoar 1.13 has no Speech/Sound Cartridge, so
-  there is no oracle; what the chip is held to is settled at M18's
-  start, before its code is written. **The chip is modelled from its
+  missing ROM is (§12.1). XRoar 1.13 has no Speech/Sound Cartridge;
+  MAME has the cartridge and the chip, and **MAME and MESS may be used
+  to verify this project's work** (the owner, 2026-11-24), as XRoar is:
+  a tool, run or linked into a test, never source in the tree (D2, D8).
+  What the chip is held to is settled at M18's start, before its code
+  is written. **The chip is modelled from its
   mask ROM** (the owner, 2026-11-24), not imitated: Pico-Logo's formant
   synthesiser (MIT, the same author) speaks a different alphabet by a
   different filter, and lends only its shape, an engine that fills one
@@ -1968,9 +1971,10 @@ answer on where the SmartWatch goes covers them all.
 **Planned for M19** (the owner, 2026-11-24). From memory (§18: low): Tandy
 26-2226, a 6551 ACIA at $FF68–$FF6B, outside SCS, its IRQ on the
 port's CART line or not at all, and a ROM, the pak's terminal program.
-XRoar 1.13 has a 6551 (`mos6551.c`) and no cartridge that uses it, so
-the pak has no oracle; the 6551 is written from its datasheet and held
-by its own tests, with a planted bug each. Disk BASIC beside it in the
+XRoar 1.13 has a 6551 (`mos6551.c`) and no cartridge that uses it;
+MAME, which may be used to verify (§12.9), has the pak. The 6551 is
+written from its datasheet and held by its own tests, with a planted
+bug each, and by MAME where it can run the same software. Disk BASIC beside it in the
 Multi-Pak and OS-9's driver for it are the software that tells.
 
 **Its bytes go to the PicoCalc's USB-C connector** (the owner,
