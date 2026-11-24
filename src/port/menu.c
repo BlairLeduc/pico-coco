@@ -469,11 +469,11 @@ static void choice_info(int c, unsigned slot, bool in_mpi, char a[TEXT_COLS], ch
         snprintf(a, TEXT_COLS, "%s", in_mpi ? "EMPTY" : "NO CARTRIDGE");
         return;
     case MENU_CART_RSDOS:
-        snprintf(a, TEXT_COLS, "RS-DOS: DISK BASIC 1.1, 8K ROM");
+        snprintf(a, TEXT_COLS, "DISK BASIC 1.1, 8K ROM");
         snprintf(b, TEXT_COLS, "NEEDS 16K OR MORE AND EXTENDED");
         return;
     case MENU_CART_SMARTWATCH:
-        snprintf(a, TEXT_COLS, "SMARTWATCH: A CLOCK, NO ROM");
+        snprintf(a, TEXT_COLS, "A CLOCK, NO ROM");
         snprintf(b, TEXT_COLS, "OS-9'S CLOCK_BB LOOKS IN SLOT 4");
         return;
     case MENU_CART_MPI:
