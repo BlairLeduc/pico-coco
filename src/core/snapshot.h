@@ -81,6 +81,8 @@ typedef enum {
     SNAP_UNSAVED,         /* the port's: a recording is not on the card  */
     SNAP_TORN,            /* snapshot_load's read failed once m had begun
                              to change: it must be powered on again      */
+    SNAP_MPI,             /* a Multi-Pak is fitted: not saved yet (M17,
+                             design.md §12.8)                            */
 } snap_status_t;
 
 /* The port's media at the save (the header above). Paths are as the

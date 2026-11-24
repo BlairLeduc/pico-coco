@@ -18,6 +18,8 @@ void coco_config_default(coco_config_t *cfg) {
     cfg->ram_k = 64;
     cfg->tape_trap = true;
     cfg->cart = CART_NONE;
+    for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) cfg->slot[s] = CART_NONE;
+    cfg->mpi_switch = 3;   /* slot 4, where Disk BASIC is usually kept */
 }
 
 /* The chips for each size, as XRoar fits them: 4K x 1, 16K x 1, 32K x 1
@@ -136,7 +138,7 @@ static void map(coco_t *m) {
             pg->read = rom_page(m, p);
             pg->write = NULL;
         } else {
-            pg->read = m->port.rom ? &m->cart[(p - 0xC0u) * COCO_PAGE_SIZE] : NULL;
+            pg->read = cart_page(m, p);
             pg->write = NULL;
         }
     }
@@ -667,7 +669,6 @@ void coco_init(coco_t *m, const coco_config_t *cfg) {
     m->cas.fast = true;
     joysticks_centre(m);
     mc6809_init(&m->cpu);
-    m->port.kind = cfg->cart == CART_RSDOS ? CART_RSDOS : CART_NONE;
     cart_init(m);
     pcm_init(&m->pcm, 0, COCO_SOUND_LEVEL_MAX, COCO_TICK_HZ, 0, 0);
     m->vid_bytes_mode = 0x01u;   /* no mode yet (lines_due) */
@@ -679,17 +680,8 @@ bool coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len) {
         unsigned half = base == 0xA000u;
         memcpy(&m->rom[half * COCO_ROM_HALF], data, len);
         m->rom_present[half] = true;
-    } else if (base == 0xC000u && len > 0 && len <= COCO_CART_SIZE) {
-        /* A ROM smaller than the window ignores the address lines above
-         * it, so a power-of-two image repeats through the window, as
-         * XRoar's ROM bank does; any other size is followed by $FF. */
-        memset(m->cart, 0xFF, sizeof(m->cart));
-        memcpy(m->cart, data, len);
-        if ((len & (len - 1u)) == 0)
-            for (size_t at = len; at < COCO_CART_SIZE; at += len) memcpy(&m->cart[at], data, len);
-        if (m->port.kind == CART_NONE) m->port.kind = CART_ROM;
-        m->port.rom = true;
-        m->port.autostart = m->port.kind == CART_ROM;
+    } else if (base == 0xC000u) {
+        if (!cart_load_rom(m, 0, data, len)) return false;
     } else {
         return false;
     }
@@ -698,20 +690,29 @@ bool coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len) {
     return true;
 }
 
+bool coco_load_slot_rom(coco_t *m, unsigned s, const uint8_t *data, size_t len) {
+    if (!cart_load_rom(m, s, data, len)) return false;
+    map(m);
+    return true;
+}
+
 void coco_cart_remove(coco_t *m) {
-    memset(m->cart, 0xFF, sizeof(m->cart));
-    if (m->port.kind == CART_ROM) m->port.kind = CART_NONE;
-    m->port.rom = false;
-    m->port.autostart = false;
+    cart_remove_rom(m, 0);
     map(m);
 }
 
 void coco_cart_autostart(coco_t *m, bool on) {
-    m->port.autostart = on;
+    m->port.slot[0].autostart = on;
+}
+
+void coco_cart_selected(coco_t *m) {
+    map(m);
+    cart_q(m, coco_ticks(m) + m->tpc);
 }
 
 void coco_reset(coco_t *m) {
     lines_due(m, coco_ticks(m));   /* in the state they had (§9.3) */
+    cart_reset_select(m);
     mc6821_reset(&m->pia0);
     mc6821_reset(&m->pia1);
     sam6883_reset(&m->sam);

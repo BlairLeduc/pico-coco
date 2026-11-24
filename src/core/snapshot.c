@@ -154,10 +154,10 @@ _Static_assert(MD_FLAGS + 8u == SNAP_MEDIA_LEN, "the media section's length");
 
 static uint8_t fitted_of(const coco_t *m) {
     return (uint8_t)((m->rom_present[0] ? M_ROM_LO : 0) | (m->rom_present[1] ? M_ROM_HI : 0) |
-                     (m->port.rom ? M_CART : 0) |
+                     (m->port.slot[0].rom ? M_CART : 0) |
                      (cart_on_q(&m->port) ? M_AUTOSTART : 0) |
                      (m->cfg.tape_trap ? M_TAPE_TRAP : 0) |
-                     (m->port.kind == CART_RSDOS ? M_RSDOS : 0));
+                     (m->port.slot[0].kind == CART_RSDOS ? M_RSDOS : 0));
 }
 
 /* The three hashes as a state has them: zero for a half or a slot with
@@ -166,7 +166,15 @@ static void rom_hashes(const coco_t *m, uint8_t *st) {
     memset(st + S_ROM_LO, 0, 3u * SHA1_DIGEST_LEN);
     if (m->rom_present[0]) sha1(m->rom, COCO_ROM_HALF, st + S_ROM_LO);
     if (m->rom_present[1]) sha1(m->rom + COCO_ROM_HALF, COCO_ROM_HALF, st + S_ROM_HI);
-    if (m->port.rom) sha1(m->cart, COCO_CART_SIZE, st + S_CART);
+    const cart_t *c = &m->port.slot[0];
+    if (c->rom) {
+        /* The window as the pages map it: the room repeated (cart.h). */
+        sha1_t h;
+        sha1_init(&h);
+        for (uint32_t at = 0; at < COCO_CART_SIZE; at += c->rom_room)
+            sha1_update(&h, m->cart + c->rom_at, c->rom_room);
+        sha1_final(&h, st + S_CART);
+    }
 }
 
 static mc6821_port_t *port_of(coco_t *m, unsigned i) {
@@ -234,8 +242,8 @@ static void state_encode(const coco_t *m, uint8_t st[SNAP_STATE_LEN]) {
     put16(st + S_FIELD_LEAD, 0u);
     rom_hashes(m, st);
 
-    if (m->port.kind == CART_RSDOS) {
-        const rsdos_t *d = &m->port.u.rsdos;
+    if (m->port.rsdos_slot >= 0) {
+        const rsdos_t *d = &m->port.dk;
         const wd1793_t *f = &d->fdc;
         st[S_DK_LATCH] = d->latch;
         st[S_DK_FLAGS] = (uint8_t)((d->halt_enable ? D_HALT_ENABLE : 0) | (d->intrq ? D_INTRQ : 0) |
@@ -306,6 +314,7 @@ snap_status_t snapshot_save(const coco_t *m, const snap_media_t *media, snap_wri
     /* Nor while the disk controller has a command or a track in hand:
      * neither is state (rsdos.h). */
     if (coco_disk_busy(m)) return SNAP_BUSY;
+    if (m->port.mpi) return SNAP_MPI;
 
     uint8_t *st = s_st;
     state_encode(m, st);
@@ -455,7 +464,10 @@ static snap_status_t compatible(const coco_t *m, const uint8_t st[SNAP_STATE_LEN
         memcmp(st + S_ROM_LO, mine + S_ROM_LO, 2u * SHA1_DIGEST_LEN) != 0)
         return SNAP_OTHER_ROM;
     if (st[S_RAM_K] != (uint8_t)m->cfg.ram_k) return SNAP_OTHER_RAM;
-    if (st[S_FITTED] != fitted || memcmp(st + S_CART, mine + S_CART, SHA1_DIGEST_LEN) != 0)
+    /* A state has no Multi-Pak (M17: not saved yet), so a machine with
+     * one is another machine, powered on as the state's to load it. */
+    if (st[S_FITTED] != fitted || m->port.mpi ||
+        memcmp(st + S_CART, mine + S_CART, SHA1_DIGEST_LEN) != 0)
         return SNAP_OTHER_MACHINE;
     return SNAP_OK;
 }
@@ -484,6 +496,7 @@ snap_status_t snapshot_check(const coco_t *m, snap_read_fn read, void *ctx, snap
 
 snap_status_t snapshot_load(coco_t *m, snap_read_fn read, void *ctx) {
     if (m->tape.op != TAPE_NONE) return SNAP_BUSY;
+    if (m->port.mpi) return SNAP_MPI;
     uint32_t want;
     snap_status_t r = read_header(read, ctx, &want);
     if (r != SNAP_OK) return r;
@@ -550,8 +563,8 @@ snap_status_t snapshot_load(coco_t *m, snap_read_fn read, void *ctx) {
     m->video_split = (st[S_M_FLAGS] & F_VIDEO_SPLIT) != 0;
     m->tape.hot = get16(st + S_TAPE_HOT);
 
-    if (m->port.kind == CART_RSDOS) {
-        rsdos_t *d = &m->port.u.rsdos;
+    if (m->port.rsdos_slot >= 0) {
+        rsdos_t *d = &m->port.dk;
         wd1793_t *f = &d->fdc;
         uint8_t df = st[S_DK_FLAGS];
         d->latch = st[S_DK_LATCH];
@@ -600,6 +613,7 @@ const char *snapshot_status_str(snap_status_t st) {
     case SNAP_NO_CART:       return "ITS CARTRIDGE IS MISSING";
     case SNAP_UNSAVED:       return "A RECORDING IS NOT SAVED";
     case SNAP_TORN:          return "CUT SHORT WHILE LOADING";
+    case SNAP_MPI:           return "NOT WITH A MULTI-PAK YET";
     }
     return "?";
 }

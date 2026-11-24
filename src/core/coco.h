@@ -48,7 +48,10 @@ typedef struct {
     cart_kind_t    cart;       /* what is in the cartridge port (cart.h):
                                   CART_RSDOS for the RS-DOS controller, its
                                   ROM loaded at $C000 next; a ROM loaded at
-                                  $C000 into an empty port is a CART_ROM  */
+                                  $C000 into an empty port is a CART_ROM;
+                                  CART_MPI for a Multi-Pak, with:         */
+    cart_kind_t    slot[COCO_MPI_SLOTS];   /* its slots' kinds (§12.8)     */
+    uint8_t        mpi_switch; /* its front switch, slot 0 to 3          */
 } coco_config_t;
 
 /* A change of the video bits while the picture was being drawn (§9.4):
@@ -207,7 +210,7 @@ typedef struct coco_s {
     cassette_t  cas;
 
     /* The cartridge port (cart.h, §12.8). */
-    cart_t   port;
+    cart_port_t port;
 
     /* The trace driver's hook (tools/trace/coco-trace.c): when set, each
      * run slice is one step, an instruction, an interrupt's entry or a
@@ -218,7 +221,7 @@ typedef struct coco_s {
 
     uint8_t  ram[COCO_ADDR_SPACE];
     uint8_t  rom[COCO_ROM_SIZE];      /* $8000-$BFFF                    */
-    uint8_t  cart[COCO_CART_SIZE];    /* $C000-$FEFF: the port's ROM    */
+    uint8_t  cart[COCO_CART_POOL];    /* the slots' ROMs (cart.h)       */
 } coco_t;
 
 /* A CoCo with 64 KB (D6). */
@@ -233,6 +236,10 @@ void     coco_init(coco_t *m, const coco_config_t *cfg);
  * (coco_cart_autostart); into an empty port it is a CART_ROM. False for
  * any other placement. */
 bool     coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len);
+
+/* A ROM image into slot s of a Multi-Pak, or the port's slot 0 without
+ * one, as coco_load_rom's at $C000 (cart_load_rom). */
+bool     coco_load_slot_rom(coco_t *m, unsigned s, const uint8_t *data, size_t len);
 
 /* The cartridge taken out: $C000 reads as an empty slot. Power on after. */
 void     coco_cart_remove(coco_t *m);

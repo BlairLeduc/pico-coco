@@ -1929,6 +1929,27 @@ selects it through $FF7F; the ROMs in the slots are held at once, so
 their room is a pool sized in `config.h`, measured against what each
 SRAM tier has left (HW §9.8) before its size is a constant.
 
+**The Multi-Pak in the core, as built** (2026-11-24, host): `cart.h`'s
+port is four `cart_t` slots, slot 0 alone without a Multi-Pak, with
+`cts`, `scs` and the switch; `coco_config_t` gains `CART_MPI`, `slot[4]`
+and `mpi_switch`, its default slot 4. One RS-DOS controller at most:
+its chips, 6.6 KB of them the WD1793's track, are the port's `dk`, not
+each slot's, and a second is fitted empty. The ROMs share a pool of
+32 KB, `COCO_CART_POOL`, each in a power of two of room mirrored by the
+page table, any other size in a whole window; the tier 2 UART0 build's
+BSS rose by 16,616 bytes, to leave about 38 KB of its 55 KB. A write
+to $FF7F that moves CTS builds the page table again and gives the CART
+line its edge. A save state is refused with a Multi-Pak fitted
+(`SNAP_MPI`), and checked against one as another machine, until the
+state has room for it. `test_mpi`, with no ROM, holds each line of the
+table above, the pool and the one controller, each shown to bite by a
+planted bug (in its header); `test_cart` starts its own cartridge from
+slot 1 at field 145, as from the port alone, and not with the switch
+at an empty slot, and boots Disk BASIC from slot 4, and from slot 3
+with a SmartWatch in slot 4, there formatting a disk and reading 68
+granules free. Without a Multi-Pak, the 8,253 fields' hashes and the
+150-field log are what they were before.
+
 **The SmartWatch** is a cartridge kind, `CART_SMARTWATCH`, fitted in a
 Multi-Pak slot (the owner, 2026-11-24): a DS1216 on its slot's SCS at
 $FF58–$FF5F, as `clock_bb` drives it, and nothing else on SCS. Slot 4

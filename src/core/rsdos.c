@@ -10,7 +10,7 @@
  * cartridge drives, by XRoar's rule (rsdos.h), and the port's onto the
  * CPU. */
 static void COCO_HOT1(lines)(coco_t *m, cart_t *c) {
-    rsdos_t *d = &c->u.rsdos;
+    rsdos_t *d = &m->port.dk;
     bool intrq = d->fdc.intrq;
     if (intrq != d->intrq) {
         d->intrq = intrq;
@@ -42,7 +42,7 @@ static drivesnd_t *drive_sound(coco_t *m) {
 }
 
 static void latch(coco_t *m, cart_t *c, uint8_t v, uint64_t now) {
-    rsdos_t *d = &c->u.rsdos;
+    rsdos_t *d = &m->port.dk;
     if ((v ^ d->latch) & DK_MOTOR) {
         drivesnd_t *s = drive_sound(m);
         if (s) drivesnd_motor(s, (v & DK_MOTOR) != 0);
@@ -62,14 +62,14 @@ static void latch(coco_t *m, cart_t *c, uint8_t v, uint64_t now) {
 
 uint8_t COCO_HOT1(rsdos_read)(coco_t *m, cart_t *c, uint16_t a, uint8_t bus, uint64_t now) {
     if (!(a & 0x08u)) return bus;
-    uint8_t v = wd_read(&c->u.rsdos.fdc, a & 3u, now);
+    uint8_t v = wd_read(&m->port.dk.fdc, a & 3u, now);
     lines(m, c);
     return v;
 }
 
 void COCO_HOT1(rsdos_write)(coco_t *m, cart_t *c, uint16_t a, uint8_t v, uint64_t now) {
     if (a & 0x08u) {
-        wd1793_t *f = &c->u.rsdos.fdc;
+        wd1793_t *f = &m->port.dk.fdc;
         wd_write(f, a & 3u, v, now);
         if (f->pulse_n) {
             drivesnd_t *s = drive_sound(m);
@@ -85,7 +85,7 @@ void COCO_HOT1(rsdos_write)(coco_t *m, cart_t *c, uint16_t a, uint8_t v, uint64_
 }
 
 void rsdos_reset(coco_t *m, cart_t *c) {
-    rsdos_t *d = &c->u.rsdos;
+    rsdos_t *d = &m->port.dk;
     uint64_t now = coco_ticks(m);
     wd_reset(&d->fdc);
     d->intrq = false;
@@ -95,7 +95,7 @@ void rsdos_reset(coco_t *m, cart_t *c) {
 }
 
 void COCO_HOT1(rsdos_run)(coco_t *m, cart_t *c, uint64_t now) {
-    wd_run(&c->u.rsdos.fdc, now);
+    wd_run(&m->port.dk.fdc, now);
     lines(m, c);
 }
 
@@ -103,12 +103,12 @@ void COCO_HOT1(rsdos_run)(coco_t *m, cart_t *c, uint64_t now) {
 
 wd1793_t *coco_disk_fdc(coco_t *m) {
     cart_t *c = cart_rsdos(m);
-    return c ? &c->u.rsdos.fdc : NULL;
+    return c ? &m->port.dk.fdc : NULL;
 }
 
 const wd1793_t *coco_disk_fdc_c(const coco_t *m) {
     const cart_t *c = cart_rsdos_c(m);
-    return c ? &c->u.rsdos.fdc : NULL;
+    return c ? &m->port.dk.fdc : NULL;
 }
 
 const wd_req_t *coco_disk_request(const coco_t *m) {
@@ -119,28 +119,28 @@ const wd_req_t *coco_disk_request(const coco_t *m) {
 void coco_disk_served(coco_t *m, bool ok) {
     cart_t *c = cart_rsdos(m);
     if (!c) return;
-    wd_served(&c->u.rsdos.fdc, ok, coco_ticks(m));
+    wd_served(&m->port.dk.fdc, ok, coco_ticks(m));
     lines(m, c);
 }
 
 void coco_disk_insert(coco_t *m, unsigned drive, bool protect) {
     cart_t *c = cart_rsdos(m);
     if (!c) return;
-    wd_insert(&c->u.rsdos.fdc, drive, protect, coco_ticks(m));
+    wd_insert(&m->port.dk.fdc, drive, protect, coco_ticks(m));
     lines(m, c);
 }
 
 void coco_disk_eject(coco_t *m, unsigned drive) {
     cart_t *c = cart_rsdos(m);
     if (!c) return;
-    wd_eject(&c->u.rsdos.fdc, drive, coco_ticks(m));
+    wd_eject(&m->port.dk.fdc, drive, coco_ticks(m));
     lines(m, c);
 }
 
 void coco_disk_drive_type(coco_t *m, unsigned drive, wd_type_t type) {
     cart_t *c = cart_rsdos(m);
     if (!c) return;
-    wd_drive_type(&c->u.rsdos.fdc, drive, type, coco_ticks(m));
+    wd_drive_type(&m->port.dk.fdc, drive, type, coco_ticks(m));
     lines(m, c);
 }
 
@@ -152,14 +152,14 @@ bool coco_disk_busy(const coco_t *m) {
 void coco_disk_flush(coco_t *m) {
     cart_t *c = cart_rsdos(m);
     if (!c) return;
-    wd_flush(&c->u.rsdos.fdc);
+    wd_flush(&m->port.dk.fdc);
     lines(m, c);
 }
 
 /* Whether the controller's latch has the drives' motors on. */
 static bool motor_on(const coco_t *m) {
     const cart_t *c = cart_rsdos_c(m);
-    return c && (c->u.rsdos.latch & DK_MOTOR);
+    return c && (m->port.dk.latch & DK_MOTOR);
 }
 
 void coco_disk_sounds(coco_t *m, bool on) {

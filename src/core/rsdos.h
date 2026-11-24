@@ -50,7 +50,7 @@ struct cart_s;
 #define DK_DS3    0x40u
 #define DK_HALT   0x80u
 
-/* The cartridge's own state, in its cart_t (cart.h). */
+/* The controller's chips, the port's `dk`: one in the port (cart.h). */
 typedef struct {
     wd1793_t fdc;
     uint8_t  latch;

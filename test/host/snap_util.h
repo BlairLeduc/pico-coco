@@ -169,9 +169,9 @@ static inline bool snap_same(const coco_t *a, const coco_t *b, const char *what)
 
     /* The RS-DOS cartridge, and the chip's track in hand, which is not
      * state but is fetched again (wd_restored) and must be the same. */
-    SNAP_DIFF(a->port.kind != b->port.kind, "the cartridge");
-    if (a->port.kind == CART_RSDOS) {
-        const rsdos_t *p = &a->port.u.rsdos, *q = &b->port.u.rsdos;
+    SNAP_DIFF(a->port.slot[0].kind != b->port.slot[0].kind, "the cartridge");
+    if (a->port.rsdos_slot >= 0) {
+        const rsdos_t *p = &a->port.dk, *q = &b->port.dk;
         const wd1793_t *f = &p->fdc, *h = &q->fdc;
         SNAP_DIFF(p->latch != q->latch || p->halt_enable != q->halt_enable || p->intrq != q->intrq ||
                   p->nmi != q->nmi, "the latch %02X/%02X", p->latch, q->latch);

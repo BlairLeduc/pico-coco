@@ -78,6 +78,30 @@ void guest_build_disk(guest_t *g, unsigned ram_k) {
     g->after_field = NULL;
 }
 
+void guest_build_mpi(guest_t *g, unsigned ram_k, const cart_kind_t kinds[COCO_MPI_SLOTS],
+                     unsigned sw, const uint8_t *const imgs[COCO_MPI_SLOTS],
+                     const size_t lens[COCO_MPI_SLOTS]) {
+    coco_config_t cfg;
+    coco_config_default(&cfg);
+    cfg.ram_k = ram_k;
+    cfg.cart = CART_MPI;
+    cfg.mpi_switch = (uint8_t)sw;
+    for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) cfg.slot[s] = kinds[s];
+    coco_init(&g->m, &cfg);
+    coco_load_rom(&g->m, 0xA000u, images[ROM_COCO_BAS13], romset_images[ROM_COCO_BAS13].size);
+    coco_load_rom(&g->m, 0x8000u, images[ROM_COCO_EXTBAS11], romset_images[ROM_COCO_EXTBAS11].size);
+    for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
+        if (kinds[s] == CART_RSDOS)
+            coco_load_slot_rom(&g->m, s, images[ROM_COCO_DISK11], romset_images[ROM_COCO_DISK11].size);
+        else if (imgs && imgs[s])
+            coco_load_slot_rom(&g->m, s, imgs[s], lens[s]);
+    }
+    coco_power_on(&g->m);
+    keymatrix_init(&g->k);
+    g->ok_ticks = 0;
+    g->after_field = NULL;
+}
+
 void guest_build(guest_t *g, unsigned ram_k, bool extended) {
     guest_build_as(g, ram_k, ROM_COCO_BAS13, extended);
 }
