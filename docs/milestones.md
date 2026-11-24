@@ -52,10 +52,15 @@ cut to 32 bits, a refused colour left in place) each failed
 and UART1 builds are clean.
 
 Then cyan: on the panel the owner found it still too light a blue and
-gave a swatch, picked on a computer display, $41AF71; it replaces
+gave a swatch, picked on a computer display, $41AF71; it replaced
 $00FFFF in `mc6847_palette`. Nine goldens changed, each in its cyan
 pixels alone ($00FFFF to $42AE73, the swatch in RGB565), checked pixel
-by pixel and looked at.
+by pixel and looked at. Seen on the panel, the owner asked for more
+saturation in cyan and graphics orange, and a dark orange behind the
+text nearer a dark red: cyan $12AF56, orange $FF6000 and dark orange
+$601400 (from $402000). Ten goldens changed, in cyan and orange pixels
+alone; the dark orange is in none, the goldens drawing black
+backgrounds.
 
 **Not checked:** the dark backgrounds and the curve's primaries on the
 panel by the owner since the TV palettes went; the `color_` keys on the
