@@ -528,7 +528,7 @@ static void draw(void) {
         [P_SNAPS] = " < > SLOT  ENTER  ESC BACK",
         [P_SETUP] = " < > CHANGES  ESC BACK",     [P_MACHINE] = " < > STAGES  ENTER  ESC BACK",
         [P_ABOUT] = " P PANEL TEST  ESC BACK",    [P_HELP] = " ESC RESUMES",
-        [P_PANEL] = " ESC BACK",
+        [P_PANEL] = " < > MATCH  ^ V NEXT  ESC BACK",
     };
     textpage_clear(s_scr);
     textpage_line(s_scr, 0, title[s.page], true);
@@ -542,11 +542,12 @@ static void draw(void) {
     case P_ABOUT:   draw_about(); break;
     case P_HELP:    draw_help(); break;
     case P_PANEL:
-        for (unsigned b = 0; b < PANELTEST_BANDS; b++) {
+        for (unsigned r = 0; r < 2u; r++) {
             char line[TEXT_COLS + 1];
-            paneltest_label(b, line, sizeof line);
-            textpage_line(s_scr, paneltest_label_row(b), line, false);
+            paneltest_summary(r, line, sizeof line);
+            textpage_line(s_scr, PANELTEST_SUMMARY_ROW + (int)r, line, false);
         }
+        paneltest_status(s.status, sizeof s.status);
         break;
     default:        draw_main(); break;
     }
@@ -1256,7 +1257,7 @@ static void keys(void) {
         case P_ABOUT:
             if (c == 'p' || c == 'P') {
                 s.page = P_PANEL;
-                say(" MATCH EACH PATCH TO ITS LINES", "");
+                paneltest_reset();
                 log_core1("  panel test   : open\n");
                 break;
             }
@@ -1264,9 +1265,14 @@ static void keys(void) {
             break;
         case P_PANEL:
             if (c == PICOCALC_KEY_ESC || c == PICOCALC_KEY_ENTER) {
+                paneltest_log();
                 s.page = P_ABOUT;
                 say("", "");
             }
+            else if (c == PICOCALC_KEY_LEFT)  paneltest_key(-1, 0);
+            else if (c == PICOCALC_KEY_RIGHT) paneltest_key(1, 0);
+            else if (c == PICOCALC_KEY_UP)    paneltest_key(0, -1);
+            else if (c == PICOCALC_KEY_DOWN)  paneltest_key(0, 1);
             break;
         case P_HELP:
             if (c == PICOCALC_KEY_ESC || c == PICOCALC_KEY_ENTER) s.page = P_MAIN;

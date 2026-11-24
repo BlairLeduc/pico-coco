@@ -9,74 +9,86 @@
 
 #include "config.h"
 #include "lcd.h"
+#include "log.h"
 #include "textpage.h"
 
-/* The menu's text rows are 12 pixels over the picture (textpage.h). */
-#define ROW_PX   (COCO_PIC_H / TEXT_ROWS)
-#define PATCHES  6u
-#define CELL_PX  40u                /* a patch's column, five characters  */
-#define LEFT_PX  8u                 /* one character before the first     */
+/* The menu's text rows are 12 pixels over the picture (textpage.h); the
+ * lines fill rows 1 to 11. */
+#define ROW_PX     (COCO_PIC_H / TEXT_ROWS)
+#define FIELD_TOP  (COCO_PIC_Y + 1u * ROW_PX)
+#define FIELD_H    (11u * ROW_PX)
+#define PATCH_W    96u
+#define PATCH_H    48u
 
-/* RGB565 codes for the patches: red and blue have 5 bits, green 6. The
- * grey takes the red code for red and blue and the matching green. */
-static const uint8_t k_code5[PATCHES] = { 19, 20, 21, 22, 23, 24 };
-static const uint8_t k_code6[PATCHES] = { 39, 41, 43, 45, 47, 49 };
+enum { CH_RED, CH_GREEN, CH_BLUE, CH_GREY, CHANNELS };
+#define LEVELS 3u                    /* a quarter, a half, three quarters */
+#define TESTS  (CHANNELS * LEVELS)
 
-/* The band's first text row: red at 1, green at 4, blue at 7, grey at 10,
- * two rows of lines and patches, the labels on the third. */
-static unsigned band_row(unsigned band) { return 1u + 3u * band; }
+static const char *const k_ch[CHANNELS] = { "RED", "GREEN", "BLUE", "GREY" };
+static const char *const k_lv[LEVELS] = { "25%", "50%", "75%" };
 
-int paneltest_label_row(unsigned band) { return (int)band_row(band) + 2; }
+/* A code in the channel's own steps: 31 for red and blue, 63 for green
+ * and grey (grey's red and blue take half its code). */
+static unsigned max_of(unsigned ch) { return ch == CH_GREEN || ch == CH_GREY ? 63u : 31u; }
 
-static uint16_t colour(unsigned band, unsigned i) {
-    unsigned r = k_code5[i], g = k_code6[i];
-    switch (band) {
-    case 0:  return (uint16_t)(r << 11);
-    case 1:  return (uint16_t)(g << 5);
-    case 2:  return (uint16_t)r;
-    default: return (uint16_t)(r << 11 | g << 5 | r);
+static struct {
+    unsigned test;
+    unsigned code[TESTS];
+} p;
+
+void paneltest_reset(void) {
+    p.test = 0;
+    for (unsigned t = 0; t < TESTS; t++) {
+        double share = 0.25 * (double)(t % LEVELS + 1u);
+        p.code[t] = (unsigned)lround(max_of(t / LEVELS) * pow(share, 1.0 / 2.2));
     }
 }
 
-static uint16_t full(unsigned band) {
-    static const uint16_t f[PANELTEST_BANDS] = { 0xF800u, 0x07E0u, 0x001Fu, 0xFFFFu };
-    return f[band];
-}
-
-/* The gamma under which code c of max m gives half the light. */
-static double gamma_of(unsigned c, unsigned m) {
-    return log(0.5) / log((double)c / (double)m);
-}
-
-void paneltest_label(unsigned band, char *line, unsigned size) {
-    memset(line, ' ', size - 1u);
-    line[size - 1u] = 0;
-    for (unsigned i = 0; i < PATCHES; i++) {
-        double g = band == 1 ? gamma_of(k_code6[i], 63u) : gamma_of(k_code5[i], 31u);
-        char t[8];
-        snprintf(t, sizeof t, "%.1f", g);
-        unsigned at = 2u + 5u * i;
-        for (unsigned k = 0; t[k] && at + k < size - 1u; k++) line[at + k] = t[k];
+void paneltest_key(int dx, int dy) {
+    unsigned m = max_of(p.test / LEVELS);
+    int c = (int)p.code[p.test] + dx;
+    p.code[p.test] = (unsigned)(c < 0 ? 0 : c > (int)m ? (int)m : c);
+    if (dy) {
+        p.test = (p.test + TESTS + (dy < 0 ? TESTS - 1u : 1u)) % TESTS;
+        paneltest_log();
     }
+}
+
+static uint16_t rgb(unsigned ch, unsigned code) {
+    switch (ch) {
+    case CH_RED:   return (uint16_t)(code << 11);
+    case CH_GREEN: return (uint16_t)(code << 5);
+    case CH_BLUE:  return (uint16_t)code;
+    default:       return (uint16_t)((code >> 1) << 11 | code << 5 | (code >> 1));
+    }
+}
+
+void paneltest_summary(unsigned row, char *line, unsigned size) {
+    /* Two channels a row: " RED   8 18 25  GREEN 17 37 52". */
+    unsigned a = 2u * row;
+    snprintf(line, size, " %-5s %2u %2u %2u  %-5s %2u %2u %2u", k_ch[a], p.code[a * 3u],
+             p.code[a * 3u + 1u], p.code[a * 3u + 2u], k_ch[a + 1u], p.code[a * 3u + 3u],
+             p.code[a * 3u + 4u], p.code[a * 3u + 5u]);
+}
+
+void paneltest_status(char *line, unsigned size) {
+    unsigned ch = p.test / LEVELS;
+    snprintf(line, size, " %s %s: %u OF %u", k_ch[ch], k_lv[p.test % LEVELS], p.code[p.test],
+             max_of(ch));
+}
+
+void paneltest_log(void) {
+    log_core1("  panel test   : red %u %u %u of 31, green %u %u %u of 63, blue %u %u %u of 31,"
+              " grey %u %u %u of 63\n",
+              p.code[0], p.code[1], p.code[2], p.code[3], p.code[4], p.code[5], p.code[6],
+              p.code[7], p.code[8], p.code[9], p.code[10], p.code[11]);
 }
 
 void paneltest_draw(void) {
-    const unsigned x0 = COCO_PIC_X, w = COCO_PIC_W;
-    for (unsigned b = 0; b < PANELTEST_BANDS; b++) {
-        unsigned top = COCO_PIC_Y + band_row(b) * ROW_PX, h = 2u * ROW_PX;
-        /* Lines across the band, full on the even ones. */
-        for (unsigned y = 0; y < h; y++) lcd_fill(x0, top + y, w, 1u, (y & 1u) ? 0u : full(b));
-        /* Each patch inset 4 pixels in its column and band, so lines
-         * show all round it. */
-        for (unsigned i = 0; i < PATCHES; i++)
-            lcd_fill(x0 + LEFT_PX + CELL_PX * i + 4u, top + 4u, CELL_PX - 8u, h - 8u, colour(b, i));
-    }
-    /* The six darkest greys on black, on row 13. */
-    unsigned top = COCO_PIC_Y + 13u * ROW_PX;
-    lcd_fill(x0, top, w, ROW_PX, 0u);
-    for (unsigned i = 0; i < PATCHES; i++) {
-        unsigned r = i + 1u, g = 2u * (i + 1u);
-        lcd_fill(x0 + LEFT_PX + CELL_PX * i + 4u, top + 2u, CELL_PX - 8u, ROW_PX - 4u,
-                 (uint16_t)(r << 11 | g << 5 | r));
-    }
+    unsigned ch = p.test / LEVELS, lit = p.test % LEVELS + 1u;   /* lines lit of 4 */
+    uint16_t full = rgb(ch, max_of(ch));
+    for (unsigned y = 0; y < FIELD_H; y++)
+        lcd_fill(COCO_PIC_X, FIELD_TOP + y, COCO_PIC_W, 1u, (y % 4u) < lit ? full : 0u);
+    lcd_fill(COCO_PIC_X + (COCO_PIC_W - PATCH_W) / 2u, FIELD_TOP + (FIELD_H - PATCH_H) / 2u,
+             PATCH_W, PATCH_H, rgb(ch, p.code[p.test]));
 }
