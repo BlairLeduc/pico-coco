@@ -51,6 +51,12 @@ cut to 32 bits, a refused colour left in place) each failed
 `test_settings`. The host suite passes, 36 of 36; the UART0, release
 and UART1 builds are clean.
 
+Then cyan: on the panel the owner found it still too light a blue and
+gave a swatch, picked on a computer display, $41AF71; it replaces
+$00FFFF in `mc6847_palette`. Nine goldens changed, each in its cyan
+pixels alone ($00FFFF to $42AE73, the swatch in RGB565), checked pixel
+by pixel and looked at.
+
 **Not checked:** the dark backgrounds and the curve's primaries on the
 panel by the owner since the TV palettes went; the `color_` keys on the
 board; anything below a quarter of the light, where the curve is

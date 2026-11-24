@@ -1039,6 +1039,11 @@ the old page. Whether a real CoCo shows the segments is in §18.
   the menu never shows them. The full artefacts mix their colours from
   their own table, which these keys do not reach. The Setup page has no
   row left for the layout's bindings with BACKGROUND on it (§14).
+  Cyan alone is no longer a primary: the owner found $00FFFF too light
+  a blue on the corrected panel and gave a swatch, $41AF71, a sea green
+  in keeping with the model's teal; it is drawn through the curve like
+  the rest (2026-11-24). Nine goldens changed in their cyan pixels
+  alone, and were looked at.
 - **Artefact colours.** On NTSC machines the two-colour 256-pixel mode
   with the black-and-white colour set shows pairs of pixels as colours,
   and CoCo software draws with them. This fits the row table directly: a
