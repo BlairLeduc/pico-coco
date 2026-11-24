@@ -334,9 +334,12 @@ static void draw_setup(void) {
             break;
         }
         case D_PALETTE:
-            /* The idealised primaries, or the chip's own (§9.5). */
+            /* The idealised primaries, or an NTSC set's by its white
+             * (§9.5). */
+            static const char *const pal[SETTINGS_PALETTE_COUNT] = { "PRIMARY", "TV 100",
+                                                                     "TV 115", "TV 130" };
             snprintf(line, sizeof line, " PALETTE         < %s >",
-                     g_ui.palette == SETTINGS_PALETTE_DATASHEET ? "DATASHEET" : "PRIMARY");
+                     pal[g_ui.palette % SETTINGS_PALETTE_COUNT]);
             break;
         case D_CLOCK:
             /* A DS1216 at $FF78-$FF7F, for OS-9's clock_tc3 (rtc.h). */
@@ -1145,9 +1148,9 @@ static void key_setup(uint8_t c) {
                   settings_phase_str(g_ui.artefact_phase));
         break;
     case D_PALETTE:
-        g_ui.palette = g_ui.palette == SETTINGS_PALETTE_DATASHEET ? SETTINGS_PALETTE_PRIMARY
-                                                                  : SETTINGS_PALETTE_DATASHEET;
-        display_set_palette(g_ui.palette == SETTINGS_PALETTE_DATASHEET);
+        g_ui.palette = (uint8_t)((g_ui.palette + SETTINGS_PALETTE_COUNT + (dir < 0 ? -1 : 1)) %
+                                 SETTINGS_PALETTE_COUNT);
+        display_set_palette(g_ui.palette);
         log_core1("  setup        : palette %s\n", settings_palette_str(g_ui.palette));
         break;
     case D_DISK_SOUNDS:

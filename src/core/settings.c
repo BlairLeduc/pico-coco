@@ -63,7 +63,8 @@ static settings_status_t one_of(const char *v, const char *const *names, unsigne
 /* In SETTINGS_ARTEFACTS_* and SETTINGS_PHASE_* order. */
 static const char *const k_artefacts[] = { "off", "simple", "full" };
 static const char *const k_phases[] = { "blue", "red", "random" };
-static const char *const k_palettes[] = { "primary", "datasheet" };
+static const char *const k_palettes[SETTINGS_PALETTE_COUNT] = { "primary", "tv100", "tv115",
+                                                                 "tv130" };
 
 const char *settings_artefacts_str(unsigned a) {
     return a < 3u ? k_artefacts[a] : "simple";
@@ -74,7 +75,7 @@ const char *settings_phase_str(unsigned p) {
 }
 
 const char *settings_palette_str(unsigned p) {
-    return p < 2u ? k_palettes[p] : "primary";
+    return p < SETTINGS_PALETTE_COUNT ? k_palettes[p] : "primary";
 }
 
 static settings_status_t number(const char *v, unsigned lo, unsigned hi, unsigned *out) {
@@ -169,7 +170,7 @@ static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
     case K_DISK_SOUNDS: return on_off(v, &s->disk_sounds);
     case K_ARTIFACTS: return one_of(v, k_artefacts, 3u, &s->artefacts);
     case K_ARTIFACT_PHASE: return one_of(v, k_phases, 3u, &s->artefact_phase);
-    case K_PALETTE:   return one_of(v, k_palettes, 2u, &s->palette);
+    case K_PALETTE:   return one_of(v, k_palettes, SETTINGS_PALETTE_COUNT, &s->palette);
     case K_BOOT_TAPE: return path(v, s->boot_tape);
     }
     return SET_UNKNOWN;

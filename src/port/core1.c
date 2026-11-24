@@ -272,7 +272,7 @@ void core1_main(void) {
         if (i >= 0) {
             display_stats_t st;
             display_set_t1(g_ui.vdg_t1);
-            display_set_palette(g_ui.palette == SETTINGS_PALETTE_DATASHEET);
+            display_set_palette(g_ui.palette);
             /* A random phase is chosen afresh at each reset, as a real
              * VDG comes up locked to either edge of its clock (§9.5);
              * the microsecond core 1 sees it on is as random as that. */

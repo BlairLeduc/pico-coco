@@ -27,8 +27,9 @@
  *   boot_tape = <file>             a tape in /coco/tapes/ put in the deck
  *   artifacts = off | simple | full    the artefact colours (§9.5)
  *   artifact_phase = blue | red | random
- *   palette   = primary | datasheet    the idealised primaries, or the
- *                                  colours the VDG's outputs make (§9.5)
+ *   palette   = primary | tv100 | tv115 | tv130   the idealised
+ *                                  primaries, or what an NTSC set showed,
+ *                                  white at 100, 115 or 130 IRE (§9.5)
  *   boot_disk = <file>             a disk in /coco/disks/ put in drive 0;
  *   boot_disk1 .. boot_disk3       and in drives 1 to 3 (§12.4)
  *
@@ -58,8 +59,10 @@
 enum { SETTINGS_ARTEFACTS_OFF, SETTINGS_ARTEFACTS_SIMPLE, SETTINGS_ARTEFACTS_FULL };
 enum { SETTINGS_PHASE_BLUE, SETTINGS_PHASE_RED, SETTINGS_PHASE_RANDOM };
 
-/* The colours (§9.5): mc6847_palette or mc6847_palette_datasheet. */
-enum { SETTINGS_PALETTE_PRIMARY, SETTINGS_PALETTE_DATASHEET };
+/* The colours (§9.5): mc6847_palette, or mc6847_palette_tv by its
+ * white; SETTINGS_PALETTE_TV100 + MC6847_TV* in that order. */
+enum { SETTINGS_PALETTE_PRIMARY, SETTINGS_PALETTE_TV100, SETTINGS_PALETTE_TV115,
+       SETTINGS_PALETTE_TV130, SETTINGS_PALETTE_COUNT };
 
 typedef struct {
     bool       extended;    /* Extended Color BASIC, else Color BASIC alone */
@@ -151,7 +154,8 @@ const char *settings_ram_str(unsigned ram_k);
 const char *settings_artefacts_str(unsigned a);
 const char *settings_phase_str(unsigned p);
 
-/* The palette as the file writes it: "primary", "datasheet". */
+/* The palette as the file writes it: "primary", "tv100", "tv115",
+ * "tv130". */
 const char *settings_palette_str(unsigned p);
 
 #endif /* PICO_COCO_SETTINGS_H */

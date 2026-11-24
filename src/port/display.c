@@ -11,6 +11,7 @@
 #include "mc6847.h"
 #include "mc6847_font.h"
 #include "present.h"
+#include "settings.h"
 #include "textpage.h"
 
 #define PIC_W COCO_PIC_W
@@ -104,10 +105,14 @@ void display_set_artefacts(unsigned how, bool red) {
     present_invalidate(&s_present);
 }
 
-void display_set_palette(bool datasheet) {
-    const uint16_t *pal = datasheet ? mc6847_palette_datasheet : mc6847_palette;
+void display_set_palette(unsigned palette) {
+    bool tv = palette >= SETTINGS_PALETTE_TV100 && palette < SETTINGS_PALETTE_COUNT;
+    const uint16_t *pal = tv ? mc6847_palette_tv[palette - SETTINGS_PALETTE_TV100] : mc6847_palette;
     if (pal == s_vdg.pal) return;
-    for (unsigned i = 0; i < VDGS; i++) mc6847_set_palette(&s_vdgs[i], pal);
+    for (unsigned i = 0; i < VDGS; i++) {
+        mc6847_set_palette(&s_vdgs[i], pal);
+        mc6847_set_dark_bg(&s_vdgs[i], tv);
+    }
     present_invalidate(&s_present);
 }
 

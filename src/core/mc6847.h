@@ -81,9 +81,11 @@ typedef enum {
 
 extern const uint16_t mc6847_palette[VDG_COLOUR_COUNT];
 
-/* The colours the chip's outputs make, derived from the datasheet's
- * voltages through the MC1372 (§9.5), the primaries' alternative. */
-extern const uint16_t mc6847_palette_datasheet[VDG_COLOUR_COUNT];
+/* What an NTSC set showed from the chip and its MC1372 (§9.5), by where
+ * the set put white: at the VDG's white (100 IRE), or above it with room
+ * for the text screen's orange, which is brighter than white. */
+enum { MC6847_TV100, MC6847_TV115, MC6847_TV130, MC6847_TV_COUNT };
+extern const uint16_t mc6847_palette_tv[MC6847_TV_COUNT][VDG_COLOUR_COUNT];
 
 /* The same colours through the luminance output alone (§9.5). */
 extern const uint16_t mc6847_palette_mono[VDG_COLOUR_COUNT];

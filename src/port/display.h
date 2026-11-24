@@ -56,9 +56,11 @@ void display_set_t1(bool t1);
  * (`red`) or blue. A change repaints every band. */
 void display_set_artefacts(unsigned how, bool red);
 
-/* The colours the VDG's outputs make (`datasheet`), or the idealised
- * primaries (mc6847.h, design.md §9.5). A change repaints every band. */
-void display_set_palette(bool datasheet);
+/* The colours, SETTINGS_PALETTE_*: the idealised primaries, with the
+ * dark backgrounds drawn black, or what an NTSC set showed, with the
+ * chip's dark backgrounds (mc6847.h, design.md §9.5). A change repaints
+ * every band. */
+void display_set_palette(unsigned palette);
 
 /* The perf line at the panel's top and the status line at its foot
  * (§9.6): COCO_TEXT_COLS characters in the VDG's glyphs, capitals only,

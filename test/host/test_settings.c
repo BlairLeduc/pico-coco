@@ -60,7 +60,7 @@ int main(void) {
             "disk_sounds = Off\r\n"
             "artifacts = Full\r\n"
             "artifact_phase = random\r\n"
-            "palette   = DataSheet\r\n"
+            "palette   = TV115\r\n"
             "boot_tape = /coco/tapes/My Tape.cas\r\n"
             "boot_disk = games.dsk\r\n"
             "boot_disk1 = GAMES/H/HALL1/HALL2.DSK\r\n"
@@ -84,7 +84,7 @@ int main(void) {
         CHECK(!s.disk_sounds, "disk_sounds = off");
         CHECK(s.artefacts == SETTINGS_ARTEFACTS_FULL, "artifacts = full");
         CHECK(s.artefact_phase == SETTINGS_PHASE_RANDOM, "artifact_phase = random");
-        CHECK(s.palette == SETTINGS_PALETTE_DATASHEET, "palette = datasheet");
+        CHECK(s.palette == SETTINGS_PALETTE_TV115, "palette = tv115");
     }
     CHECK(parse(&s, "palette = primary\n", &line) == SET_OK &&
           s.palette == SETTINGS_PALETTE_PRIMARY, "palette = primary");
@@ -152,7 +152,9 @@ int main(void) {
             { "artefacts = full\n",    SET_UNKNOWN },     /* the CoCo's spelling */
             { "artifact_phase = orange\n", SET_BAD_VALUE },
             { "palette = xroar\n",    SET_BAD_VALUE },
-            { "colours = datasheet\n", SET_UNKNOWN },
+            { "colours = tv100\n",    SET_UNKNOWN },
+            { "palette = tv120\n",    SET_BAD_VALUE },
+            { "palette = datasheet\n", SET_BAD_VALUE },
             { "turbo = on\n",          SET_UNKNOWN },
             { "boot_disk4 = x.dsk\n",  SET_UNKNOWN },     /* four drives, 0 to 3 */
         };
@@ -478,11 +480,11 @@ int main(void) {
         settings_default(&k);
         CHECK(REWRITE("ram = 64\n", &k) == SET_OK && !strstr(out, "palette"),
               "the primaries, the default, are not written:\n%.*s", (int)out_len, out);
-        k.palette = SETTINGS_PALETTE_DATASHEET;
-        CHECK(REWRITE("ram = 64\n", &k) == SET_OK && strstr(out, "palette = datasheet\n"),
-              "the datasheet's is added:\n%.*s", (int)out_len, out);
+        k.palette = SETTINGS_PALETTE_TV130;
+        CHECK(REWRITE("ram = 64\n", &k) == SET_OK && strstr(out, "palette = tv130\n"),
+              "tv130 is added:\n%.*s", (int)out_len, out);
         k.palette = SETTINGS_PALETTE_PRIMARY;
-        CHECK(REWRITE("palette = datasheet\n", &k) == SET_OK && IS("palette = primary\n"),
+        CHECK(REWRITE("palette = tv100\n", &k) == SET_OK && IS("palette = primary\n"),
               "the primaries, in place:\n%.*s", (int)out_len, out);
     }
 
