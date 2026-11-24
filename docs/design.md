@@ -1886,9 +1886,12 @@ SRAM tier has left (HW §9.8) before its size is a constant.
 **The SmartWatch** sits at $FF78–$FF7F (§12.7), across the Multi-Pak's
 register and the Speech/Sound Cartridge's ports. `clock_bb`, the other
 OS-9 module that reads a DS1216, finds it at $FF5C behind a Multi-Pak
-slot that it selects through $FF7F (§12.7). M17 reads `clock_bb` off
-the module and settles where the SmartWatch answers with a Multi-Pak
-fitted; without one, it stays where `clock_tc3` finds it.
+slot that it selects through $FF7F (§12.7). **With a Multi-Pak, the
+SmartWatch goes where `clock_bb` finds it** (the owner, 2026-11-24):
+behind a slot's SCS, out of the way of $FF7A–$FF7F. M17 reads
+`clock_bb` off the module for the address and the slot before it is
+built; without a Multi-Pak, the SmartWatch stays where `clock_tc3`
+finds it.
 
 **Settings and the menu.** `cart = mpi`, `slot1` to `slot4`, each a
 cartridge file, `RS-DOS` or, from M18 and M19, `SSC`, `ORCH90` and
@@ -1964,11 +1967,15 @@ the pak has no oracle; the 6551 is written from its datasheet and held
 by its own tests, with a planted bug each. Disk BASIC beside it in the
 Multi-Pak and OS-9's driver for it are the software that tells.
 
-Where its bytes go on the PicoCalc is the owner's to choose before M19
-starts: the board's UART is the log's and `uart-type.sh`'s in the
-development builds, and the release build has none (§20, the serial
-ports). Its baud rate is the guest's; bytes are paced to it in
-oscillator ticks, as the tape's edges are (§12.3).
+**Its bytes go to the PicoCalc's USB-C connector** (the owner,
+2026-11-24): GP0 and GP1, UART0's TX and RX, through the carrier's
+CH340C (HW §1). The release build has no debug UART, so UART0 is the
+pak's alone there. The owner's development build puts its log on
+GP2/GP3, which on the RP2350 is UART0 too (HW §1), so one of the two
+moves to a PIO UART in that build; which, is settled in M19 by what each
+costs core 1. Its baud rate is the guest's, up to the 6551's 19,200;
+bytes are paced to it in oscillator ticks, as the tape's edges are
+(§12.3).
 
 ---
 
@@ -2337,7 +2344,7 @@ configuration; once settled, it is a constant.
 | The DS1216 SmartWatch's protocol at $FF78–$FF7F, and its year as the years since 1900 (§12.7) | **M13** (2026-11-17): as Tandy's `clock_tc3` drives it, read off the module, and the datasheet's key and register order as remembered; held by `test_os9` booting it. The address and what "tc3" was are the module's alone | Medium | The DS1216 datasheet; the card `clock_tc3` was written for |
 | The MC6847T1: its glyphs, and GM0 as lower case, GM1 as inverse, GM2 as the border, no SG6, orange for bright orange (§9.2) | **M13** (2026-11-17): XRoar 1.13's model and its ROM, held pixel for pixel by `test_vdg_oracle t1`; OS-9's use of GM0 executed on the host. No CoCo 2B compared, and no T1 datasheet read | Medium | The MC6847T1 datasheet; a photograph of a CoCo 2B's lower case |
 | The Multi-Pak's register at $FF7F, its routing of CTS, SCS, CART, NMI and HALT, and RESET to the front switch (§12.8) | As XRoar 1.13's `mpi.c`, read 2026-11-24 | Medium | The Multi-Pak's service manual and schematic; Disk BASIC and OS-9 executed through it |
-| Where a DS1216 answers behind a Multi-Pak, for `clock_bb` (§12.7, §12.8) | $FF5C in a selected slot, as `clock_bb` reads it; not yet read off the module | Low | `clock_bb` read off the module; the card it was written for |
+| Where a DS1216 answers behind a Multi-Pak, for `clock_bb` (§12.7, §12.8) | $FF5C in a selected slot, as `clock_bb` reads it; not yet read off the module. Chosen as the SmartWatch's place with a Multi-Pak (the owner, 2026-11-24) | Low | `clock_bb` read off the module; the card it was written for |
 | The Speech/Sound Cartridge: its chips, its ports at $FF7D and $FF7E, how the AY is reached, its status bits, its clocks, whether it carries a ROM (§12.9) | From memory | Low | The cartridge's manual and schematic; The Interbank Incident executed on the host |
 | The Orchestra-90's DACs at $FF7A and $FF7B, and its audio beside the multiplexer rather than through it (§12.10) | As XRoar 1.13's `orch90.c`, read 2026-11-24 | Medium | The cartridge's schematic; its ROM executed |
 | The Deluxe RS-232 Program Pak: its 6551 at $FF68–$FF6B, its interrupt, its ROM (§12.11) | From memory | Low | The pak's manual and schematic; its ROM and OS-9's driver read |
