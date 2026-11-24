@@ -69,6 +69,12 @@ function(pico_coco_core_library)
         target_compile_options(pico_coco_core PRIVATE ${PICO_COCO_WARNINGS})
         target_compile_definitions(pico_coco_core PRIVATE
             PICO_COCO_IDX_OUTLINE=${PICO_COCO_IDX_OUTLINE_ON})
+        # The panel's curve (mc6847.c) takes log and pow: glibc keeps them
+        # in libm, which macOS links without being asked. The SDK's own
+        # link brings them on the board.
+        if (PICO_COCO_HOST)
+            target_link_libraries(pico_coco_core PUBLIC m)
+        endif()
     else()
         add_library(pico_coco_core INTERFACE)
         target_include_directories(pico_coco_core INTERFACE src/core)
