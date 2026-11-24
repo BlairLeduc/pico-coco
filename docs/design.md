@@ -1015,6 +1015,24 @@ the old page. Whether a real CoCo shows the segments is in §18.
   table's in all four. Not modelled: the set's phosphors against the
   panel's, and gamma, both small beside the white. The Setup page has
   no row left for the layout's bindings with PALETTE on it (§14).
+
+  **The panel's own curve** (2026-11-23). Judged on the panel, every
+  palette was being seen through a panel far darker in the mid-tones
+  than a computer display (HW §4.12): measured by eye with a temporary
+  panel test page (About, then P; `paneltest.c`), half of full code
+  gives about 4% of the light. `mc6847_curve_t` maps each channel's code
+  to the one giving the light a gamma-2.2 display would, built from the
+  three measured points per channel; the VDG applies it where its drawn
+  palette (`col`) is built and to its own copy of the full artefacts'
+  table, so the border, the text lines, the menu and every palette go
+  through it. Unset, as on the host and in every test but the curve's
+  own, it changes nothing, so the oracle and the goldens stand. The board
+  sets it at start-up; the test page's C switches it, for comparison,
+  and its view shows a grey ramp and the VDG's colours to hold beside
+  another display. `test_mc6847` holds the curve to the measured points,
+  its slope below the quarter, and a curved VDG to the curve of an
+  uncurved one. The white for the TV palettes is to be chosen on the
+  corrected panel.
 - **Artefact colours.** On NTSC machines the two-colour 256-pixel mode
   with the black-and-white colour set shows pairs of pixels as colours,
   and CoCo software draws with them. This fits the row table directly: a
@@ -2134,6 +2152,7 @@ configuration; once settled, it is a constant.
 | The VDG's fetches on a line (§9.2) | **M4**: 42 bytes in the 32-byte modes and 22 in the 16-byte ones, on to the right border, each counted by the SAM; XRoar's VDG | Medium | MC6847 datasheet's timing; a mismatched pair on a real machine |
 | The VDG's address through the multiplexer (§9.2) | **M4**: no page bit P, and the first bank, as XRoar's fetch; only a machine with two banks or P set could tell | Low | MC6883 datasheet |
 | The colours a CoCo's VDG and MC1372 show (§9.5) | `mc6847_palette_tv`: figure 10's typical levels, the MC1372's 100° and equal gains (its datasheet), the saturation from the burst, NTSC's decode (2026-11-23); held at 90° to MAME's capture of a PAL Dragon. White's place, 100, 115 or 130 IRE, is the owner's to choose on the panel | Medium: no capture of an NTSC CoCo; the MC1372's angle is 85–115° from chip to chip | A capture of an NTSC CoCo's composite output; the owner, on the panel |
+| The owner's panel's tone response (§9.5, HW §4.12) | Three points per channel by eye, 2026-11-23: half of full code gives about 4% of the light; corrected through `mc6847_curve_t` | Medium: by eye, with line patterns that may be biased; nothing below a quarter of the light | A colorimeter; the panel's own gamma table from the ST7365P's register format |
 | The VDG's mode pins while PIA1 port B is an input (§9.3) | **M4**: low, as XRoar's PIA has an undriven pin; seen only before BASIC sets the port's direction | Low | Schematics |
 | The DS1216 SmartWatch's protocol at $FF78–$FF7F, and its year as the years since 1900 (§12.7) | **M13** (2026-11-17): as Tandy's `clock_tc3` drives it, read off the module, and the datasheet's key and register order as remembered; held by `test_os9` booting it. The address and what "tc3" was are the module's alone | Medium | The DS1216 datasheet; the card `clock_tc3` was written for |
 | The MC6847T1: its glyphs, and GM0 as lower case, GM1 as inverse, GM2 as the border, no SG6, orange for bright orange (§9.2) | **M13** (2026-11-17): XRoar 1.13's model and its ROM, held pixel for pixel by `test_vdg_oracle t1`; OS-9's use of GM0 executed on the host. No CoCo 2B compared, and no T1 datasheet read | Medium | The MC6847T1 datasheet; a photograph of a CoCo 2B's lower case |

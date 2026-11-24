@@ -47,7 +47,7 @@ static present_t s_present;
 
 /* The owner's panel, measured by eye with paneltest.h on 2026-11-23: the
  * codes, as fractions of full, giving a quarter, a half and three
- * quarters of full light (hardware-notes.md §4.10). Red and blue agreed. */
+ * quarters of full light (hardware-notes.md §4.12). Red and blue agreed. */
 static const double k_panel_rb[3] = { 23.0 / 31, 26.0 / 31, 28.0 / 31 };
 static const double k_panel_g[3]  = { 46.0 / 63, 53.0 / 63, 57.0 / 63 };
 static mc6847_curve_t s_curve;

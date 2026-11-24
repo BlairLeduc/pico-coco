@@ -154,7 +154,7 @@ static inline uint8_t mc6847_glyph_ascii(uint8_t index) {
  * are written for such a display. Built from three points on each
  * channel's curve, the codes that give a quarter, a half and three
  * quarters of full light, as fractions of full (paneltest.h measures
- * them by eye; hardware-notes.md §4.10). */
+ * them by eye; hardware-notes.md §4.12). */
 typedef struct {
     uint8_t r[32], g[64], b[32];
 } mc6847_curve_t;

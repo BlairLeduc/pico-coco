@@ -450,7 +450,7 @@ int main(void) {
 
     /* ---- the panel's curve (§9.5) ---------------------------------------- */
     {
-        /* The owner's panel, by eye (hardware-notes.md §4.10). */
+        /* The owner's panel, by eye (hardware-notes.md §4.12). */
         static const double r[3] = { 23.0 / 31, 26.0 / 31, 28.0 / 31 };
         static const double g[3] = { 46.0 / 63, 53.0 / 63, 57.0 / 63 };
         static mc6847_curve_t c;

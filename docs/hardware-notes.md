@@ -1089,6 +1089,50 @@ pause is a cheap piece of polish and costs one I²C transaction. Read register
 one the user set with the MCU's own Alt chords (§6.3), not one your software
 chose. Use the value only from a read that succeeded.
 
+### 4.12 The panel's tone response
+
+**The panel is far darker in the mid-tones than a computer display.**
+Measured by eye on a Plus 2 W, 2026-11-23, with the gamma and power block
+of §4.4 and RGB565: a code at half of full gives about 4% of full light,
+where a display of gamma 2.2 gives 22%. The colour channels agree with each
+other, so the white balance holds; the fault is the curve. Colours with one
+channel at full and another in the middle lean to the full one: an orange
+of full red and half green looks red.
+
+The gamma and power block of §4.4 is the ILI9488 sample table found in
+TFT_eSPI and drivers derived from it, sent to an ST7365P-class controller.
+Nothing says it was written for this glass, and such tables are known to be
+panel-dependent. A table made for the panel would be the better fix, since
+the present curve spends the top third of the codes on three quarters of
+the light; it needs the controller's gamma register format.
+
+**How it was measured, without an instrument.** A field of one-pixel
+horizontal lines, one, two or three in four at full and the rest at zero,
+is that share of full light whatever the panel's curve; a solid patch in the
+middle is stepped until it matches the lines from arm's length. The codes
+found, as fractions of full:
+
+| Light | Red (of 31) | Green (of 63) | Blue (of 31) | Grey (of 63) |
+|---|---|---|---|---|
+| 25% | 23 (0.74) | 46 (0.73) | 23 (0.74) | 45 (0.71) |
+| 50% | 26 (0.84) | 53 (0.84) | 26 (0.84) | 52 (0.83) |
+| 75% | 28 (0.90) | 57 (0.90) | 28 (0.90) | 56 (0.89) |
+
+Six solid patches at a half, labelled by gamma up to 2.7, had first been
+judged all darker than the lines. The half was the hardest to match, since
+a step of a 5-bit code is a large step in light there. Below a quarter of
+the light nothing was measured, but the six darkest greys (codes 1 to 6 of
+31) were each visible on black, so the curve does not crush the shadows as
+a plain power of 4 would: the bottom is lifted. Lines can be biased by
+light passing between neighbouring rows; nothing here could check that.
+
+**Correcting for it costs nothing per pixel** when the picture is drawn from
+a palette: map each palette entry's channels through the inverse of the
+measured curve when the palette is built, joining the measured points as
+power segments. RGB565 leaves few codes in the steep top of the curve, so
+fine gradients cannot be recovered this way, but a palette of a few colours
+can.
+
 ---
 
 ## 5. Audio

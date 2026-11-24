@@ -30,6 +30,17 @@ chip's dark backgrounds. The host suite passes, 36 of 36; the UART0,
 release and UART1 builds are clean, and the UART0 build was flashed to
 the owner's Plus 2 W.
 
+Then the panel itself (the owner, worried by its colours): its gamma
+table is the ILI9488 sample, never tuned for it. A temporary test page
+measured it by eye, first six patches at a half (all darker than the
+lines), then three points a channel by adjustment: half of full code
+gives about 4% of the light, the channels alike (`hardware-notes.md`
+§4.12). `mc6847_curve_t` corrects every colour drawn for it; two
+planted bugs, an uncurved artefact table and a wrong slope below the
+quarter, each failed `test_mc6847`, the second only after a check of
+the slope was added. Built clean; the flash of that build failed, the
+probe unable to reach the board.
+
 **Not checked:** the palettes on the panel by the owner, which
 chooses the white and the default; a capture of an NTSC CoCo, which
 would settle the MC1372's angle on a real board (85–115° by its
