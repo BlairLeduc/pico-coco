@@ -139,7 +139,7 @@ const char *carts_label(const port_media_t *pm) {
     switch (carts_kind(sm->name)) {
     case CART_NONE:       return pm->mpi ? "MULTI-PAK" : "";
     case CART_RSDOS:      return "DISK CONTROLLER";
-    case CART_SMARTWATCH: return "SMARTWATCH";
+    case CART_SMARTWATCH: return "XT-RTC CLOCK";
     default:              return base_of(sm->name);
     }
 }

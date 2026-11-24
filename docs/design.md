@@ -1834,6 +1834,14 @@ slot's SCS at $FF58–$FF5F, A2 low a bit written, A2 high a bit read.
 SETIME writes the chip through the same path. The base, $FF5C, is a
 word of the module's data at offset $0B.
 
+**What it is** (2026-11-24): most likely the clock of Burke & Burke's
+CoCo XT-RTC, the CoCo XT hard disk interface with a battery-backed
+clock and OS-9 software (CoCopedia; The Rainbow, January 1991): "bb",
+and the same disk's CCHDisk at $FF50–$FF5F, the clock's window. That
+its clock is a DS1216 rests on `clock_bb`'s protocol alone (§18). Only
+the clock is modelled, not the hard disk interface. The pages call it
+XT-RTC CLOCK (the owner, 2026-11-24); the settings keep `smartwatch`.
+
 **It selects slot 4.** The $53's low bits make SCS slot 4, whatever the
 switch says; its bit 4 also turns on the CTS field's low bit while the
 clock is read, which OS-9 Level One, running all from RAM, does not
@@ -2486,6 +2494,7 @@ configuration; once settled, it is a constant.
 | The DS1216 SmartWatch's protocol, and its year as the years since 1900 (§12.7) | **M13** (2026-11-17): as Tandy's `clock_tc3` drives it at $FF78–$FF7F, read off the module, and the datasheet's key and register order as remembered; held by `test_os9` booting it. **2026-11-24**: `clock_bb` drives the same protocol at $FF58–$FF5F; `clock_tc3` dropped by the owner | Medium | The DS1216 datasheet; the card `clock_tc3` was written for |
 | The MC6847T1: its glyphs, and GM0 as lower case, GM1 as inverse, GM2 as the border, no SG6, orange for bright orange (§9.2) | **M13** (2026-11-17): XRoar 1.13's model and its ROM, held pixel for pixel by `test_vdg_oracle t1`; OS-9's use of GM0 executed on the host. No CoCo 2B compared, and no T1 datasheet read | Medium | The MC6847T1 datasheet; a photograph of a CoCo 2B's lower case |
 | The Multi-Pak's register at $FF7F, its routing of CTS, SCS, CART, NMI and HALT, and RESET to the front switch (§12.8) | As XRoar 1.13's `mpi.c`, read 2026-11-24 | Medium | The Multi-Pak's service manual and schematic; Disk BASIC and OS-9 executed through it |
+| The card `clock_bb` was written for: Burke & Burke's CoCo XT-RTC, and its clock a DS1216 (§12.7) | By the name "bb", the hard disk driver beside it at $FF50–$FF5F, and the module's DS1216 protocol; no manual or schematic read | Low | The XT-RTC's manual or board |
 | Where a DS1216 answers behind a Multi-Pak, for `clock_bb` (§12.7, §12.8) | **Read off the module** (2026-11-24): $FF58–$FF5F on SCS, slot 4, which `clock_bb` selects through $FF7F. The card it was written for is not known | Medium | `clock_bb` read off the module; the card it was written for |
 | The Speech/Sound Cartridge: its chips, its ports at $FF7D and $FF7E, how the AY is reached, its status bits, its clocks, whether it carries a ROM (§12.9) | From memory | Low | The cartridge's manual and schematic; The Interbank Incident executed on the host |
 | The Orchestra-90's DACs at $FF7A and $FF7B, and its audio beside the multiplexer rather than through it (§12.10) | As XRoar 1.13's `orch90.c`, read 2026-11-24 | Medium | The cartridge's schematic; its ROM executed |

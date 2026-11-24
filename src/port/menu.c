@@ -426,7 +426,7 @@ static const char *choice_label(int c, unsigned slot) {
     case MENU_CART_NONE:       return "NONE";
     case MENU_CART_RSDOS:      return "DISK CONTROLLER";
     case MENU_CART_MPI:        return "MULTI-PAK";
-    case MENU_CART_SMARTWATCH: return "SMARTWATCH";
+    case MENU_CART_SMARTWATCH: return "XT-RTC CLOCK";
     }
     return base(choice_name(c, slot));
 }
