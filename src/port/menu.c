@@ -478,7 +478,7 @@ static void choice_info(int c, unsigned slot, bool in_mpi, char a[TEXT_COLS], ch
         return;
     case MENU_CART_MPI:
         snprintf(a, TEXT_COLS, "MULTI-PAK: FOUR SLOTS");
-        snprintf(b, TEXT_COLS, "%uK FOR THEIR ROMS", (unsigned)(COCO_CART_POOL / 1024u));
+        snprintf(b, TEXT_COLS, "%uK AVAILABLE FOR ROMS", (unsigned)(COCO_CART_POOL / 1024u));
         return;
     }
     snprintf(a, TEXT_COLS, "%.30s", base(choice_name(c, slot)));
