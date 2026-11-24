@@ -143,22 +143,27 @@ static uint32_t requests(keymatrix_t *k, coco_t *m) {
 }
 
 void core0_power_on(coco_t *m, const machine_t *mc) {
+    const port_media_t *pm = &g_boot.port;
     coco_config_t cfg;
     coco_config_default(&cfg);
     cfg.ram_k = mc->ram_k;
-    /* The RS-DOS cartridge, never in a 4 KB CoCo (roms.h). */
-    bool rsdos = mc->rsdos && mc->cart && g_boot.cart_len > 0 && mc->ram_k >= 16u;
-    cfg.cart = rsdos ? CART_RSDOS : CART_NONE;
-    coco_init(m, &cfg);
+    /* The port as core 1 loaded it (carts.h); the RS-DOS controller never
+     * in a 4 KB CoCo (roms.h), which main.c and the menu see to first. */
+    carts_config(pm, &cfg);
+    if (mc->ram_k < 16u) {
+        if (cfg.cart == CART_RSDOS) cfg.cart = CART_NONE;
+        for (unsigned s = 0; s < COCO_MPI_SLOTS; s++)
+            if (cfg.slot[s] == CART_RSDOS) cfg.slot[s] = CART_NONE;
+    }
+    coco_init(m, &cfg);   /* leaves the pool, where the ROMs are */
     /* Color BASIC 1.1 kept apart for a 4 KB CoCo (roms.h); otherwise the
      * job's image, 1.3 or 1.1 without it. */
     bool use11 = mc->basic == ROM_COCO_BAS11 && g_boot.job.bas11;
     coco_load_rom(m, 0xA000u, use11 ? g_boot.basic11 : g_boot.basic, COCO_ROM_HALF);
     if (mc->extended) coco_load_rom(m, 0x8000u, g_boot.ext, COCO_ROM_HALF);
-    bool cart = mc->cart && g_boot.cart_len > 0;
     /* Disk BASIC is started by Color BASIC's look at $C000, not by the
-     * CART line (§12.2), and coco_load_rom leaves its line off. */
-    if (cart) coco_load_rom(m, 0xC000u, g_boot.cart, g_boot.cart_len);
+     * CART line (§12.2), and its slot leaves the line off. */
+    (void)carts_place(pm, m);
     coco_power_on(m);
     g_c0.resets++;
     tapeio_attach(m);
@@ -169,8 +174,9 @@ void core0_power_on(coco_t *m, const machine_t *mc) {
     coco_audio_set_rate(m, rate_num, rate_den);
 #endif
     g_machine = *mc;
-    g_machine.cart = cart;
-    g_machine.rsdos = rsdos;
+    g_machine.mpi = m->port.mpi;
+    g_machine.cart = m->port.mpi || m->port.slot[0].rom || m->port.slot[0].kind != CART_NONE;
+    g_machine.rsdos = m->port.rsdos_slot >= 0;
 }
 
 /* While the tape's signal runs the guest runs unpaced: the tape is
@@ -204,7 +210,7 @@ static bool apply_ui(coco_t *m) {
         log_printf("  menu         : powered on, %u KB, %s (%s)%s%s\n", mc.ram_k,
                    mc.extended ? "Extended Color BASIC" : "Color BASIC",
                    romset_images[mc.basic].file,
-                   g_machine.cart ? ", cartridge " : "", g_machine.cart ? g_boot.cart_path : "");
+                   g_machine.cart ? ", cartridge " : "", g_machine.cart ? carts_label(&g_boot.port) : "");
         return true;
     }
     return false;

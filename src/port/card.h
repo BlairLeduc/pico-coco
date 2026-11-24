@@ -66,15 +66,16 @@ void card_roms_mounted(card_job_t *job, uint8_t basic[COCO_ROM_HALF], uint8_t ba
  * directory order. The card must be mounted. */
 unsigned card_cart_list(char paths[][COCO_PATH_MAX], unsigned max);
 
-/* A cartridge image into dst, at most 16 KB: a path, or a bare name in
+/* A cartridge image into dst, at most 16 KB and at most max bytes, the
+ * room left in the pool (carts.h): a path, or a bare name in
  * COCO_CART_DIR as the settings file writes it. NULL, or why not. The
  * card must be mounted. */
-const char *card_cart_load(const char *path, uint8_t dst[COCO_CART_SIZE], uint32_t *len);
+const char *card_cart_load(const char *path, uint8_t *dst, uint32_t max, uint32_t *len);
 
 /* The RS-DOS cartridge's ROM, Disk Extended Color BASIC 1.1, into dst
  * from where the job found it, and checked by its SHA-1 again. NULL, or
  * why not. The card must be mounted. */
-const char *card_disk_rom_load(const card_job_t *job, uint8_t dst[COCO_CART_SIZE], uint32_t *len);
+const char *card_disk_rom_load(const card_job_t *job, uint8_t *dst, uint32_t *len);
 
 /* The settings' and the media's word for the RS-DOS cartridge in the
  * cartridge slot (settings.h): `cart = rsdos`. */

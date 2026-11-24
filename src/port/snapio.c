@@ -59,7 +59,10 @@ snap_status_t snapio_save(const coco_t *m, unsigned slot, uint32_t *us) {
     /* The deck and the cartridge as they are, so a load puts them back. */
     memset(&s_media, 0, sizeof s_media);
     tapeio_media(m, &s_media);
-    if (g_machine.cart) snprintf(s_media.cart, sizeof s_media.cart, "%s", g_boot.cart_path);
+    /* The port's one cartridge: a state is refused with a Multi-Pak
+     * (SNAP_MPI, design.md §12.8). */
+    if (g_machine.cart && !g_machine.mpi)
+        snprintf(s_media.cart, sizeof s_media.cart, "%s", g_boot.port.slot[0].name);
     if (g_machine.rsdos) dskio_media(&s_media);
 
     snap_status_t st = SNAP_IO;
@@ -128,6 +131,7 @@ static bool have_rom(rom_id_t r) {
 
 const char *snapio_machine(const coco_t *m, const snap_info_t *info, machine_t *mc, snap_status_t *st) {
     static char why[COCO_TEXT_COLS + 1];
+    (void)m;
     *st = SNAP_NO_ROM;
     if (!info->rom_present[1] || (info->rom[1] != ROM_COCO_BAS13 && info->rom[1] != ROM_COCO_BAS11))
         return "ITS COLOR BASIC IS UNKNOWN";
@@ -140,20 +144,21 @@ const char *snapio_machine(const coco_t *m, const snap_info_t *info, machine_t *
     if (info->cart) {
         *st = SNAP_NO_CART;
         if (!s_media.cart[0]) return "ITS CARTRIDGE IS UNNAMED";
-        /* Straight into g_boot's, which only a power-on reads; on a
-         * failure the running cartridge's image goes back from the
-         * machine's window, where coco_load_rom put it first. */
-        uint32_t len = 0;
-        const char *err = info->rsdos ? card_disk_rom_load(&g_boot.job, g_boot.cart, &len)
-                                      : card_cart_load(s_media.cart, g_boot.cart, &len);
-        if (err) {
-            if (g_machine.cart) memcpy(g_boot.cart, m->cart, g_boot.cart_len);
+        /* Straight into the machine's pool, which the power-on that
+         * follows registers (carts.h); on a failure the running port's
+         * ROMs are read in again, as they were a moment ago. */
+        static port_media_t want;
+        carts_single(&want, info->rsdos ? CARD_RSDOS : s_media.cart);
+        const char *err = carts_load(&want, &g_boot.job);
+        if (err || !want.slot[0].len) {
+            (void)carts_load(&g_boot.port, &g_boot.job);
             snprintf(why, sizeof why, "NO %.24s", base(s_media.cart));
-            log_core1("  snapshot     : its cartridge %s: %s\n", s_media.cart, err);
+            log_core1("  snapshot     : its cartridge %s: %s\n", s_media.cart, err ? err : "?");
             return why;
         }
-        g_boot.cart_len = len;
-        snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s", s_media.cart);
+        g_boot.port = want;
+    } else {
+        carts_single(&g_boot.port, "");
     }
     mc->ram_k = info->ram_k;
     mc->basic = info->rom[1];

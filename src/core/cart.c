@@ -43,12 +43,44 @@ void cart_init(coco_t *m) {
 
 static bool pow2(size_t n) { return n && (n & (n - 1u)) == 0; }
 
+uint32_t cart_room(size_t len) {
+    if (len == 0 || len > COCO_CART_SIZE) return 0;
+    if (!pow2(len)) return COCO_CART_SIZE;
+    return len < COCO_PAGE_SIZE ? COCO_PAGE_SIZE : (uint32_t)len;
+}
+
+void cart_pool_finish(uint8_t *room, size_t len) {
+    uint32_t r = cart_room(len);
+    if (!r) return;
+    if (pow2(len)) {
+        for (uint32_t k = (uint32_t)len; k < r; k += (uint32_t)len) memcpy(room + k, room, len);
+    } else {
+        memset(room + len, 0xFF, r - len);
+    }
+}
+
+/* Slot s's bookkeeping for an image already whole at `at`. */
+static void take(cart_port_t *p, cart_t *c, uint32_t at, uint32_t room) {
+    c->rom_at = at;
+    c->rom_room = room;
+    c->rom = true;
+    if (c->kind == CART_NONE) c->kind = CART_ROM;
+    c->autostart = c->kind == CART_ROM;
+    if (at + room > p->pool_used) p->pool_used = at + room;
+}
+
+bool cart_rom_placed(coco_t *m, unsigned s, uint32_t at, size_t len) {
+    uint32_t room = cart_room(len);
+    if (s >= COCO_MPI_SLOTS || !room || at > COCO_CART_POOL - room) return false;
+    take(&m->port, &m->port.slot[s], at, room);
+    return true;
+}
+
 bool cart_load_rom(coco_t *m, unsigned s, const uint8_t *data, size_t len) {
     cart_port_t *p = &m->port;
-    if (s >= COCO_MPI_SLOTS || len == 0 || len > COCO_CART_SIZE) return false;
+    uint32_t room = cart_room(len);
+    if (s >= COCO_MPI_SLOTS || !room) return false;
     cart_t *c = &p->slot[s];
-    uint32_t room = pow2(len) ? (len < COCO_PAGE_SIZE ? COCO_PAGE_SIZE : (uint32_t)len)
-                              : COCO_CART_SIZE;
     uint32_t at;
     if (c->rom && c->rom_room >= room) {
         at = c->rom_at;   /* its own room again */
@@ -56,18 +88,10 @@ bool cart_load_rom(coco_t *m, unsigned s, const uint8_t *data, size_t len) {
         if (c->rom && c->rom_at + c->rom_room == p->pool_used) p->pool_used = c->rom_at;
         if (p->pool_used + room > COCO_CART_POOL) return false;
         at = p->pool_used;
-        p->pool_used += room;
     }
-    uint8_t *dst = &m->cart[at];
-    memset(dst, 0xFF, room);
-    memcpy(dst, data, len);
-    if (pow2(len))
-        for (uint32_t k = (uint32_t)len; k < room; k += (uint32_t)len) memcpy(dst + k, data, len);
-    c->rom_at = at;
-    c->rom_room = room;
-    c->rom = true;
-    if (c->kind == CART_NONE) c->kind = CART_ROM;
-    c->autostart = c->kind == CART_ROM;
+    memcpy(&m->cart[at], data, len);
+    cart_pool_finish(&m->cart[at], len);
+    take(p, c, at, room);
     return true;
 }
 

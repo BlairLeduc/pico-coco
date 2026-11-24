@@ -24,6 +24,7 @@ void settings_default(settings_t *s) {
     s->dark_bg   = true;        /* the datasheet's backgrounds (§9.5) */
     for (unsigned c = 0; c < VDG_COLOUR_COUNT; c++) s->colour[c] = SETTINGS_COLOUR_NONE;
     s->disk_sounds = true;      /* the drives heard (§10) */
+    s->mpi_switch = 1u + cfg.mpi_switch;   /* slot 4 (§12.8) */
 }
 
 /* strcasecmp is POSIX, not C11. */
@@ -161,7 +162,9 @@ static settings_status_t layout(settings_t *s, const char *v) {
 enum { K_BASIC, K_RAM, K_CART, K_VOLUME, K_PERF, K_STATUS, K_BACKLIGHT, K_LAYOUT, K_FAST_TAPE,
        K_VDG, K_SMARTWATCH, K_DISK_SOUNDS, K_ARTIFACTS, K_ARTIFACT_PHASE, K_BACKGROUND, K_BOOT_TAPE,
        K_BOOT_DISK, K_BOOT_DISK1, K_BOOT_DISK2, K_BOOT_DISK3,
+       K_SLOT1, K_SLOT2, K_SLOT3, K_SLOT4, K_MPI_SWITCH,
        K_COLOUR, K_COUNT = K_COLOUR + VDG_COLOUR_COUNT };
+_Static_assert(K_SLOT4 - K_SLOT1 + 1 == COCO_MPI_SLOTS, "a key for each Multi-Pak slot");
 _Static_assert(K_BOOT_DISK3 - K_BOOT_DISK + 1 == COCO_DISK_DRIVES, "a key for each drive");
 
 /* The keys a pass over the file has seen, one bit each. */
@@ -175,6 +178,7 @@ static const char *const k_names[K_COUNT] = {
     "basic", "ram", "cart", "volume", "perf", "status", "backlight", "layout", "fast_tape",
     "vdg", "smartwatch", "disk_sounds", "artifacts", "artifact_phase", "background", "boot_tape",
     "boot_disk", "boot_disk1", "boot_disk2", "boot_disk3",
+    "slot1", "slot2", "slot3", "slot4", "mpi_switch",
     /* In vdg_colour_t's order. */
     "color_green", "color_yellow", "color_blue", "color_red", "color_buff", "color_cyan",
     "color_magenta", "color_orange", "color_black", "color_dark_green", "color_dark_orange",
@@ -184,9 +188,12 @@ _Static_assert(VDG_COLOUR_COUNT == 14, "a key for each VDG colour");
 
 static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
     bool disk = k >= K_BOOT_DISK && k <= K_BOOT_DISK3;
+    bool slot = k >= K_SLOT1 && k <= K_SLOT4;
     if (k >= K_COLOUR) return colour(v, &s->colour[k - K_COLOUR]);
-    if (!*v && k != K_CART && k != K_BOOT_TAPE && !disk) return SET_SYNTAX;
+    if (!*v && k != K_CART && k != K_BOOT_TAPE && !disk && !slot) return SET_SYNTAX;
     if (disk) return path(v, s->boot_disk[k - K_BOOT_DISK]);
+    if (slot) return path(v, s->slot[k - K_SLOT1]);
+    if (k == K_MPI_SWITCH) return number(v, 1u, COCO_MPI_SLOTS, &s->mpi_switch);
     switch (k) {
     case K_BASIC:     return basic(s, v);
     case K_RAM:       return ram(s, v);
@@ -346,6 +353,9 @@ static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
     case K_BOOT_DISK: case K_BOOT_DISK1: case K_BOOT_DISK2: case K_BOOT_DISK3:
         return same_path(SETTINGS_DISK_DIR, a->boot_disk[k - K_BOOT_DISK],
                          b->boot_disk[k - K_BOOT_DISK]);
+    case K_SLOT1: case K_SLOT2: case K_SLOT3: case K_SLOT4:
+        return same_path(SETTINGS_CART_DIR, a->slot[k - K_SLOT1], b->slot[k - K_SLOT1]);
+    case K_MPI_SWITCH: return a->mpi_switch == b->mpi_switch;
     }
     return true;
 }
@@ -383,6 +393,12 @@ static const char *value_of(unsigned k, const settings_t *s, char num[8]) {
     case K_BOOT_TAPE: return s->boot_tape;
     case K_BOOT_DISK: case K_BOOT_DISK1: case K_BOOT_DISK2: case K_BOOT_DISK3:
         return s->boot_disk[k - K_BOOT_DISK];
+    case K_SLOT1: case K_SLOT2: case K_SLOT3: case K_SLOT4:
+        return s->slot[k - K_SLOT1];
+    case K_MPI_SWITCH:
+        num[0] = (char)('0' + s->mpi_switch % 10u);
+        num[1] = 0;
+        return num;
     }
     return "";
 }

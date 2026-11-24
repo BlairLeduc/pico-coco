@@ -96,6 +96,19 @@ void cart_init(struct coco_s *m);
  * not. False if it does not fit the pool or the window. */
 bool cart_load_rom(struct coco_s *m, unsigned s, const uint8_t *data, size_t len);
 
+/* The room an image of len bytes takes in the pool (above), 0 if it is
+ * too big for the window or empty. */
+uint32_t cart_room(size_t len);
+
+/* An image of len bytes at the start of its room made whole there: $FF
+ * after it, or itself repeated to fill a power-of-two room. */
+void cart_pool_finish(uint8_t *room, size_t len);
+
+/* Slot s's ROM taken as the len bytes already at `at` in the pool, which
+ * cart_pool_finish made whole: an empty slot becomes a CART_ROM. False
+ * if the room is outside the pool. */
+bool cart_rom_placed(struct coco_s *m, unsigned s, uint32_t at, size_t len);
+
 /* Slot s's ROM taken out; a CART_ROM leaves it empty. */
 void cart_remove_rom(struct coco_s *m, unsigned s);
 

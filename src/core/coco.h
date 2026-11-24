@@ -238,6 +238,11 @@ bool     coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len
  * one, as coco_load_rom's at $C000 (cart_load_rom). */
 bool     coco_load_slot_rom(coco_t *m, unsigned s, const uint8_t *data, size_t len);
 
+/* Slot s's ROM, of len bytes, already in the pool at `at`, as the port
+ * put it there with cart_pool_finish before this power-on: coco_init
+ * leaves the pool as it was (cart_rom_placed). */
+bool     coco_slot_rom_placed(coco_t *m, unsigned s, uint32_t at, size_t len);
+
 /* The cartridge taken out: $C000 reads as an empty slot. Power on after. */
 void     coco_cart_remove(coco_t *m);
 

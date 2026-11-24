@@ -304,6 +304,7 @@ else()
         src/port/audio.c
         src/port/board.c
         src/port/card.c
+        src/port/carts.c
         src/port/core0.c
         src/port/core1.c
         src/port/diskio.c

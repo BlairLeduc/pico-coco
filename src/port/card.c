@@ -264,7 +264,7 @@ unsigned card_cart_list(char paths[][COCO_PATH_MAX], unsigned max) {
     return n;
 }
 
-const char *card_disk_rom_load(const card_job_t *job, uint8_t dst[COCO_CART_SIZE], uint32_t *len) {
+const char *card_disk_rom_load(const card_job_t *job, uint8_t *dst, uint32_t *len) {
     const rom_info_t *r = &romset_images[ROM_COCO_DISK11];
     if (!job->disk_path[0]) return "NEEDS DISK11.ROM";
     if (!load_file(job->disk_path, dst, r->size)) return "CANNOT READ DISK11.ROM";
@@ -278,7 +278,7 @@ bool card_is_rsdos(const char *name) {
     return strcasecmp(name, CARD_RSDOS) == 0;
 }
 
-const char *card_cart_load(const char *path, uint8_t dst[COCO_CART_SIZE], uint32_t *len) {
+const char *card_cart_load(const char *path, uint8_t *dst, uint32_t max, uint32_t *len) {
     char full[COCO_PATH_MAX + 16];
     /* A bare name is in /coco/carts/, as the settings file writes it. */
     if (path[0] == '/') snprintf(full, sizeof full, "%s", path);
@@ -290,6 +290,10 @@ const char *card_cart_load(const char *path, uint8_t dst[COCO_CART_SIZE], uint32
     if (size == 0 || size > COCO_CART_SIZE) {
         f_close(f);
         return size ? "OVER 16 KB" : "EMPTY";
+    }
+    if (size > max) {
+        f_close(f);
+        return "NO ROOM IN THE MULTI-PAK";
     }
     UINT got = 0;
     fr = f_read(f, dst, (UINT)size, &got);

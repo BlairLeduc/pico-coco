@@ -530,5 +530,36 @@ int main(void) {
               "off and red, in place:\n%.*s", (int)out_len, out);
     }
 
+    /* ---- the Multi-Pak (§12.8): its slots and switch, saved and read
+     * back; the smartwatch key retired, its line kept as it is. ------- */
+    {
+        CHECK(d.mpi_switch == 4u && !d.slot[0][0] && !d.slot[3][0], "slot 4, empty slots");
+        CHECK(parse(&s, "cart = mpi\nslot1 = game.ccc\nslot3 = rsdos\nslot4 = smartwatch\n"
+                        "mpi_switch = 3\n", &line) == SET_OK,
+              "the Multi-Pak's keys: line %u", line);
+        CHECK(!strcmp(s.cart, "mpi") && !strcmp(s.slot[0], "game.ccc") && !s.slot[1][0] &&
+              !strcmp(s.slot[2], "rsdos") && !strcmp(s.slot[3], "smartwatch") &&
+              s.mpi_switch == 3u, "the slots: %s %s %s %s, switch %u", s.slot[0], s.slot[1],
+              s.slot[2], s.slot[3], s.mpi_switch);
+        CHECK(parse(&s, "mpi_switch = 5\n", &line) == SET_BAD_VALUE && s.mpi_switch == 4u,
+              "switch 5 refused");
+        CHECK(parse(&s, "mpi_switch = 0\n", &line) == SET_BAD_VALUE, "switch 0 refused");
+
+        settings_t m = d;
+        snprintf(m.cart, sizeof m.cart, "mpi");
+        snprintf(m.slot[2], sizeof m.slot[2], "rsdos");
+        snprintf(m.slot[3], sizeof m.slot[3], "smartwatch");
+        m.mpi_switch = 3u;
+        CHECK(REWRITE("smartwatch = on\n", &m) == SET_OK &&
+                  IS("smartwatch = on\ncart = mpi\nslot3 = rsdos\nslot4 = smartwatch\n"
+                     "mpi_switch = 3\n"),
+              "the Multi-Pak saved:\n%.*s", (int)out_len, out);
+        settings_t back;
+        settings_default(&back);
+        CHECK(settings_parse(&back, out, out_len, &line) == SET_OK &&
+                  !strcmp(back.slot[3], "smartwatch") && back.mpi_switch == 3u,
+              "and read back");
+    }
+
     TEST_DONE();
 }

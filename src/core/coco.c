@@ -7,6 +7,7 @@
 
 #include "coco.h"
 
+#include <stddef.h>
 #include <string.h>
 
 #include "bus.h"
@@ -657,8 +658,15 @@ static void joysticks_centre(coco_t *m) {
     m->joy_buttons = 0;
 }
 
+/* The pool of cartridge ROMs is the struct's last member, and coco_init
+ * leaves it: the port reads the slots' ROMs into it before a power-on
+ * and registers them after (coco_slot_rom_placed), with no second copy
+ * (design.md §12.8). */
+_Static_assert(offsetof(coco_t, cart) + sizeof(((coco_t *)0)->cart) == sizeof(coco_t),
+               "the ROM pool is coco_t's last member");
+
 void coco_init(coco_t *m, const coco_config_t *cfg) {
-    memset(m, 0, sizeof(*m));
+    memset(m, 0, offsetof(coco_t, cart));
     m->cfg = *cfg;
     set_ram_org(m);
 
@@ -689,6 +697,12 @@ bool coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len) {
 
 bool coco_load_slot_rom(coco_t *m, unsigned s, const uint8_t *data, size_t len) {
     if (!cart_load_rom(m, s, data, len)) return false;
+    map(m);
+    return true;
+}
+
+bool coco_slot_rom_placed(coco_t *m, unsigned s, uint32_t at, size_t len) {
+    if (!cart_rom_placed(m, s, at, len)) return false;
     map(m);
     return true;
 }

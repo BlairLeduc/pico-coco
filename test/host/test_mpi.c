@@ -209,6 +209,30 @@ static int test_pool(void) {
     return 0;
 }
 
+/* The port's path (§12.8): a ROM read into the pool before the power-on,
+ * which coco_init leaves, then placed: no second copy. */
+static int test_placed(void) {
+    coco_config_t cfg;
+    coco_config_default(&cfg);
+    cfg.cart = CART_MPI;
+    cfg.slot[1] = CART_ROM;
+    cfg.mpi_switch = 1;
+    for (unsigned i = 0; i < 0x1000u; i++) s_m.cart[0x4000u + i] = (uint8_t)(i * 7u);
+    cart_pool_finish(&s_m.cart[0x4000u], 0x1000u);
+    CHECK(cart_room(0x1000u) == 0x1000u && cart_room(0x1800u) == COCO_CART_SIZE &&
+          cart_room(0x80u) == COCO_PAGE_SIZE && cart_room(0x4001u) == 0,
+          "rooms: %u %u %u", cart_room(0x1000u), cart_room(0x1800u), cart_room(0x80u));
+    coco_init(&s_m, &cfg);
+    CHECK(s_m.cart[0x4007u] == 49u, "coco_init cleared the pool");
+    CHECK(coco_slot_rom_placed(&s_m, 1, 0x4000u, 0x1000u), "the placed ROM refused");
+    coco_power_on(&s_m);
+    CHECK(bus_read(&s_m, 0xC007) == 49u && bus_read(&s_m, 0xD007) == 49u,
+          "the placed 4 KB, mirrored: %02X %02X", bus_read(&s_m, 0xC007), bus_read(&s_m, 0xD007));
+    CHECK(!coco_slot_rom_placed(&s_m, 2, COCO_CART_POOL - 0x800u, 0x1000u),
+          "a room past the pool's end taken");
+    return 0;
+}
+
 int main(void) {
     test_cts();
     test_reset();
@@ -219,5 +243,6 @@ int main(void) {
     test_no_mpi();
     test_one_controller();
     test_pool();
+    test_placed();
     TEST_DONE();
 }

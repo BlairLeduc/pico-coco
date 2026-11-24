@@ -1955,7 +1955,7 @@ its chips, 6.6 KB of them the WD1793's track, are the port's `dk`, not
 each slot's, and a second is fitted empty. The ROMs share a pool of
 32 KB, `COCO_CART_POOL`, each in a power of two of room mirrored by the
 page table, any other size in a whole window; the tier 2 UART0 build's
-BSS rose by 16,616 bytes, to leave about 38 KB of its 55 KB. A write
+BSS rose by 16,616 bytes, to leave about 38 KB of its 55 KB, until the port's own copy went (below). A write
 to $FF7F that moves CTS builds the page table again and gives the CART
 line its edge. A save state is refused with a Multi-Pak fitted
 (`SNAP_MPI`), and checked against one as another machine, until the
@@ -1981,6 +1981,24 @@ cartridge file, `RS-DOS`, `SMARTWATCH` or, from M18 and M19, `SSC`,
 `4`. The Machine page's cartridge row gains Multi-Pak, which opens a
 page of four slots and the switch; the status line names the CTS
 slot's cartridge.
+
+**On the device, as built** (2026-11-24, built, not yet run on the
+board): `carts.c` keeps one description of the port, `port_media_t`, in
+the boot report, for the boot, the Machine page and snapshots; core 1
+reads each slot's ROM off the card straight into the machine's pool
+(`carts_load`), with the guest parked, and core 0's power-on, after
+`coco_init`, which now leaves the pool, registers each where it lies
+(`coco_slot_rom_placed`): no second copy (the owner, 2026-11-24). The
+boot report's own 16 KB cartridge buffer went with it, so the UART0
+build's BSS is 407,600 bytes, 3,580 more than before M17, about 51 KB
+left. A load that fails reads the running port's ROMs in again before
+it says why. The settings take `cart = mpi`, `slot1` to `slot4` and
+`mpi_switch` (1 to 4, default 4), held by `test_settings` through a
+save and a read back. The Machine page's CART row gains MULTI-PAK,
+which shows four SLOT rows (none, RS-DOS, SMARTWATCH or the card's
+images) and the SWITCH; choosing the SmartWatch for a slot other than
+4 says `clock_bb` looks in 4, and for 4 says where the time comes from,
+as the Setup row did. The status line names the switch's slot.
 
 **Tested by** `test_mpi`: each line routed, the register read back, a
 CART edge from a slot that is not the CTS slot not seen, NMI and HALT
