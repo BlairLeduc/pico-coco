@@ -11,6 +11,8 @@
 #include "roms.h"
 #include "romset.h"
 
+_Static_assert(COCO_CART_POOL == 0x8000u, "CARTS_NO_ROOM says 32K");
+
 cart_kind_t carts_kind(const char *name) {
     if (!name[0]) return CART_NONE;
     if (card_is_rsdos(name)) return CART_RSDOS;
@@ -59,19 +61,21 @@ const char *carts_load(port_media_t *pm, const card_job_t *job) {
         if (k == CART_RSDOS && rsdos) {
             err = "ONE RS-DOS AT MOST";   /* cart.h */
         } else if (k == CART_RSDOS) {
-            if (COCO_CART_POOL - at < romset_images[ROM_COCO_DISK11].size) err = "NO ROOM";
+            if (COCO_CART_POOL - at < romset_images[ROM_COCO_DISK11].size) err = CARTS_NO_ROOM;
             else err = card_disk_rom_load(job, g_cart_pool + at, &len);
             rsdos = err == NULL;
         } else {
             err = card_cart_load(sm->name, g_cart_pool + at, COCO_CART_POOL - at, &len);
         }
         uint32_t room = err ? 0 : cart_room(len);
-        if (!err && (!room || room > COCO_CART_POOL - at)) err = "NO ROOM IN THE MULTI-PAK";
+        if (!err && (!room || room > COCO_CART_POOL - at)) err = CARTS_NO_ROOM;
         if (err) {
             log_core1("  cart         : %s%u %s: %s; empty\n", pm->mpi ? "slot " : "",
                       pm->mpi ? s + 1u : 0u, sm->name, err);
             if (!first) {
-                snprintf(why, sizeof why, "%.12s: %.18s", sm->name, err);
+                /* Fits the menu's status row: the slot, and the reason. */
+                if (pm->mpi) snprintf(why, sizeof why, "SLOT %u: %.22s", s + 1u, err);
+                else snprintf(why, sizeof why, "%.30s", err);
                 first = why;
             }
             name_slot(sm, "");

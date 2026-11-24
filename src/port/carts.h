@@ -22,6 +22,8 @@
 
 #define CARTS_MPI        "mpi"
 #define CARTS_SMARTWATCH "smartwatch"
+/* Why a ROM that fits the window does not fit what the pool has left. */
+#define CARTS_NO_ROOM    "NO ROOM: 32K FOR ALL"
 
 typedef struct {
     char     name[COCO_PATH_MAX];   /* as above; "" for an empty slot    */

@@ -107,6 +107,7 @@ static dirlist_t      s_disks;
 static unsigned       s_drive;     /* the Disks page's, kept between openings */
 static char           s_disk_dir[COCO_PATH_MAX] = DSKIO_DIR;   /* likewise   */
 static char           s_carts[COCO_CART_LIST_MAX][COCO_PATH_MAX];
+static uint32_t       s_cart_size[COCO_CART_LIST_MAX];   /* bytes, as listed */
 
 static const unsigned k_rams[4] = { 4u, 16u, 32u, 64u };
 
@@ -450,6 +451,83 @@ static bool machine_staged(void) {
     return false;
 }
 
+/* A choice's ROM in bytes: Disk BASIC's 8 KB, an image's file as listed,
+ * or the running one's; 0 for none. */
+static uint32_t choice_size(int c, unsigned slot) {
+    if (c == MENU_CART_RSDOS) return romset_images[ROM_COCO_DISK11].size;
+    if (c < 0) return 0;
+    if (c >= (int)s.n_carts) return g_boot.port.slot[slot].len;
+    return s_cart_size[c];
+}
+
+/* What a choice is, in two lines of up to TEXT_COLS - 1. */
+static void choice_info(int c, unsigned slot, bool in_mpi, char a[TEXT_COLS], char b[TEXT_COLS]) {
+    a[0] = b[0] = 0;
+    uint32_t n = choice_size(c, slot), k = (n + 1023u) / 1024u;
+    switch (c) {
+    case MENU_CART_NONE:
+        snprintf(a, TEXT_COLS, "%s", in_mpi ? "EMPTY" : "NO CARTRIDGE");
+        return;
+    case MENU_CART_RSDOS:
+        snprintf(a, TEXT_COLS, "RS-DOS: DISK BASIC 1.1, 8K ROM");
+        snprintf(b, TEXT_COLS, "NEEDS 16K OR MORE AND EXTENDED");
+        return;
+    case MENU_CART_SMARTWATCH:
+        snprintf(a, TEXT_COLS, "SMARTWATCH: A CLOCK, NO ROM");
+        snprintf(b, TEXT_COLS, "OS-9'S CLOCK_BB LOOKS IN SLOT 4");
+        return;
+    case MENU_CART_MPI:
+        snprintf(a, TEXT_COLS, "MULTI-PAK: FOUR SLOTS");
+        snprintf(b, TEXT_COLS, "%uK FOR THEIR ROMS", (unsigned)(COCO_CART_POOL / 1024u));
+        return;
+    }
+    snprintf(a, TEXT_COLS, "%.30s", base(choice_name(c, slot)));
+    if (n > COCO_CART_SIZE) snprintf(b, TEXT_COLS, "OVER 16K: WILL NOT LOAD");
+    else if (cart_room(n) > n && n >= COCO_PAGE_SIZE)
+        snprintf(b, TEXT_COLS, "%uK ROM, TAKES %uK", (unsigned)k, (unsigned)(cart_room(n) / 1024u));
+    else snprintf(b, TEXT_COLS, "%uK ROM, STARTS ITSELF", (unsigned)k);
+}
+
+/* The Machine page's lines below its rows, from `row`: the choice on the
+ * selected row, or the cartridge's, or with a Multi-Pak the switch's
+ * slot's; and with a Multi-Pak, the room its ROMs take of the pool. */
+static void machine_info(int row) {
+    char a[TEXT_COLS], b[TEXT_COLS], line[TEXT_COLS + 1];
+    bool mpi = mpi_staged();
+    int c = s.st_cart;
+    unsigned k = 0;
+    if (s.machine_sel >= M_SLOT1 && s.machine_sel <= M_SLOT4) k = (unsigned)(s.machine_sel - M_SLOT1);
+    else if (mpi && s.machine_sel != M_CART) k = s.st_switch;
+    if (mpi && s.machine_sel != M_CART) c = s.st_slot[k];
+    choice_info(c, k, mpi && s.machine_sel != M_CART, a, b);
+    if (mpi && s.machine_sel != M_CART) snprintf(line, sizeof line, " %u: %.28s", k + 1u, a);
+    else snprintf(line, sizeof line, " %.30s", a);
+    if (!mpi) {
+        /* Room for the machine, the choice, and a word on the card. */
+        char m[TEXT_COLS + 1];
+        snprintf(m, sizeof m, " = %.28s", machine_name(s.st_ext, k_rams[s.st_ram]));
+        textpage_line(s_scr, row, m, false);
+        textpage_line(s_scr, row + 2, line, false);
+        if (b[0]) {
+            snprintf(line, sizeof line, " %.30s", b);
+            textpage_line(s_scr, row + 3, line, false);
+        }
+        if (!s.card) textpage_line(s_scr, row + 5, " NO CARD: NO CARTRIDGES", false);
+        return;
+    }
+    textpage_line(s_scr, row, line, false);
+    uint32_t used = 0;
+    for (unsigned j = 0; j < COCO_MPI_SLOTS; j++) used += cart_room(choice_size(s.st_slot[j], j));
+    if (s.machine_sel == M_CART) {
+        snprintf(line, sizeof line, " %.30s", b);
+    } else {
+        unsigned u = (unsigned)(used / 1024u), all = (unsigned)(COCO_CART_POOL / 1024u);
+        snprintf(line, sizeof line, used > COCO_CART_POOL ? " ROMS %uK OF %uK: TOO MANY" : " ROMS %uK OF %uK",
+                 u, all);
+    }
+    textpage_line(s_scr, row + 1, line, false);
+}
+
 static void draw_machine(void) {
     char line[TEXT_COLS + 1];
     int row = ROW_TOP;
@@ -482,22 +560,7 @@ static void draw_machine(void) {
         }
         textpage_line(s_scr, row++, line, i == s.machine_sel);
     }
-    snprintf(line, sizeof line, " = %.28s", machine_name(s.st_ext, k_rams[s.st_ram]));
-    textpage_line(s_scr, row + 1, line, false);
-    if (mpi_staged()) {
-        /* Room for one line: OS-9's clock_bb wants the SmartWatch in 4
-         * (§12.7). */
-        textpage_line(s_scr, row + 2, " - OS-9'S CLOCK: SMARTWATCH IN 4", false);
-        return;
-    }
-    const int M_SHOWN = row - ROW_TOP;
-    textpage_line(s_scr, ROW_TOP + M_SHOWN + 3, " - THE PROGRAM IN MEMORY IS", false);
-    textpage_line(s_scr, ROW_TOP + M_SHOWN + 4, "   LOST ON RESTART.", false);
-    textpage_line(s_scr, ROW_TOP + M_SHOWN + 5, " - A CARTRIDGE STARTS ITSELF,", false);
-    textpage_line(s_scr, ROW_TOP + M_SHOWN + 6, "   FROM /COCO/CARTS/.", false);
-    textpage_line(s_scr, ROW_TOP + M_SHOWN + 7, " - RS-DOS IS DISK BASIC: 16K OR", false);
-    textpage_line(s_scr, ROW_TOP + M_SHOWN + 8, "   MORE, EXTENDED, DISK11.ROM.", false);
-    if (!s.card) textpage_line(s_scr, ROW_TOP + M_SHOWN + 9, " - NO CARD: NO CARTRIDGES.", false);
+    machine_info(row + 1);
 }
 
 static void about_rom(int row, rom_id_t id) {
@@ -697,7 +760,7 @@ static void open_machine(void) {
     s.machine_sel = M_BASIC;
     s.st_ext = g_machine.extended;
     s.st_ram = ram_index(g_machine.ram_k);
-    s.n_carts = s.card ? card_cart_list(s_carts, COCO_CART_LIST_MAX) : 0;
+    s.n_carts = s.card ? card_cart_list(s_carts, s_cart_size, COCO_CART_LIST_MAX) : 0;
     /* The running port among the card's; an image the card no longer
      * lists is offered as itself, after them (choice_of). */
     const port_media_t *pm = &g_boot.port;

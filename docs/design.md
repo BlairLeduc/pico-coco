@@ -1997,7 +1997,14 @@ save and a read back. The Machine page's CART row gains MULTI-PAK,
 which shows four SLOT rows (none, RS-DOS, SMARTWATCH or the card's
 images) and the SWITCH; choosing the SmartWatch for a slot other than
 4 says `clock_bb` looks in 4, and for 4 says where the time comes from,
-as the Setup row did. The status line no longer names the cartridge
+as the Setup row did. The page's help text gave way (the owner,
+2026-11-24) to what the selected row's choice is: an image's name and
+ROM size, and whether it takes more room than its size, Disk BASIC's
+8K, the SmartWatch's clock and no ROM; with a Multi-Pak, the room the
+staged ROMs take of the 32K, and "TOO MANY" before Apply is pressed. A
+slot that will not load says which, "SLOT 3: NO ROOM: 32K FOR ALL", as
+the owner's test of four games found it did not. The status line no
+longer names the cartridge
 at all (the owner, 2026-11-24): the tape on the left, and the drive at
 work on the right.
 

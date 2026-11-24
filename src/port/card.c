@@ -249,7 +249,7 @@ static bool cart_name(const char *name) {
     return strcmp(e, "ccc") == 0 || strcmp(e, "rom") == 0;
 }
 
-unsigned card_cart_list(char paths[][COCO_PATH_MAX], unsigned max) {
+unsigned card_cart_list(char paths[][COCO_PATH_MAX], uint32_t *sizes, unsigned max) {
     unsigned n = 0;
     if (f_opendir(&s_dir, COCO_CART_DIR) != FR_OK) return 0;
     while (n < max && f_readdir(&s_dir, &s_info) == FR_OK && s_info.fname[0]) {
@@ -258,6 +258,7 @@ unsigned card_cart_list(char paths[][COCO_PATH_MAX], unsigned max) {
         if (!cart_name(s_info.fname)) continue;
         if (snprintf(paths[n], COCO_PATH_MAX, "%s/%s", COCO_CART_DIR, s_info.fname) >= (int)COCO_PATH_MAX)
             continue;
+        if (sizes) sizes[n] = (uint32_t)s_info.fsize;
         n++;
     }
     f_closedir(&s_dir);
@@ -293,7 +294,7 @@ const char *card_cart_load(const char *path, uint8_t *dst, uint32_t max, uint32_
     }
     if (size > max) {
         f_close(f);
-        return "NO ROOM IN THE MULTI-PAK";
+        return "NO ROOM: 32K FOR ALL";   /* CARTS_NO_ROOM */
     }
     UINT got = 0;
     fr = f_read(f, dst, (UINT)size, &got);

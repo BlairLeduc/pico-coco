@@ -63,8 +63,9 @@ void card_roms_mounted(card_job_t *job, uint8_t basic[COCO_ROM_HALF], uint8_t ba
                        uint8_t ext[COCO_ROM_HALF]);
 
 /* Cartridge images in COCO_CART_DIR, .ccc or .rom, up to max, in
- * directory order. The card must be mounted. */
-unsigned card_cart_list(char paths[][COCO_PATH_MAX], unsigned max);
+ * directory order, and each file's size into sizes unless it is NULL.
+ * The card must be mounted. */
+unsigned card_cart_list(char paths[][COCO_PATH_MAX], uint32_t *sizes, unsigned max);
 
 /* A cartridge image into dst, at most 16 KB and at most max bytes, the
  * room left in the pool (carts.h): a path, or a bare name in
