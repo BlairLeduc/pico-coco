@@ -68,9 +68,11 @@ enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_POWER, I_SAVE, 
        I_ABOUT, I_COUNT };
 
 enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_VDG, D_ARTEFACTS, D_PHASE,
-       D_CLOCK, D_DISK_SOUNDS, D_COUNT };
+       D_BACKGROUND, D_CLOCK, D_DISK_SOUNDS, D_COUNT };
 _Static_assert(ROW_TOP + I_COUNT + 2 <= ROW_STATUS, "the main page's rows fit");
-_Static_assert(ROW_TOP + D_COUNT < ROW_STATUS, "the Setup page's rows fit");
+/* The layout's bindings go below the rows, as many as there is room
+ * for: with the background's row, none. */
+_Static_assert(ROW_TOP + D_COUNT <= ROW_STATUS, "the Setup page's rows fit");
 
 /* The Tapes page: three things to do with the deck, then the card's
  * tapes. */
@@ -331,6 +333,10 @@ static void draw_setup(void) {
                 snprintf(line, sizeof line, " PHASE           < %s >", now);
             break;
         }
+        case D_BACKGROUND:
+            /* pico-atom's: the datasheet's dark green or orange, or black (§9.5). */
+            snprintf(line, sizeof line, " BACKGROUND      < %s >", g_ui.dark_bg ? "DARK" : "BLACK");
+            break;
         case D_CLOCK:
             /* A DS1216 at $FF78-$FF7F, for OS-9's clock_tc3 (rtc.h). */
             snprintf(line, sizeof line, " SMARTWATCH      < %s >", on_off(g_ui.smartwatch));
@@ -674,6 +680,7 @@ static void save_settings(void) {
     out.vdg_t1 = g_ui.vdg_t1;
     out.artefacts = g_ui.artefacts;
     out.artefact_phase = g_ui.artefact_phase;
+    out.dark_bg = g_ui.dark_bg;
     out.smartwatch = g_ui.smartwatch;
     out.disk_sounds = g_ui.disk_sounds;
     /* A layout a loaded file chose is not the user's choice, so the file
@@ -1135,6 +1142,11 @@ static void key_setup(uint8_t c) {
         }
         log_core1("  setup        : artifact phase %s\n",
                   settings_phase_str(g_ui.artefact_phase));
+        break;
+    case D_BACKGROUND:
+        g_ui.dark_bg = !g_ui.dark_bg;
+        display_set_dark_bg(g_ui.dark_bg);
+        log_core1("  setup        : background %s\n", g_ui.dark_bg ? "dark" : "black");
         break;
     case D_DISK_SOUNDS:
         g_ui.disk_sounds = !g_ui.disk_sounds;

@@ -4,6 +4,77 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## The VDG's colours, the panel's curve and the dark backgrounds
+
+On branch `vdg-colours`, from #22, 2026-11-23 to 2026-11-24
+(`design.md` §9.5, §12.6, §18). The owner found orange too red and cyan
+too light a blue on the panel, asked whether pico-atom's colours had
+been checked (they had not: only which colour a byte selects, and the
+mono levels), and then asked for an accurate recreation.
+
+**The TV palettes, built and set aside.** A first palette from the
+MC6847's voltages, with the modulator's gain as the saturation, was
+built, flashed and replaced: it fed the colour differences in as Pb and
+Pr, and drew the text screen's orange, which has white's luminance, as
+graphics orange. The owner remembered MAME's text screen (amber on a
+dark brown) better; MAME's palette is a 2019 capture of a PAL Dragon.
+The model then followed the MC6847 and MC1372 datasheets, the burst for
+the saturation and NTSC's decode; run at the Dragon's 90° and fitting
+only the capture card's levels, it gave most of the capture's hues
+within 3°. Three tables, white at 100, 115 and 130 IRE, were generated
+by a script and derived again in `test_mc6847` (a planted text orange
+failed it), chosen by a `palette` setting. On the corrected panel, on
+2026-11-24, the owner preferred the primaries for their saturation and
+found the TV palettes short of contrast; the tables, the script and the
+setting were removed (commit `ca86999` has them).
+
+**The panel.** Its gamma table is the ILI9488 sample, never tuned for
+it. A temporary test page measured it by eye, first six patches at a
+half (all darker than the lines), then three points a channel by
+adjustment: half of full code gives about 4% of the light, the channels
+alike (`hardware-notes.md` §4.12). `mc6847_curve_t` corrects every
+colour drawn for it; two planted bugs, an uncurved artefact table and a
+wrong slope below the quarter, each failed `test_mc6847`, the second
+only after a check of the slope was added. With the correction on, the
+owner went through the twelve tests three times on 2026-11-23 and moved
+no patch: each matched at its gamma-2.2 code (`out/panel/run2.log`).
+The test page was then removed.
+
+**Kept.** The primaries, through the curve. `background = dark | black`
+and Setup's BACKGROUND, pico-atom's choice, dark by default; and the
+optional `color_` keys, one for each of the fourteen colours as six hex
+digits, which the menu never shows and a save keeps as written. An
+empty colour, which `#00FF00` leaves, is refused, and on a save made a
+comment if no colour is in force. `test_settings` and `test_mc6847`
+cover both; three planted bugs (two key names swapped, the key masks
+cut to 32 bits, a refused colour left in place) each failed
+`test_settings`. The host suite passes, 36 of 36; the UART0, release
+and UART1 builds are clean.
+
+Then cyan: on the panel the owner found it still too light a blue and
+gave a swatch, picked on a computer display, $41AF71; it replaced
+$00FFFF in `mc6847_palette`. Nine goldens changed, each in its cyan
+pixels alone ($00FFFF to $42AE73, the swatch in RGB565), checked pixel
+by pixel and looked at. Seen on the panel, the owner asked for more
+saturation in cyan and graphics orange, and a dark orange behind the
+text nearer a dark red: cyan $12AF56, orange $FF6000 and dark orange
+$601400 (from $402000). Ten goldens changed, in cyan and orange pixels
+alone; the dark orange is in none, the goldens drawing black
+backgrounds. On the panel the dark orange was still too bright and too green:
+$440400. The dark green ($004000) was then three times its luminance,
+where the chip gives both black's; stepped down to $002C00 to be seen
+beside it in the menu. Cyan, still short of saturation: $00B850, the
+same hue with no red, a little brighter.
+
+**Checked on the panel** by the owner, 2026-11-24, on the Plus 2 W
+with the UART0 build: the primaries through the curve, the dark
+backgrounds, and the four colours above, each settled by eye; the owner
+may tune them further with use, through the `color_` keys or here. The
+release and UART1 builds are clean.
+
+**Not checked:** the `color_` keys on the board; anything below a quarter of the light, where the curve is
+carried down unmeasured; a capture of an NTSC CoCo.
+
 ## Sea Dragon's stray dots and lines
 
 On branch `sea-dragon`, from #21, 2026-11-23 (`design.md` §9.4, §18).

@@ -33,6 +33,10 @@ int main(void) {
         CHECK(d.disk_sounds, "the drives heard (§10)");
         CHECK(d.artefacts == SETTINGS_ARTEFACTS_SIMPLE && d.artefact_phase == SETTINGS_PHASE_BLUE,
               "simple artefacts, blue (§9.5)");
+        CHECK(d.dark_bg, "text on its dark background (§9.5)");
+        bool none = true;
+        for (unsigned c = 0; c < VDG_COLOUR_COUNT; c++) none &= d.colour[c] == SETTINGS_COLOUR_NONE;
+        CHECK(none, "every colour the VDG's own");
     }
 
     /* ---- an empty file, and one of comments, change nothing ----------- */
@@ -89,7 +93,20 @@ int main(void) {
     CHECK(parse(&s, "artifacts = simple\nartifact_phase = blue\n", &line) == SET_OK &&
           s.artefacts == SETTINGS_ARTEFACTS_SIMPLE && s.artefact_phase == SETTINGS_PHASE_BLUE,
           "artifacts = simple, artifact_phase = blue");
+    CHECK(parse(&s, "background = Black\n", &line) == SET_OK && !s.dark_bg, "background = black");
+    CHECK(parse(&s, "background = dark\n", &line) == SET_OK && s.dark_bg, "background = dark");
     CHECK(parse(&s, "vdg = 6847\n", &line) == SET_OK && !s.vdg_t1, "vdg = 6847");
+    {
+        /* The colours: hex, bare or after $ or 0x, either case; the
+         * first and last keys, so the table's order is held. */
+        settings_default(&s);
+        CHECK(parse(&s, "color_green = 10dd00\ncolor_artifact_red = $FF4000\n"
+                        "COLOR_Text_Orange = 0xffb300   # warmer\n", &line) == SET_OK &&
+                  s.colour[VDG_GREEN] == 0x10DD00u && s.colour[VDG_ARTEFACT_RED] == 0xFF4000u &&
+                  s.colour[VDG_BRIGHT_ORANGE] == 0xFFB300u && s.colour[VDG_YELLOW] == SETTINGS_COLOUR_NONE,
+              "color_ keys: %06X %06X %06X", s.colour[VDG_GREEN], s.colour[VDG_ARTEFACT_RED],
+              s.colour[VDG_BRIGHT_ORANGE]);
+    }
     CHECK(parse(&s, "layout = Standard\n", &line) == SET_OK && !s.layout[0], "layout = standard");
     for (unsigned k = 0; k < 4; k++) {
         static const char *const t[] = { "ram = 4\n", "ram = 16\n", "ram = 32\n", "ram = 64\n" };
@@ -146,6 +163,15 @@ int main(void) {
             { "artifacts = on\n",      SET_BAD_VALUE },
             { "artefacts = full\n",    SET_UNKNOWN },     /* the CoCo's spelling */
             { "artifact_phase = orange\n", SET_BAD_VALUE },
+            { "background = grey\n",   SET_BAD_VALUE },
+            { "color_green = 0F0\n",   SET_BAD_VALUE },     /* six digits */
+            { "color_green = 00FF000\n", SET_BAD_VALUE },
+            { "color_green = 00FG00\n", SET_BAD_VALUE },
+            { "color_green = #00FF00\n", SET_BAD_VALUE },   /* # starts a comment */
+            { "color_green =\n",       SET_BAD_VALUE },
+            { "colour_green = 00FF00\n", SET_UNKNOWN },     /* the CoCo's spelling */
+            { "color_purple = 800080\n", SET_UNKNOWN },
+            { "palette = tv115\n",     SET_UNKNOWN },     /* the TV colours, judged and gone */
             { "turbo = on\n",          SET_UNKNOWN },
             { "boot_disk4 = x.dsk\n",  SET_UNKNOWN },     /* four drives, 0 to 3 */
         };
@@ -254,6 +280,45 @@ int main(void) {
                   strstr(out, "cart = /coco/carts/poltergeist.ccc\n"),
               "a cartridge the file lacked is added after the user's lines:\n%.*s", (int)out_len,
               out);
+    }
+
+    /* The background: a default left unsaid, a change written. */
+    {
+        settings_default(&s);
+        CHECK(REWRITE("ram = 64\n", &s) == SET_OK && IS("ram = 64\n"),
+              "the dark background is not written:\n%.*s", (int)out_len, out);
+        s.dark_bg = false;
+        CHECK(REWRITE("ram = 64\n", &s) == SET_OK && IS("ram = 64\nbackground = black\n"),
+              "a black background is:\n%.*s", (int)out_len, out);
+        CHECK(REWRITE("background = black # mine\n", &d) == SET_OK &&
+                  IS("background = dark  # mine\n"),
+              "and changed in place:\n%.*s", (int)out_len, out);
+    }
+
+    /* The colours, which only the file sets: a save keeps each line as
+     * written, adds none, and the 64-bit key masks see a duplicate past
+     * the 32nd key. */
+    {
+        const char *file = "color_orange = ff8000   # mine\nram = 64\ncolor_artifact_red = $FF4000\n";
+        settings_default(&s);
+        CHECK(settings_parse(&s, file, strlen(file), &line) == SET_OK, "colours setup");
+        s.ram_k = 32u;
+        CHECK(REWRITE(file, &s) == SET_OK &&
+                  IS("color_orange = ff8000   # mine\nram = 32\ncolor_artifact_red = $FF4000\n"),
+              "colours kept as written:\n%.*s", (int)out_len, out);
+        s.colour[VDG_ORANGE] = 0xFFA000u;
+        CHECK(REWRITE(file, &s) == SET_OK &&
+                  IS("color_orange = FFA000   # mine\nram = 32\ncolor_artifact_red = $FF4000\n"),
+              "a changed colour in place:\n%.*s", (int)out_len, out);
+        /* A refused colour with none in force: kept, as a comment. */
+        settings_default(&s);
+        CHECK(REWRITE("color_green = #00FF00\nram = 64\n", &s) == SET_OK &&
+                  IS("# color_green = #00FF00\nram = 64\n"),
+              "a refused colour made a comment:\n%.*s", (int)out_len, out);
+        const char *twice = "color_artifact_red = FF4000\ncolor_artifact_red = FF0000\n";
+        settings_default(&s);
+        CHECK(settings_parse(&s, twice, strlen(twice), &line) == SET_DUPLICATE && line == 2,
+              "the last key given twice");
     }
 
     /* status and backlight, as the siblings have them: a backlight of 0

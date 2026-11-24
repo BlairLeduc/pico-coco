@@ -8,6 +8,7 @@
 
 #include "mc6847.h"
 
+#include <math.h>
 #include <string.h>
 
 #define RGB565(r, g, b) \
@@ -23,21 +24,31 @@ const uint16_t mc6847_palette[VDG_COLOUR_COUNT] = {
     [VDG_BLUE]    = RGB565(0x00, 0x00, 0xFF),
     [VDG_RED]     = RGB565(0xFF, 0x00, 0x00),
     [VDG_BUFF]    = RGB565(0xFF, 0xFF, 0xFF),
-    [VDG_CYAN]    = RGB565(0x00, 0xFF, 0xFF),
+    [VDG_CYAN]    = RGB565(0x00, 0xB8, 0x50),   /* the owner's, 2026-11-24 (§9.5) */
     [VDG_MAGENTA] = RGB565(0xFF, 0x00, 0xFF),
-    [VDG_ORANGE]  = RGB565(0xFF, 0x80, 0x00),
+    [VDG_ORANGE]  = RGB565(0xFF, 0x60, 0x00),   /* the owner's, 2026-11-24 (§9.5) */
     [VDG_BLACK]   = RGB565(0x00, 0x00, 0x00),
-    /* The datasheet gives no level for either; a quarter of the ink. */
-    [VDG_DARK_GREEN]    = RGB565(0x00, 0x40, 0x00),
-    [VDG_DARK_ORANGE]   = RGB565(0x40, 0x20, 0x00),
+    /* The datasheet gives no level for either: each the owner's on the
+     * panel, the chip's dark green and dark red (§9.5). */
+    [VDG_DARK_GREEN]    = RGB565(0x00, 0x2C, 0x00),   /* the owner's, 2026-11-24 */
+    [VDG_DARK_ORANGE]   = RGB565(0x44, 0x04, 0x00),   /* the owner's, 2026-11-24 */
     [VDG_BRIGHT_ORANGE] = RGB565(0xFF, 0x80, 0x00),
     [VDG_ARTEFACT_BLUE] = RGB565(0x00, 0x80, 0xFF),
     [VDG_ARTEFACT_RED]  = RGB565(0xFF, 0x80, 0x00),
 };
 
+void mc6847_palette_over(uint16_t out[VDG_COLOUR_COUNT], const uint32_t over[VDG_COLOUR_COUNT]) {
+    for (unsigned c = 0; c < VDG_COLOUR_COUNT; c++) {
+        uint32_t x = over[c];
+        out[c] = x > 0xFFFFFFu ? mc6847_palette[c]
+                               : RGB565((x >> 16) & 0xFFu, (x >> 8) & 0xFFu, x & 0xFFu);
+    }
+}
+
 /* The luminance output alone (§9.5). The datasheet's Y levels are 0.72 V
  * for black, 0.65 V for blue and red, 0.54 V for green, cyan, magenta and
- * orange, and 0.42 V for yellow and buff; lower is brighter. Scaled so
+ * orange, and 0.42 V for yellow, buff and the text screen's orange;
+ * lower is brighter. Scaled so
  * black is black and 0.42 V white. A monochrome set has no artefacts, so
  * their entries are never drawn. */
 #define GREY(y_mv) RGB565((720u - (y_mv)) * 255u / 300u, (720u - (y_mv)) * 255u / 300u, \
@@ -54,7 +65,7 @@ const uint16_t mc6847_palette_mono[VDG_COLOUR_COUNT] = {
     [VDG_BLACK]   = GREY(720u),
     [VDG_DARK_GREEN]    = GREY(720u),
     [VDG_DARK_ORANGE]   = GREY(720u),
-    [VDG_BRIGHT_ORANGE] = GREY(540u),
+    [VDG_BRIGHT_ORANGE] = GREY(420u),
     [VDG_ARTEFACT_BLUE] = GREY(720u),
     [VDG_ARTEFACT_RED]  = GREY(720u),
 };
@@ -100,19 +111,23 @@ static bool artefacts_shown(const mc6847_t *v) {
            (v->mode & (VDG_AG | VDG_GM_MASK | VDG_CSS)) == (VDG_AG | VDG_GM_MASK | VDG_CSS);
 }
 
+static void build_art5(mc6847_t *v);
+
 static void build_lut(mc6847_t *v) {
-    for (unsigned c = 0; c < VDG_COLOUR_COUNT; c++) v->col[c] = v->pal[c];
+    for (unsigned c = 0; c < VDG_COLOUR_COUNT; c++)
+        v->col[c] = mc6847_curve_apply(v->curve, v->pal[c]);
     if (!v->dark_bg) {
-        v->col[VDG_DARK_GREEN] = v->pal[VDG_BLACK];
-        v->col[VDG_DARK_ORANGE] = v->pal[VDG_BLACK];
+        v->col[VDG_DARK_GREEN] = v->col[VDG_BLACK];
+        v->col[VDG_DARK_ORANGE] = v->col[VDG_BLACK];
         /* The full artefacts know black by its colour, and XRoar's
          * renderer does not take the dark backgrounds for black: a
          * shade apart, the lowest bit of green or red. */
         if (mc6847_artefacts_full(v)) {
-            v->col[VDG_DARK_GREEN] = (uint16_t)(v->pal[VDG_BLACK] ^ 0x0020u);
-            v->col[VDG_DARK_ORANGE] = (uint16_t)(v->pal[VDG_BLACK] ^ 0x0800u);
+            v->col[VDG_DARK_GREEN] = (uint16_t)(v->col[VDG_BLACK] ^ 0x0020u);
+            v->col[VDG_DARK_ORANGE] = (uint16_t)(v->col[VDG_BLACK] ^ 0x0800u);
         }
     }
+    build_art5(v);
     v->lut_valid = true;
 
     const mc6847_mode_info_t *info = mc6847_mode_info(v->mode);
@@ -184,6 +199,61 @@ void mc6847_set_font(mc6847_t *v, const uint8_t *font) {
 
 void mc6847_set_t1(mc6847_t *v, const uint8_t *font_t1) {
     v->font_t1 = font_t1;
+}
+
+/* ---- the panel's response (§9.5) --------------------------------------- */
+
+double mc6847_curve_light(const double q[3], double f) {
+    static const double share[3] = { 0.25, 0.5, 0.75 };
+    double pf[5] = { 0.0, q[0], q[1], q[2], 1.0 }, pl[5] = { 0.0, share[0], share[1], share[2], 1.0 };
+    if (f <= 0.0) return 0.0;
+    if (f >= 1.0) return 1.0;
+    unsigned s = 1u;
+    while (s < 4u && f > pf[s + 1u]) s++;
+    /* The segment from point s to s + 1 as a power; below the quarter,
+     * the next segment's power, carried down. */
+    unsigned a = s, b = s + 1u;
+    if (f < pf[1]) { a = 1u; b = 2u; }
+    double g = log(pl[b] / pl[a]) / log(pf[b] / pf[a]);
+    return pl[a] * pow(f / pf[a], g);
+}
+
+/* One channel's table: for each code, the code whose light on the panel
+ * is nearest, as a display of gamma 2.2 would see it, to what the code
+ * gives on such a display. Never falling, 0 to 0 and full to full. */
+static void curve_channel(uint8_t *t, unsigned m, const double q[3]) {
+    unsigned prev = 0;
+    for (unsigned i = 0; i <= m; i++) {
+        double want = (double)i / (double)m;
+        unsigned best = prev;
+        double bd = 2.0;
+        for (unsigned o = prev; o <= m; o++) {
+            double d = fabs(pow(mc6847_curve_light(q, (double)o / (double)m), 1.0 / 2.2) - want);
+            if (d < bd) { bd = d; best = o; }
+        }
+        if (i == 0) best = 0;
+        if (i == m) best = m;
+        t[i] = (uint8_t)best;
+        prev = best;
+    }
+}
+
+void mc6847_curve_build(mc6847_curve_t *c, const double r[3], const double g[3],
+                        const double b[3]) {
+    curve_channel(c->r, 31u, r);
+    curve_channel(c->g, 63u, g);
+    curve_channel(c->b, 31u, b);
+}
+
+uint16_t mc6847_curve_apply(const mc6847_curve_t *c, uint16_t x) {
+    if (!c) return x;
+    return (uint16_t)(c->r[x >> 11] << 11 | c->g[(x >> 5) & 63u] << 5 | c->b[x & 31u]);
+}
+
+void mc6847_set_curve(mc6847_t *v, const mc6847_curve_t *c) {
+    if (c == v->curve) return;
+    v->curve = c;
+    build_lut(v);
 }
 
 void mc6847_set_palette(mc6847_t *v, const uint16_t *pal) {
@@ -356,6 +426,11 @@ static const uint16_t art5[2][32] = {
     },
 };
 
+static void build_art5(mc6847_t *v) {
+    for (unsigned p = 0; p < 2u; p++)
+        for (unsigned i = 0; i < 32u; i++) v->art5[p][i] = mc6847_curve_apply(v->curve, art5[p][i]);
+}
+
 void mc6847_artefact_line(const mc6847_t *v, uint16_t *px, uint16_t left, uint16_t right) {
     if (!mc6847_artefacts_full(v)) return;
     const uint16_t black = v->col[VDG_BLACK], white = v->col[VDG_BUFF];
@@ -375,13 +450,13 @@ void mc6847_artefact_line(const mc6847_t *v, uint16_t *px, uint16_t left, uint16
     }
     /* With no buff on the line or beside it, the table gives black for
      * black: nothing changes where black is drawn as the table's. */
-    if (!any && !(fl & 1u) && !(fr & 1u) && black == art5[0][0]) return;
+    if (!any && !(fl & 1u) && !(fr & 1u) && black == v->art5[0][0]) return;
     unsigned p = vdg_artefact_krbw(v->artefact) ? 1u : 0u;
     unsigned idx = (f[0] & 1u) << 3 | (f[1] & 1u) << 2 | (f[2] & 1u) << 1 | (f[3] & 1u);
     for (unsigned x = 0; x < COCO_PIC_W; x++) {
         /* f[x + 2] is pixel x: the window is f[x .. x + 4]. */
         idx = ((idx << 1) | (f[x + 4u] & 1u)) & 31u;
-        if (f[x + 1u] & f[x + 2u] & f[x + 3u] & 2u) px[x] = art5[(x & 1u) ^ p][idx];
+        if (f[x + 1u] & f[x + 2u] & f[x + 3u] & 2u) px[x] = v->art5[(x & 1u) ^ p][idx];
     }
 }
 

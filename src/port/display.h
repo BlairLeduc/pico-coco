@@ -56,6 +56,17 @@ void display_set_t1(bool t1);
  * (`red`) or blue. A change repaints every band. */
 void display_set_artefacts(unsigned how, bool red);
 
+/* Text and the two-colour screens on the datasheet's dark green or
+ * orange, or on black (mc6847_set_dark_bg, design.md §9.5). A change
+ * repaints every band. Every colour is drawn through the panel's
+ * measured curve (mc6847_set_curve), from display_init. */
+void display_set_dark_bg(bool dark);
+
+/* The settings file's colours (settings.h's color_ keys), each 0xRRGGBB
+ * or above 0xFFFFFF for the VDG's own; drawn through the panel's curve
+ * like the rest. Never from the menu. */
+void display_set_colours(const uint32_t colour[VDG_COLOUR_COUNT]);
+
 /* The perf line at the panel's top and the status line at its foot
  * (§9.6): COCO_TEXT_COLS characters in the VDG's glyphs, capitals only,
  * the screen's green on black, each drawn only when its text differs

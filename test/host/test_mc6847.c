@@ -5,12 +5,15 @@
  * pixels: the CoCo's wiring (§3.4), SG4 and SG6 by GM0, INV on bit 6, the
  * external-ROM case, the colour sets, artefacts, the mono palette, the
  * character ROM's layout against its data, the dirty-band span, and the
- * MC6847T1's lower case, inverse and border (mc6847.h).
+ * MC6847T1's lower case, inverse and border (mc6847.h), the text
+ * screen's dark backgrounds, and the panel's curve (§9.5).
  * test_vdg_oracle holds the same decode to XRoar's for random bytes;
  * this test says what each part of it is, so a failure there can be
  * read here.
  */
 
+#include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "config.h"
@@ -349,6 +352,147 @@ int main(void) {
                   "graphics mode %02X: the T1's border is the MC6847's", m);
         mc6847_set_t1(&v, NULL);
         CHECK(!mc6847_is_t1(&v), "the MC6847 again");
+    }
+
+    /* ---- the text screen's backgrounds (§9.5) ------------------------- */
+    {
+        mc6847_init(&v);
+        mc6847_set_font(&v, font_6847);
+        memset(line, 0, sizeof line);
+        line[0] = 0x20u;                               /* a space */
+        line[1] = (uint8_t)(0x20u | VDG_BYTE_INV);     /* an inverse space */
+        for (unsigned dark = 0; dark < 2u; dark++) {
+            mc6847_set_dark_bg(&v, dark != 0);
+            mc6847_set_mode(&v, 0);
+            mc6847_render_line(&v, line, 5, px);
+            uint16_t bg = dark ? P(VDG_DARK_GREEN) : P(VDG_BLACK);
+            CHECK(px[0] == bg && px[7] == bg && px[8] == P(VDG_GREEN) && px[15] == P(VDG_GREEN),
+                  "CSS low, %s: a space on %04X, an inverse space green", dark ? "dark" : "black",
+                  bg);
+            mc6847_set_mode(&v, VDG_CSS);
+            mc6847_render_line(&v, line, 5, px);
+            bg = dark ? P(VDG_DARK_ORANGE) : P(VDG_BLACK);
+            CHECK(px[0] == bg && px[7] == bg && px[8] == P(VDG_BRIGHT_ORANGE) &&
+                      px[15] == P(VDG_BRIGHT_ORANGE),
+                  "CSS high, %s: a space on %04X, an inverse space orange",
+                  dark ? "dark" : "black", bg);
+        }
+        CHECK(P(VDG_DARK_GREEN) != P(VDG_BLACK) && P(VDG_DARK_ORANGE) != P(VDG_BLACK) &&
+                  P(VDG_DARK_GREEN) != P(VDG_DARK_ORANGE),
+              "two dark backgrounds, neither black");
+        mc6847_set_dark_bg(&v, false);
+    }
+
+    /* ---- the settings file's colours (§9.5) ------------------------------ */
+    {
+        uint32_t over[VDG_COLOUR_COUNT];
+        uint16_t pal[VDG_COLOUR_COUNT];
+        for (unsigned c = 0; c < VDG_COLOUR_COUNT; c++) over[c] = 0xFFFFFFFFu;
+        mc6847_palette_over(pal, over);
+        CHECK(memcmp(pal, mc6847_palette, sizeof pal) == 0, "none given: the VDG's own");
+        over[VDG_ORANGE] = 0xFFA000u;
+        over[VDG_DARK_GREEN] = 0x002000u;
+        mc6847_palette_over(pal, over);
+        CHECK(pal[VDG_ORANGE] == 0xFD00u && pal[VDG_DARK_GREEN] == 0x0100u &&
+                  pal[VDG_GREEN] == P(VDG_GREEN), "orange %04X, dark green %04X", pal[VDG_ORANGE],
+              pal[VDG_DARK_GREEN]);
+        /* Drawn: CG2 with CSS high shows the given orange; the text
+         * screen's space the given dark green. */
+        mc6847_init(&v);
+        mc6847_set_font(&v, font_6847);
+        mc6847_set_palette(&v, pal);
+        memset(line, 0, sizeof line);
+        line[0] = 0x1Bu;
+        mc6847_set_mode(&v, gfx(2, true));
+        mc6847_render_line(&v, line, 0, px);
+        CHECK(px[6] == 0xFD00u, "CG2, CSS: the given orange, %04X", px[6]);
+        mc6847_set_dark_bg(&v, true);
+        mc6847_set_mode(&v, 0);
+        line[0] = 0x20u;
+        mc6847_render_line(&v, line, 5, px);
+        CHECK(px[0] == 0x0100u, "a space on the given dark green, %04X", px[0]);
+        mc6847_set_dark_bg(&v, false);
+        mc6847_set_palette(&v, mc6847_palette);
+    }
+
+    /* ---- the panel's curve (§9.5) ---------------------------------------- */
+    {
+        /* The owner's panel, by eye (hardware-notes.md §4.12). */
+        static const double r[3] = { 23.0 / 31, 26.0 / 31, 28.0 / 31 };
+        static const double g[3] = { 46.0 / 63, 53.0 / 63, 57.0 / 63 };
+        static mc6847_curve_t c;
+        mc6847_curve_build(&c, r, g, r);
+        CHECK(mc6847_curve_apply(NULL, 0x1234u) == 0x1234u, "no curve: as it is");
+        CHECK(c.r[0] == 0 && c.r[31] == 31 && c.g[0] == 0 && c.g[63] == 63,
+              "black stays black, full stays full");
+        bool rising = true;
+        for (unsigned i = 1; i < 64u; i++) rising &= c.g[i] >= c.g[i - 1u];
+        for (unsigned i = 1; i < 32u; i++) rising &= c.r[i] >= c.r[i - 1u];
+        CHECK(rising, "never falling");
+        /* The light a 2.2 display gives code i is what the panel gives the
+         * code it maps to: at the measured points, the measured codes. */
+        static const double share[3] = { 0.25, 0.5, 0.75 };
+        static const unsigned meas_r[3] = { 23, 26, 28 }, meas_g[3] = { 46, 53, 57 };
+        for (unsigned k = 0; k < 3u; k++) {
+            unsigned ir = (unsigned)lround(31.0 * pow(share[k], 1.0 / 2.2));
+            unsigned ig = (unsigned)lround(63.0 * pow(share[k], 1.0 / 2.2));
+            CHECK(abs((int)c.r[ir] - (int)meas_r[k]) <= 1 && abs((int)c.g[ig] - (int)meas_g[k]) <= 1,
+                  "%.0f%% of the light: red %u to %u (found %u), green %u to %u (found %u)",
+                  share[k] * 100, ir, c.r[ir], meas_r[k], ig, c.g[ig], meas_g[k]);
+        }
+        /* Below the quarter, where nothing was measured, the curve goes
+         * on as the segment above it: one slope in log-log either side. */
+        {
+            double h = 0.01, f1 = r[0] - 0.05, f2 = r[0] + 0.05;
+            double s1 = log(mc6847_curve_light(r, f1 + h) / mc6847_curve_light(r, f1 - h)) /
+                        log((f1 + h) / (f1 - h));
+            double s2 = log(mc6847_curve_light(r, f2 + h) / mc6847_curve_light(r, f2 - h)) /
+                        log((f2 + h) / (f2 - h));
+            CHECK(fabs(s1 - s2) < 1e-6, "below the quarter: slope %.3f, above %.3f", s1, s2);
+        }
+        CHECK(fabs(mc6847_curve_light(r, r[1]) - 0.5) < 1e-9 &&
+                  mc6847_curve_light(r, 0.5) < 0.1, "the panel's half is far up its codes");
+
+        /* A VDG drawn through the curve draws the curve of what it drew
+         * without: the palette, and the full artefacts' table too. */
+        static mc6847_t a, b2;
+        static uint16_t pa[COCO_PIC_W], pb[COCO_PIC_W];
+        mc6847_init(&a);
+        mc6847_init(&b2);
+        mc6847_set_font(&a, font_6847);
+        mc6847_set_font(&b2, font_6847);
+        mc6847_set_dark_bg(&a, true);
+        mc6847_set_dark_bg(&b2, true);
+        mc6847_set_curve(&b2, &c);
+        bool same = true;
+        for (unsigned k = 0; k < VDG_COLOUR_COUNT; k++)
+            same &= b2.col[k] == mc6847_curve_apply(&c, a.col[k]);
+        CHECK(same, "the drawn palette through the curve");
+        CHECK(b2.col[VDG_ORANGE] != a.col[VDG_ORANGE] &&
+                  b2.col[VDG_DARK_GREEN] != a.col[VDG_DARK_GREEN] &&
+                  b2.col[VDG_GREEN] == a.col[VDG_GREEN] && b2.col[VDG_BLACK] == a.col[VDG_BLACK],
+              "the primaries' half and quarter shades move, full and none do not");
+        mc6847_set_dark_bg(&a, false);
+        mc6847_set_dark_bg(&b2, false);
+        for (unsigned art = 0; art < 2u; art++) {
+            vdg_artefact_t how = art ? VDG_ARTEFACT_FULL_KRBW : VDG_ARTEFACT_FULL_KBRW;
+            mc6847_set_artefact(&a, how);
+            mc6847_set_artefact(&b2, how);
+            mc6847_set_mode(&a, gfx(7, true));
+            mc6847_set_mode(&b2, gfx(7, true));
+            for (unsigned i = 0; i < sizeof line; i++) line[i] = (uint8_t)(i * 37u + 0x5Au);
+            mc6847_render_line(&a, line, 0, pa);
+            mc6847_render_line(&b2, line, 0, pb);
+            mc6847_artefact_line(&a, pa, a.col[VDG_BLACK], a.col[VDG_BLACK]);
+            mc6847_artefact_line(&b2, pb, b2.col[VDG_BLACK], b2.col[VDG_BLACK]);
+            unsigned bad = 0, coloured = 0;
+            for (unsigned x = 0; x < COCO_PIC_W; x++) {
+                bad += pb[x] != mc6847_curve_apply(&c, pa[x]);
+                coloured += pa[x] != a.col[VDG_BLACK] && pa[x] != a.col[VDG_BUFF];
+            }
+            CHECK(bad == 0 && coloured > 0, "full artefacts, phase %u: %u pixels off, %u coloured",
+                  art, bad, coloured);
+        }
     }
 
     TEST_DONE();

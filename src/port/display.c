@@ -44,6 +44,16 @@ static unsigned  s_vdg_last;     /* the one used last: the other is rebuilt */
 #define s_vdg    (s_vdgs[0])
 static present_t s_present;
 
+/* The owner's panel, measured by eye on 2026-11-23: the
+ * codes, as fractions of full, giving a quarter, a half and three
+ * quarters of full light (hardware-notes.md §4.12). Red and blue agreed. */
+static const double k_panel_rb[3] = { 23.0 / 31, 26.0 / 31, 28.0 / 31 };
+static const double k_panel_g[3]  = { 46.0 / 63, 53.0 / 63, 57.0 / 63 };
+static mc6847_curve_t s_curve;
+
+/* The colours, the VDG's own or the settings file's (display_set_colours). */
+static uint16_t s_pal[VDG_COLOUR_COUNT];
+
 static const mc6847_t *vdg_for(void *ctx, uint8_t mode) {
     (void)ctx;
     mode &= VDG_MODE_MASK;
@@ -79,10 +89,12 @@ static text_line_t s_perf   = { .y = COCO_PERF_Y };
 static text_line_t s_status = { .y = COCO_STATUS_Y };
 
 void display_init(void) {
+    mc6847_curve_build(&s_curve, k_panel_rb, k_panel_g, k_panel_rb);
     for (unsigned i = 0; i < VDGS; i++) {
         mc6847_init(&s_vdgs[i]);
         mc6847_set_font(&s_vdgs[i], font_6847);
         mc6847_set_artefact(&s_vdgs[i], VDG_ARTEFACT_KBRW);   /* §9.5: on, on a CoCo */
+        mc6847_set_curve(&s_vdgs[i], &s_curve);
     }
     memset(s_perf.text, ' ', sizeof s_perf.text);
     memset(s_status.text, ' ', sizeof s_status.text);
@@ -101,6 +113,25 @@ void display_set_artefacts(unsigned how, bool red) {
     for (unsigned i = 0; i < VDGS; i++) mc6847_set_artefact(&s_vdgs[i], a);
     /* The full artefacts reach two pixels beside a changed byte. */
     s_present.reach = vdg_artefact_full(a) ? 2u : 0u;
+    present_invalidate(&s_present);
+}
+
+void display_set_colours(const uint32_t colour[VDG_COLOUR_COUNT]) {
+    bool any = false;
+    for (unsigned c = 0; c < VDG_COLOUR_COUNT; c++) any |= colour[c] <= 0xFFFFFFu;
+    mc6847_palette_over(s_pal, colour);
+    /* set_palette rebuilds only for another table, so this one is set
+     * through the VDG's own first. */
+    for (unsigned i = 0; i < VDGS; i++) {
+        mc6847_set_palette(&s_vdgs[i], mc6847_palette);
+        if (any) mc6847_set_palette(&s_vdgs[i], s_pal);
+    }
+    present_invalidate(&s_present);
+}
+
+void display_set_dark_bg(bool dark) {
+    if (dark == s_vdg.dark_bg) return;
+    for (unsigned i = 0; i < VDGS; i++) mc6847_set_dark_bg(&s_vdgs[i], dark);
     present_invalidate(&s_present);
 }
 

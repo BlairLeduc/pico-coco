@@ -81,6 +81,12 @@ typedef enum {
 
 extern const uint16_t mc6847_palette[VDG_COLOUR_COUNT];
 
+/* mc6847_palette with some colours replaced: over[c] is 0xRRGGBB, or
+ * anything above 0xFFFFFF for the palette's own (the settings file's
+ * color_ keys, §9.5). Only the table's colours: the full artefacts'
+ * colours are mixed from their own table. */
+void mc6847_palette_over(uint16_t out[VDG_COLOUR_COUNT], const uint32_t over[VDG_COLOUR_COUNT]);
+
 /* The same colours through the luminance output alone (§9.5). */
 extern const uint16_t mc6847_palette_mono[VDG_COLOUR_COUNT];
 
@@ -141,6 +147,27 @@ static inline uint8_t mc6847_glyph_ascii(uint8_t index) {
     return (uint8_t)(0x20u + ((index + 0x20u) & 0x3Fu));
 }
 
+/* ---- the panel's response (§9.5) --------------------------------------- */
+
+/* Each channel's code, of 31 or 63, mapped to the code that gives on the
+ * panel the light a display of gamma 2.2 gives the first: the palettes
+ * are written for such a display. Built from three points on each
+ * channel's curve, the codes that give a quarter, a half and three
+ * quarters of full light, as fractions of full (measured by eye;
+ * hardware-notes.md §4.12). */
+typedef struct {
+    uint8_t r[32], g[64], b[32];
+} mc6847_curve_t;
+
+void mc6847_curve_build(mc6847_curve_t *c, const double r[3], const double g[3],
+                        const double b[3]);
+uint16_t mc6847_curve_apply(const mc6847_curve_t *c, uint16_t rgb565);
+
+/* The light, 0 to 1, the panel gives code fraction f in a channel whose
+ * points are q: the measured points joined as power segments, the first
+ * carried below the quarter. */
+double mc6847_curve_light(const double q[3], double f);
+
 /* ---- the VDG ---------------------------------------------------------- */
 
 typedef struct {
@@ -150,8 +177,13 @@ typedef struct {
     bool     dark_bg;
     vdg_artefact_t artefact;
 
-    /* The palette as drawn: pal through dark_bg and the artefact phase. */
+    /* The panel's curve, or NULL for none (mc6847_set_curve). */
+    const mc6847_curve_t *curve;
+
+    /* The palette as drawn: pal through dark_bg, the artefact phase and
+     * the curve; and the full artefacts' table through the curve. */
     uint16_t col[VDG_COLOUR_COUNT];
+    uint16_t art5[2][32];
 
     /* Graphics: one entry per byte value, already stretched. Worst case
      * 16 pixels x 2 B x 256 = 8 KiB (§16). */
@@ -190,6 +222,10 @@ static inline bool mc6847_is_t1(const mc6847_t *v) { return v->font_t1 != NULL; 
  * or, for a test, one whose entries are their own indices. The mono
  * palette shows no artefacts. */
 void mc6847_set_palette(mc6847_t *v, const uint16_t *pal);
+
+/* Every colour drawn through the panel's curve, or none (NULL), as the
+ * host and the tests draw. */
+void mc6847_set_curve(mc6847_t *v, const mc6847_curve_t *c);
 
 /* Colour or monochrome: mc6847_set_palette with one of the two. */
 void mc6847_set_mono(mc6847_t *v, bool mono);

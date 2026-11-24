@@ -176,6 +176,8 @@ typedef struct {
     volatile uint8_t  artefacts;
     volatile uint8_t  artefact_phase;
     volatile bool     artefact_red;
+    /* Text on dark green or orange, or black (§9.5). Core 1's alone. */
+    volatile bool     dark_bg;
     /* A SmartWatch fitted (smartwatch.h): core 0 takes it each field. */
     volatile bool     smartwatch;
     /* The drives' steps and motor heard (drivesnd.h): core 0 takes it
