@@ -66,9 +66,13 @@ where the chip gives both black's; stepped down to $002C00 to be seen
 beside it in the menu. Cyan, still short of saturation: $00B850, the
 same hue with no red, a little brighter.
 
-**Not checked:** the dark backgrounds and the curve's primaries on the
-panel by the owner since the TV palettes went; the `color_` keys on the
-board; anything below a quarter of the light, where the curve is
+**Checked on the panel** by the owner, 2026-11-24, on the Plus 2 W
+with the UART0 build: the primaries through the curve, the dark
+backgrounds, and the four colours above, each settled by eye; the owner
+may tune them further with use, through the `color_` keys or here. The
+release and UART1 builds are clean.
+
+**Not checked:** the `color_` keys on the board; anything below a quarter of the light, where the curve is
 carried down unmeasured; a capture of an NTSC CoCo.
 
 ## Sea Dragon's stray dots and lines
