@@ -1979,8 +1979,7 @@ cartridges' ports clear.
 cartridge file, `RS-DOS`, `SMARTWATCH` or, from M18 and M19, `SSC`,
 `ORCH90` and `RS232`, and `mpi_switch = 1` to
 `4`. The Machine page's cartridge row gains Multi-Pak, which opens a
-page of four slots and the switch; the status line names the CTS
-slot's cartridge.
+page of four slots and the switch.
 
 **On the device, as built** (2026-11-24, built, not yet run on the
 board): `carts.c` keeps one description of the port, `port_media_t`, in
@@ -1998,7 +1997,9 @@ save and a read back. The Machine page's CART row gains MULTI-PAK,
 which shows four SLOT rows (none, RS-DOS, SMARTWATCH or the card's
 images) and the SWITCH; choosing the SmartWatch for a slot other than
 4 says `clock_bb` looks in 4, and for 4 says where the time comes from,
-as the Setup row did. The status line names the switch's slot.
+as the Setup row did. The status line no longer names the cartridge
+at all (the owner, 2026-11-24): the tape on the left, and the drive at
+work on the right.
 
 **On the board** (2026-11-24, the owner's Plus 2 W, the UART0 build,
 driven over the UART, `out/m17/board1.log`): the plain RS-DOS
@@ -2219,7 +2220,8 @@ power-on and the Machine page take it from; the card job keeps 1.1's
 image apart from 1.3's for it. Setting RAM to 4K on the page sets BASIC
 to Color 1.1; `ram = 4` with no `bas11.rom` on the card boots 16 KB
 and says why. There is no machine or television choice (D6). The status line
-shows the deck and the cartridge (`status_format`, `test_status`).
+shows the deck and the cartridge (`status_format`, `test_status`); the
+cartridge went from it on 2026-11-24 (§12.8).
 F6's screenshot is not yet in.
 
 **As built in M10** (2026-11-15): the Snapshots page, F3, pico-oric's

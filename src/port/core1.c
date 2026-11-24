@@ -78,8 +78,7 @@ static void draw_status(void) {
     char text[COCO_TEXT_COLS + 1] = "";
     if (g_ui.status) {
         int drive = g_machine.rsdos ? (int)g_c0.disk : -1;
-        status_format(tapeio_inserted(), g_c0.tape_unsaved != 0, g_c0.deck,
-                      g_machine.cart ? carts_label(&g_boot.port) : "", drive,
+        status_format(tapeio_inserted(), g_c0.tape_unsaved != 0, g_c0.deck, drive,
                       drive >= 0 ? dskio_inserted((unsigned)drive) : "", text);
     }
     display_status(text);
