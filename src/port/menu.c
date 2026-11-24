@@ -37,6 +37,7 @@
 #include "keymapio.h"
 #include "keymatrix.h"
 #include "log.h"
+#include "paneltest.h"
 #include "pico_coco_version.h"
 #include "roms.h"
 #include "sd.h"
@@ -120,7 +121,8 @@ static struct {
     bool     done;
     bool     direct;          /* opened at a page: closing it resumes */
     int      item;
-    enum { P_MAIN, P_TAPES, P_DISKS, P_SNAPS, P_SETUP, P_MACHINE, P_ABOUT, P_HELP } page;
+    enum { P_MAIN, P_TAPES, P_DISKS, P_SNAPS, P_SETUP, P_MACHINE, P_ABOUT, P_HELP,
+           P_PANEL } page;
     char     status[TEXT_COLS + 1];
     int      battery;
 
@@ -153,6 +155,7 @@ static struct {
     int      sb_ver;
     int      temp_c;
     bool     about_job;
+    bool     panel_shown;      /* the panel test drawn over the picture */
 } s;
 
 void menu_init(coco_frame_t *page) {
@@ -517,13 +520,15 @@ static void draw(void) {
         [P_SNAPS] = " PICO-COCO: SNAPSHOTS",
         [P_SETUP] = " PICO-COCO: SETUP",  [P_MACHINE] = " PICO-COCO: MACHINE",
         [P_ABOUT] = " PICO-COCO: ABOUT",  [P_HELP] = " PICO-COCO: KEYS",
+        [P_PANEL] = " PICO-COCO: PANEL TEST",
     };
     static const char *const keys[] = {
         [P_MAIN] = " ARROWS ENTER  ESC RESUMES",  [P_TAPES] = " ENTER INSERTS  ESC BACK",
         [P_DISKS] = " < > DRIVE  ENTER  ESC BACK",
         [P_SNAPS] = " < > SLOT  ENTER  ESC BACK",
         [P_SETUP] = " < > CHANGES  ESC BACK",     [P_MACHINE] = " < > STAGES  ENTER  ESC BACK",
-        [P_ABOUT] = " ESC BACK",                  [P_HELP] = " ESC RESUMES",
+        [P_ABOUT] = " P PANEL TEST  ESC BACK",    [P_HELP] = " ESC RESUMES",
+        [P_PANEL] = " ESC BACK",
     };
     textpage_clear(s_scr);
     textpage_line(s_scr, 0, title[s.page], true);
@@ -536,6 +541,13 @@ static void draw(void) {
     case P_MACHINE: draw_machine(); break;
     case P_ABOUT:   draw_about(); break;
     case P_HELP:    draw_help(); break;
+    case P_PANEL:
+        for (unsigned b = 0; b < PANELTEST_BANDS; b++) {
+            char line[TEXT_COLS + 1];
+            paneltest_label(b, line, sizeof line);
+            textpage_line(s_scr, paneltest_label_row(b), line, false);
+        }
+        break;
     default:        draw_main(); break;
     }
     if (s.name.on) {
@@ -549,8 +561,14 @@ static void draw(void) {
         textpage_line(s_scr, ROW_STATUS, s.status, false);
         textpage_line(s_scr, ROW_KEYS, keys[s.page], true);
     }
+    /* The panel test draws over the picture behind the presenter's back
+     * (paneltest.h), so the page after it, or a redraw of it, starts
+     * from a full repaint. */
+    if (s.panel_shown) display_invalidate();
     display_present(s_scr, NULL);
     display_settle();   /* the border now, not at the next key */
+    s.panel_shown = s.page == P_PANEL;
+    if (s.panel_shown) paneltest_draw();
 }
 
 /* ---- opening the pages ------------------------------------------------------ */
@@ -1236,6 +1254,20 @@ static void keys(void) {
         case P_DISKS:   key_disks(c); break;
         case P_SNAPS:   key_snaps(c); break;
         case P_ABOUT:
+            if (c == 'p' || c == 'P') {
+                s.page = P_PANEL;
+                say(" MATCH EACH PATCH TO ITS LINES", "");
+                log_core1("  panel test   : open\n");
+                break;
+            }
+            if (c == PICOCALC_KEY_ESC || c == PICOCALC_KEY_ENTER) s.page = P_MAIN;
+            break;
+        case P_PANEL:
+            if (c == PICOCALC_KEY_ESC || c == PICOCALC_KEY_ENTER) {
+                s.page = P_ABOUT;
+                say("", "");
+            }
+            break;
         case P_HELP:
             if (c == PICOCALC_KEY_ESC || c == PICOCALC_KEY_ENTER) s.page = P_MAIN;
             break;
