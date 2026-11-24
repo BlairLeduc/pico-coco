@@ -45,6 +45,14 @@ static unsigned  s_vdg_last;     /* the one used last: the other is rebuilt */
 #define s_vdg    (s_vdgs[0])
 static present_t s_present;
 
+/* The owner's panel, measured by eye with paneltest.h on 2026-11-23: the
+ * codes, as fractions of full, giving a quarter, a half and three
+ * quarters of full light (hardware-notes.md §4.10). Red and blue agreed. */
+static const double k_panel_rb[3] = { 23.0 / 31, 26.0 / 31, 28.0 / 31 };
+static const double k_panel_g[3]  = { 46.0 / 63, 53.0 / 63, 57.0 / 63 };
+static mc6847_curve_t s_curve;
+static bool           s_curve_on;
+
 static const mc6847_t *vdg_for(void *ctx, uint8_t mode) {
     (void)ctx;
     mode &= VDG_MODE_MASK;
@@ -80,10 +88,13 @@ static text_line_t s_perf   = { .y = COCO_PERF_Y };
 static text_line_t s_status = { .y = COCO_STATUS_Y };
 
 void display_init(void) {
+    mc6847_curve_build(&s_curve, k_panel_rb, k_panel_g, k_panel_rb);
+    s_curve_on = true;
     for (unsigned i = 0; i < VDGS; i++) {
         mc6847_init(&s_vdgs[i]);
         mc6847_set_font(&s_vdgs[i], font_6847);
         mc6847_set_artefact(&s_vdgs[i], VDG_ARTEFACT_KBRW);   /* §9.5: on, on a CoCo */
+        mc6847_set_curve(&s_vdgs[i], &s_curve);
     }
     memset(s_perf.text, ' ', sizeof s_perf.text);
     memset(s_status.text, ' ', sizeof s_status.text);
@@ -114,6 +125,25 @@ void display_set_palette(unsigned palette) {
         mc6847_set_dark_bg(&s_vdgs[i], tv);
     }
     present_invalidate(&s_present);
+}
+
+void display_set_curve(bool on) {
+    if (on == s_curve_on) return;
+    s_curve_on = on;
+    for (unsigned i = 0; i < VDGS; i++) mc6847_set_curve(&s_vdgs[i], on ? &s_curve : NULL);
+    present_invalidate(&s_present);
+}
+
+bool display_curve_on(void) {
+    return s_curve_on;
+}
+
+uint16_t display_corrected(uint16_t rgb565) {
+    return mc6847_curve_apply(s_curve_on ? &s_curve : NULL, rgb565);
+}
+
+uint16_t display_colour(unsigned c) {
+    return c < VDG_COLOUR_COUNT ? s_vdg.col[c] : 0u;
 }
 
 void display_set_t1(bool t1) {

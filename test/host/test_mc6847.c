@@ -13,6 +13,7 @@
  */
 
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "config.h"
@@ -445,6 +446,80 @@ int main(void) {
               "an inverse space: the text screen's orange");
         mc6847_set_dark_bg(&v, false);
         mc6847_set_palette(&v, mc6847_palette);
+    }
+
+    /* ---- the panel's curve (§9.5) ---------------------------------------- */
+    {
+        /* The owner's panel, by eye (hardware-notes.md §4.10). */
+        static const double r[3] = { 23.0 / 31, 26.0 / 31, 28.0 / 31 };
+        static const double g[3] = { 46.0 / 63, 53.0 / 63, 57.0 / 63 };
+        static mc6847_curve_t c;
+        mc6847_curve_build(&c, r, g, r);
+        CHECK(mc6847_curve_apply(NULL, 0x1234u) == 0x1234u, "no curve: as it is");
+        CHECK(c.r[0] == 0 && c.r[31] == 31 && c.g[0] == 0 && c.g[63] == 63,
+              "black stays black, full stays full");
+        bool rising = true;
+        for (unsigned i = 1; i < 64u; i++) rising &= c.g[i] >= c.g[i - 1u];
+        for (unsigned i = 1; i < 32u; i++) rising &= c.r[i] >= c.r[i - 1u];
+        CHECK(rising, "never falling");
+        /* The light a 2.2 display gives code i is what the panel gives the
+         * code it maps to: at the measured points, the measured codes. */
+        static const double share[3] = { 0.25, 0.5, 0.75 };
+        static const unsigned meas_r[3] = { 23, 26, 28 }, meas_g[3] = { 46, 53, 57 };
+        for (unsigned k = 0; k < 3u; k++) {
+            unsigned ir = (unsigned)lround(31.0 * pow(share[k], 1.0 / 2.2));
+            unsigned ig = (unsigned)lround(63.0 * pow(share[k], 1.0 / 2.2));
+            CHECK(abs((int)c.r[ir] - (int)meas_r[k]) <= 1 && abs((int)c.g[ig] - (int)meas_g[k]) <= 1,
+                  "%.0f%% of the light: red %u to %u (found %u), green %u to %u (found %u)",
+                  share[k] * 100, ir, c.r[ir], meas_r[k], ig, c.g[ig], meas_g[k]);
+        }
+        /* Below the quarter, where nothing was measured, the curve goes
+         * on as the segment above it: one slope in log-log either side. */
+        {
+            double h = 0.01, f1 = r[0] - 0.05, f2 = r[0] + 0.05;
+            double s1 = log(mc6847_curve_light(r, f1 + h) / mc6847_curve_light(r, f1 - h)) /
+                        log((f1 + h) / (f1 - h));
+            double s2 = log(mc6847_curve_light(r, f2 + h) / mc6847_curve_light(r, f2 - h)) /
+                        log((f2 + h) / (f2 - h));
+            CHECK(fabs(s1 - s2) < 1e-6, "below the quarter: slope %.3f, above %.3f", s1, s2);
+        }
+        CHECK(fabs(mc6847_curve_light(r, r[1]) - 0.5) < 1e-9 &&
+                  mc6847_curve_light(r, 0.5) < 0.1, "the panel's half is far up its codes");
+
+        /* A VDG drawn through the curve draws the curve of what it drew
+         * without: the palette, and the full artefacts' table too. */
+        static mc6847_t a, b2;
+        static uint16_t pa[COCO_PIC_W], pb[COCO_PIC_W];
+        mc6847_init(&a);
+        mc6847_init(&b2);
+        mc6847_set_font(&a, font_6847);
+        mc6847_set_font(&b2, font_6847);
+        mc6847_set_palette(&a, mc6847_palette_tv[MC6847_TV115]);
+        mc6847_set_palette(&b2, mc6847_palette_tv[MC6847_TV115]);
+        mc6847_set_curve(&b2, &c);
+        bool same = true;
+        for (unsigned k = 0; k < VDG_COLOUR_COUNT; k++)
+            same &= b2.col[k] == mc6847_curve_apply(&c, a.col[k]);
+        CHECK(same, "the drawn palette through the curve");
+        for (unsigned art = 0; art < 2u; art++) {
+            vdg_artefact_t how = art ? VDG_ARTEFACT_FULL_KRBW : VDG_ARTEFACT_FULL_KBRW;
+            mc6847_set_artefact(&a, how);
+            mc6847_set_artefact(&b2, how);
+            mc6847_set_mode(&a, gfx(7, true));
+            mc6847_set_mode(&b2, gfx(7, true));
+            for (unsigned i = 0; i < sizeof line; i++) line[i] = (uint8_t)(i * 37u + 0x5Au);
+            mc6847_render_line(&a, line, 0, pa);
+            mc6847_render_line(&b2, line, 0, pb);
+            mc6847_artefact_line(&a, pa, a.col[VDG_BLACK], a.col[VDG_BLACK]);
+            mc6847_artefact_line(&b2, pb, b2.col[VDG_BLACK], b2.col[VDG_BLACK]);
+            unsigned bad = 0, coloured = 0;
+            for (unsigned x = 0; x < COCO_PIC_W; x++) {
+                bad += pb[x] != mc6847_curve_apply(&c, pa[x]);
+                coloured += pa[x] != a.col[VDG_BLACK] && pa[x] != a.col[VDG_BUFF];
+            }
+            CHECK(bad == 0 && coloured > 0, "full artefacts, phase %u: %u pixels off, %u coloured",
+                  art, bad, coloured);
+        }
     }
 
     TEST_DONE();

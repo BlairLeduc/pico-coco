@@ -62,6 +62,15 @@ void display_set_artefacts(unsigned how, bool red);
  * every band. */
 void display_set_palette(unsigned palette);
 
+/* Every colour through the panel's measured curve, or as written
+ * (mc6847_set_curve, design.md §9.5): on from display_init. A change
+ * repaints every band. display_corrected is a colour as the screen
+ * would draw it; display_colour, a VDG colour as drawn now. */
+void display_set_curve(bool on);
+bool display_curve_on(void);
+uint16_t display_corrected(uint16_t rgb565);
+uint16_t display_colour(unsigned c);
+
 /* The perf line at the panel's top and the status line at its foot
  * (§9.6): COCO_TEXT_COLS characters in the VDG's glyphs, capitals only,
  * the screen's green on black, each drawn only when its text differs

@@ -9,6 +9,10 @@
  * the panel's curve, with a solid patch in the middle whose code Left and
  * Right step until it matches the lines from arm's length. The codes
  * found, three points on each channel's curve, are shown and logged.
+ * With the panel's curve on (display_set_curve), the patch is drawn
+ * through it, and each test should match at its first code, a gamma of
+ * 2.2's. After the tests, a view: a grey ramp and the VDG's colours as
+ * the screen draws them, to hold beside the same on another display.
  * Drawn straight to the panel over the menu's picture: the caller
  * invalidates the presenter when the page goes.
  */

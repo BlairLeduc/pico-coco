@@ -528,7 +528,7 @@ static void draw(void) {
         [P_SNAPS] = " < > SLOT  ENTER  ESC BACK",
         [P_SETUP] = " < > CHANGES  ESC BACK",     [P_MACHINE] = " < > STAGES  ENTER  ESC BACK",
         [P_ABOUT] = " P PANEL TEST  ESC BACK",    [P_HELP] = " ESC RESUMES",
-        [P_PANEL] = " < > MATCH  ^ V NEXT  ESC BACK",
+        [P_PANEL] = " < > MATCH  ^ V NEXT  C  ESC",
     };
     textpage_clear(s_scr);
     textpage_line(s_scr, 0, title[s.page], true);
@@ -1268,6 +1268,10 @@ static void keys(void) {
                 paneltest_log();
                 s.page = P_ABOUT;
                 say("", "");
+            }
+            else if (c == 'c' || c == 'C') {
+                display_set_curve(!display_curve_on());
+                log_core1("  panel test   : curve %s\n", display_curve_on() ? "on" : "off");
             }
             else if (c == PICOCALC_KEY_LEFT)  paneltest_key(-1, 0);
             else if (c == PICOCALC_KEY_RIGHT) paneltest_key(1, 0);
