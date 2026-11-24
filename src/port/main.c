@@ -178,7 +178,7 @@ int main(void) {
                cfg.ram_k, roms_basic_name(mc.extended ? BOOT_EXTENDED
                                           : mc.basic == ROM_COCO_BAS11 ? BOOT_COLOR11 : BOOT_COLOR13),
                romset_images[mc.basic].file,
-               mc.extended ? ", extbas11.rom" : "", g_machine.rsdos ? ", RS-DOS with disk11.rom" : "",
+               mc.extended ? ", extbas11.rom" : "", g_machine.rsdos ? ", the disk controller with disk11.rom" : "",
                (unsigned long)COCO_FIELD_TICKS,
                (unsigned)PICO_COCO_RAM_TIER,
                PICO_COCO_FIELD_LOG ? ", logging the first fields" : "");

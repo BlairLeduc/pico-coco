@@ -216,7 +216,7 @@ static void draw_main(void) {
     textpage_line(s_scr, ROW_TOP + I_COUNT + 1, line, false);
     if (g_machine.rsdos) {
         const char *d = dskio_inserted(0);
-        snprintf(line, sizeof line, " RS-DOS, DISK 0: %.15s", d[0] ? base(d) : "NONE");
+        snprintf(line, sizeof line, " DISK 0: %.23s", d[0] ? base(d) : "NONE");
         textpage_line(s_scr, ROW_TOP + I_COUNT + 2, line, false);
     }
 }
@@ -295,7 +295,7 @@ static void draw_disks(void) {
         textpage_line(s_scr, ROW_TOP + 1 + r, line, i == s.disk_sel);
     }
     if (!g_machine.rsdos)
-        textpage_line(s_scr, ROW_STATUS - 1, " RS-DOS IS NOT IN: MACHINE PAGE", false);
+        textpage_line(s_scr, ROW_STATUS - 1, " FIT A DISK CONTROLLER: MACHINE", false);
 }
 
 static void draw_setup(void) {
@@ -424,7 +424,7 @@ static const char *choice_name(int c, unsigned slot) {
 static const char *choice_label(int c, unsigned slot) {
     switch (c) {
     case MENU_CART_NONE:       return "NONE";
-    case MENU_CART_RSDOS:      return "RS-DOS";
+    case MENU_CART_RSDOS:      return "DISK CONTROLLER";
     case MENU_CART_MPI:        return "MULTI-PAK";
     case MENU_CART_SMARTWATCH: return "SMARTWATCH";
     }
@@ -1079,7 +1079,7 @@ static bool snap_switch(const snap_info_t *in) {
         return false;
     }
     log_core1("  snapshot     : slot %u is the %s%s%s's; powering on as it\n", s_slot + 1u,
-              machine_name(mc.extended, mc.ram_k), mc.rsdos ? " with RS-DOS" : mc.cart ? " with " : "",
+              machine_name(mc.extended, mc.ram_k), mc.rsdos ? " with the disk controller" : mc.cart ? " with " : "",
               mc.rsdos ? "" : mc.cart ? carts_label(&g_boot.port) : "");
     core0_power_on(s.m, &mc);
     return true;

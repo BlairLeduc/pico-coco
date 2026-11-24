@@ -59,7 +59,7 @@ const char *carts_load(port_media_t *pm, const card_job_t *job) {
         const char *err = NULL;
         uint32_t len = 0;
         if (k == CART_RSDOS && rsdos) {
-            err = "ONE RS-DOS AT MOST";   /* cart.h */
+            err = "ONE DISK CONTROLLER";   /* cart.h */
         } else if (k == CART_RSDOS) {
             if (COCO_CART_POOL - at < romset_images[ROM_COCO_DISK11].size) err = CARTS_NO_ROOM;
             else err = card_disk_rom_load(job, g_cart_pool + at, &len);
@@ -138,7 +138,7 @@ const char *carts_label(const port_media_t *pm) {
     const slot_media_t *sm = &pm->slot[pm->mpi ? pm->mpi_switch : 0];
     switch (carts_kind(sm->name)) {
     case CART_NONE:       return pm->mpi ? "MULTI-PAK" : "";
-    case CART_RSDOS:      return "RS-DOS";
+    case CART_RSDOS:      return "DISK CONTROLLER";
     case CART_SMARTWATCH: return "SMARTWATCH";
     default:              return base_of(sm->name);
     }

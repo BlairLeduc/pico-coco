@@ -1997,7 +1997,11 @@ save and a read back. The Machine page's CART row gains MULTI-PAK,
 which shows four SLOT rows (none, RS-DOS, SMARTWATCH or the card's
 images) and the SWITCH; choosing the SmartWatch for a slot other than
 4 says `clock_bb` looks in 4, and for 4 says where the time comes from,
-as the Setup row did. The page's help text gave way (the owner,
+as the Setup row did. What the settings call `rsdos` the pages call
+DISK CONTROLLER (the owner, 2026-11-24): the board is the WD1793's of
+Tandy's 26-3022 and the FD-500, the FD-501's chip is not confirmed and
+the FD-502's is a WD1773 (§18), so no one model's name is given; the
+settings keep `rsdos`. The page's help text gave way (the owner,
 2026-11-24) to what the selected row's choice is: an image's name and
 ROM size, and whether it takes more room than its size, Disk BASIC's
 8K, the SmartWatch's clock and no ROM, the Multi-Pak's "32K AVAILABLE FOR ROMS"; with a Multi-Pak, the room the
@@ -2469,6 +2473,7 @@ configuration; once settled, it is a constant.
 | A PIA1 write's delay to the picture, for a change of mode along a line (§9.4) | **2026-11-22**: 1 µs, 14 ticks, from two pictures of Dragonfire: a low-resolution photograph of a real CoCo, whose wall edges match with about a cycle's delay and not without, and a sharper picture of a later build, whose every edge falls on a byte's boundary at 14 ticks and a pixel late at 16. Dark Star's and Rommel's Revenge's bars come out centred. The MC6821's tPDW, up to 1 µs, is that size. Where the second picture was taken, and whether the delay is the PIA's, the VDG's, or both, is not known | Medium | MC6821 and MC6847 datasheets; a sharper photograph of Dragonfire, or a scope on PB3 and the video |
 | ROM file names, sizes and SHA-1s (§12.1) | **Settled** 2026-11-14 (M3) for `bas13.rom`, `extbas11.rom`, `disk11.rom` and `bas11.rom`, the owner's images, each matching XRoar 1.13's CRC-32 (`roms/README.md`); `d32.rom` was in the table until the Dragon was removed (D6, 2026-11-16); other CoCo versions to come | High | The owner's images; XRoar's ROM list |
 | Disc controller registers, latch bits, interrupt and HALT wiring (§12.4) | As the table, from XRoar's decodes | Medium | Each DOS ROM read; controller schematics |
+| Which Tandy controller carries which chip: WD1793 on the 26-3022, the MB8877A (a 5 V WD1793) on early 26-3029s, the FD-500 as the 26-3029, the WD1773 on later ones and the FD-502; the FD-501 unknown (§12.8) | CoCopedia, read 2026-11-24; a classiccmp post orders the WD1773 and WD1793 the other way round | Low | The boards themselves; Tandy's service manuals |
 | WD2797 against WD1793: which differences each DOS sees | Side select, some status bits | Low | Datasheets |
 | VDK and JVC header rules | Community descriptions | Low | A corpus of real files (EL §8.8) |
 | Seeds and flags in RAM at power-on (§13.3) | **M3, the CoCo**: none taken from RAM; the warm-start flag `$71`/`$55` fails on zeros (§13.3) | High | Both ROMs read |
