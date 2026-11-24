@@ -149,6 +149,10 @@ const cart_t *cart_rsdos_c(const struct coco_s *m);
 /* The first SmartWatch's slot, or NULL. */
 cart_t       *cart_smartwatch(struct coco_s *m);
 
+/* The host's time to every SmartWatch fitted, given by the port before
+ * each field (smartwatch_set_host). */
+void cart_clock_host(struct coco_s *m, uint32_t seconds_since_2000);
+
 /* Called by the port when the CTS slot changes: the page table and the
  * CART line again (coco.c). */
 void coco_cart_selected(struct coco_s *m);

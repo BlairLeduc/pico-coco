@@ -1,13 +1,16 @@
-/* smartwatch.h — a Dallas DS1216 SmartWatch at $FF78-$FF7F
- * (design.md §12.7).
+/* smartwatch.h — a Dallas DS1216 SmartWatch, the chip of the
+ * SMARTWATCH cartridge, on a Multi-Pak slot's SCS at $FF58-$FF5F
+ * (cart.h, design.md §12.7).
  *
- * Tandy's OS-9 Level One 2.01 has a clock module, clock_tc3, that reads
- * the date at $FF7C from a DS1216 rather than taking it at "TIME ?". The
- * chip answers only reads, so the CPU talks to it by which address it
- * reads, as clock_tc3 does (read off the module, 2026-11-17):
+ * Tandy's OS-9 Level One 2.01 has a clock module, clock_bb, that reads
+ * the date at $FF5C from a DS1216 behind Multi-Pak slot 4 rather than
+ * taking it at "TIME ?". The chip answers only reads, so the CPU talks
+ * to it by which address it reads, as clock_bb does (read off the
+ * module, 2026-11-24; clock_tc3, at $FF78-$FF7F, drives it the same way
+ * and is no longer supported):
  *
- *   A2 low ($FF78-$FF7B)   a bit written, A0 its value
- *   A2 high ($FF7C-$FF7F)  a bit read, on D0; the rest of the byte is
+ *   A2 low ($FF58-$FF5B)   a bit written, A0 its value
+ *   A2 high ($FF5C-$FF5F)  a bit read, on D0; the rest of the byte is
  *                          the bus as it was
  *
  * Shut, a read with A2 high starts the key again, and each written bit
@@ -34,8 +37,8 @@
  * goes with the machine, and a key half sent is only a few cycles long.
  *
  * As the chip, from the module's code and the DS1216 datasheet's
- * protocol as remembered (§18: medium). Nothing else in the CoCo answers
- * at $FF78-$FF7F, so with it not fitted they read the bus as it was.
+ * protocol as remembered (§18: medium). The rest of its slot's SCS,
+ * $FF40-$FF57, reads the bus (cart.c).
  */
 #ifndef PICO_COCO_SMARTWATCH_H
 #define PICO_COCO_SMARTWATCH_H
@@ -43,7 +46,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define SMARTWATCH_BASE  0xFF78u   /* through $FF7F                       */
 #define SMARTWATCH_A2    0x04u
 #define SMARTWATCH_BITS  64u
 
@@ -54,7 +56,6 @@ typedef struct {
 } smartwatch_time_t;
 
 typedef struct {
-    bool     fitted;
     bool     open;         /* the key matched: the registers are next    */
     uint8_t  key;          /* bits of the key matched while shut         */
     uint8_t  bit;          /* bits of the registers moved while open     */
@@ -72,7 +73,7 @@ void smartwatch_init(smartwatch_t *w);
 /* The host's time, given by the port before each field. */
 void smartwatch_set_host(smartwatch_t *w, uint32_t seconds_since_2000);
 
-/* A read of $FF78-$FF7F, `bus` the byte the bus holds. */
+/* A read of $FF58-$FF5F, `bus` the byte the bus holds. */
 uint8_t smartwatch_read(smartwatch_t *w, uint16_t a, uint8_t bus);
 
 /* The years the register holds: 1900-01-01 to 2059-12-31, in seconds

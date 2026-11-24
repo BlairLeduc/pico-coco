@@ -18,10 +18,15 @@
  * reach it). So each boots with that bit set in its descriptor, as
  * tools/os9-lowercase.py sets it, against the disk as shipped.
  *
- * The SmartWatch (smartwatch.h): 2.01's system disk with clock_tc3 in
- * its OS9Boot, as tools/os9-clock.py makes it, boots with the host's
- * date and time, and SETIME sets the chip; the control is the same disk
- * with no SmartWatch fitted.
+ * The SmartWatch (smartwatch.h, cart.h): 2.01's system disk with
+ * clock_bb in its OS9Boot, as tools/os9-clock.py makes it, booted from
+ * a Multi-Pak with the RS-DOS controller in slot 3 and the switch at
+ * it, and the SmartWatch in slot 4, where clock_bb looks: it boots with
+ * the host's date and time, and SETIME sets the chip. The controls are
+ * the same disk with no SmartWatch, and with one in slot 2. Planted
+ * one at a time, each failed this test (2026-11-24): the host's time not
+ * given to the cartridge (cart_clock_host), and the SmartWatch answering
+ * SCS from any slot.
  */
 #include <dirent.h>
 #include <stdio.h>
@@ -45,8 +50,8 @@ static const struct {
       "c417fad58ea8eca331e173922748e9903bc20fcd" },
     { "NitrOS-9 3.3.0, Level 1, CoCo 1, 80 tracks double-sided",
       "8695113e8a9e7d616e7db055af2b1f4a00989808" },
-    { "OS-9 Level One 02.01.00 with clock_tc3, by tools/os9-clock.py",
-      "76fd68df3fc0527d1ceb49bc6772a7a7311d7636" },
+    { "OS-9 Level One 02.01.00 with clock_bb, by tools/os9-clock.py",
+      "cabff8e7d111896fd97a4bb0d81815232eba409b" },
 };
 
 static char s_path[DISK_COUNT][1024];
@@ -78,14 +83,15 @@ static guest_t g;
 static host_disk_t s_d0, s_d1;
 static host_disk_t *s_drives[COCO_DISK_DRIVES];
 
-/* The SmartWatch, fitted or not, and the host's time it is given. */
-static bool     s_clock_fit;
+/* A Multi-Pak with the controller in slot 3, and the SmartWatch's slot
+ * in it, 0 to 3, or -1 for none; and the host's time it is given. */
+static bool     s_mpi;
+static int      s_clock_slot = -1;
 static uint32_t s_clock_host;
 
 static void serve_fields(guest_t *gg) {
     host_disk_serve(&gg->m, s_drives);
-    gg->m.clock.fitted = s_clock_fit;
-    smartwatch_set_host(&gg->m.clock, s_clock_host);
+    cart_clock_host(&gg->m, s_clock_host);
 }
 
 static bool screen_has(const char *s) {
@@ -140,7 +146,13 @@ static bool shell(const char *line, int max) {
 /* DOS from Disk BASIC with d0 in drive 0 and an empty disk in drive 1,
  * as the Disks page makes one. True once the shell's prompt shows. */
 static bool boot(int max) {
-    guest_build_disk(&g, 64);
+    if (s_mpi) {
+        cart_kind_t kinds[4] = { CART_NONE, CART_NONE, CART_RSDOS, CART_NONE };
+        if (s_clock_slot >= 0) kinds[s_clock_slot] = CART_SMARTWATCH;
+        guest_build_mpi(&g, 64, kinds, 2, NULL, NULL);
+    } else {
+        guest_build_disk(&g, 64);
+    }
     g.after_field = serve_fields;
     host_disk_free(&s_d1);
     host_disk_new(&s_d1);
@@ -338,20 +350,27 @@ static int test_tandy_t1(void) {
  * four-digit year and writes the chip, and DATE reads it back. The
  * control: the same disk with no SmartWatch reads nonsense. */
 static int test_tandy_rtc(void) {
-    s_clock_fit = false;
+    s_mpi = true;
+    s_clock_slot = -1;
     s_clock_host = 848238330u;   /* 2026-11-17 13:45:30 */
     CHECK(load(TANDY_V201_RTC) && boot(60), "RTC: no SmartWatch, it boots");
     CHECK(shell("DATE T\r", 30) && !screen_has("NOVEMBER 17"), "RTC: no SmartWatch, no date");
-    s_clock_fit = true;
-    CHECK(load(TANDY_V201_RTC) && boot(60), "RTC: with the SmartWatch, it boots");
+    s_clock_slot = 1;
+    CHECK(load(TANDY_V201_RTC) && boot(60), "RTC: the SmartWatch in slot 2, it boots");
+    CHECK(shell("DATE T\r", 30) && !screen_has("NOVEMBER 17"),
+          "RTC: the SmartWatch in slot 2, where clock_bb does not look, gave the date");
+    s_clock_slot = 3;
+    CHECK(load(TANDY_V201_RTC) && boot(60), "RTC: with the SmartWatch in slot 4, it boots");
     CHECK(!screen_has("TIME ?"), "RTC: and asks for no time");
     CHECK(shell("DATE T\r", 30) && screen_has("NOVEMBER 17, 2026  13:4"),
           "RTC: DATE T, the host's date and time");
-    CHECK(shell("SETIME 1999/12/31 23:59:00\r", 30) && g.m.clock.sets == 1u,
-          "RTC: SETIME writes the SmartWatch: %u sets", g.m.clock.sets);
+    const smartwatch_t *w = &cart_smartwatch(&g.m)->u.clock;
+    CHECK(shell("SETIME 1999/12/31 23:59:00\r", 30) && w->sets == 1u,
+          "RTC: SETIME writes the SmartWatch: %u sets", w->sets);
     CHECK(shell("DATE T\r", 30) && screen_has("DECEMBER 31, 1999  23:59:0"),
           "RTC: DATE T, the time set");
-    s_clock_fit = false;
+    s_mpi = false;
+    s_clock_slot = -1;
     return 0;
 }
 

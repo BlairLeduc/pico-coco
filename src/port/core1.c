@@ -114,7 +114,6 @@ static void apply_settings(const settings_t *st) {
     g_ui.artefact_red = st->artefact_phase == SETTINGS_PHASE_RED;
     g_ui.dark_bg = st->dark_bg;
     display_set_colours(st->colour);
-    g_ui.smartwatch = st->smartwatch;
     g_ui.disk_sounds = st->disk_sounds;
     uint8_t r[2];
     if (st->backlight) {

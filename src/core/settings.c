@@ -198,7 +198,13 @@ static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
     case K_LAYOUT:    return layout(s, v);
     case K_FAST_TAPE: return on_off(v, &s->fast_tape);
     case K_VDG:       return vdg(v, &s->vdg_t1);
-    case K_SMARTWATCH: return on_off(v, &s->smartwatch);
+    case K_SMARTWATCH: {
+        /* Retired (design.md §12.7): the SmartWatch is a cartridge in a
+         * Multi-Pak slot. Its old values are taken and change nothing, so
+         * a file that has one still loads. */
+        bool ignored;
+        return on_off(v, &ignored);
+    }
     case K_DISK_SOUNDS: return on_off(v, &s->disk_sounds);
     case K_ARTIFACTS: return one_of(v, k_artefacts, 3u, &s->artefacts);
     case K_ARTIFACT_PHASE: return one_of(v, k_phases, 3u, &s->artefact_phase);
@@ -331,7 +337,7 @@ static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
     case K_LAYOUT:    return strcmp(a->layout, b->layout) == 0;
     case K_FAST_TAPE: return a->fast_tape == b->fast_tape;
     case K_VDG:       return a->vdg_t1 == b->vdg_t1;
-    case K_SMARTWATCH: return a->smartwatch == b->smartwatch;
+    case K_SMARTWATCH: return true;   /* retired: the line is kept as it is */
     case K_DISK_SOUNDS: return a->disk_sounds == b->disk_sounds;
     case K_ARTIFACTS: return a->artefacts == b->artefacts;
     case K_ARTIFACT_PHASE: return a->artefact_phase == b->artefact_phase;
@@ -370,7 +376,6 @@ static const char *value_of(unsigned k, const settings_t *s, char num[8]) {
     case K_LAYOUT:    return s->layout[0] ? s->layout : "standard";
     case K_FAST_TAPE: return s->fast_tape ? "on" : "off";
     case K_VDG:       return s->vdg_t1 ? "6847t1" : "6847";
-    case K_SMARTWATCH: return s->smartwatch ? "on" : "off";
     case K_DISK_SOUNDS: return s->disk_sounds ? "on" : "off";
     case K_ARTIFACTS: return settings_artefacts_str(s->artefacts);
     case K_ARTIFACT_PHASE: return settings_phase_str(s->artefact_phase);

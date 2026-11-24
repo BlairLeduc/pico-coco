@@ -116,9 +116,6 @@ typedef struct coco_s {
 
     coco_config_t cfg;
     sam6883_t sam;
-    /* A DS1216 SmartWatch at $FF78-$FF7F, when fitted (smartwatch.h):
-     * the port sets fitted and the host's time before each field. */
-    smartwatch_t clock;
     mc6821_t  pia0, pia1;
 
     /* Pressed keys: per column, a bit per row. */

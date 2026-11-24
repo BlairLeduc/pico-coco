@@ -555,12 +555,9 @@ static uint8_t io_read(coco_t *m, uint16_t a) {
     }
     if (off >= 0xE0u)   /* the vectors, from the BASIC ROM whatever the map */
         return m->rom_present[1] ? m->rom[COCO_ROM_SIZE - 0x20u + (off - 0xE0u)] : open_bus(m);
-    /* The cartridge port (§12.8), then the SmartWatch (§12.7); what
-     * neither answers is unused. */
+    /* The cartridge port (§12.8); what it does not answer is unused. */
     uint8_t bus = open_bus(m);
     if (off < 0xC0u) bus = cart_io_read(m, a, bus, access_tick(m));
-    if (m->clock.fitted && (off & 0xF8u) == (SMARTWATCH_BASE & 0xF8u))
-        return smartwatch_read(&m->clock, a, bus);
     return bus;
 }
 

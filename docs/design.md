@@ -1844,6 +1844,24 @@ reach the controller through the SCS slot the switch chose. What card
 "bb" was is not known; the same disk's CCHDisk, a hard disk driver at
 $FF50–$FF5F, suggests a hard disk interface that carried a clock.
 
+**As built** (2026-11-24, host): `CART_SMARTWATCH` answers on its
+slot's SCS at $FF58–$FF5F through `smartwatch.c`, unchanged but for its
+address and the `fitted` flag, which the cartridge replaces; the rest
+of SCS reads the bus. `coco_t.clock` and the decode at $FF78 are gone.
+The port gives the time to every SmartWatch fitted before each field
+(`cart_clock_host`). The `smartwatch` key is retired: taken with its
+old values and ignored, so an old file still loads, and a save keeps
+its line as it is; the Setup row is gone. `tools/os9-clock.py` puts
+`clock_bb` in OS9Boot, which fits with the serial port's modules left
+out as before (13,700 bytes of 14,049); `fetch-os9.sh` makes it as
+`OS9-L1V201M-BB.DSK`, leaving the `clock_tc3` disk, now unused, where
+it was. `test_os9` boots it from a Multi-Pak, the controller in slot 3
+with the switch at it: with the SmartWatch in slot 4, `DATE T` gives
+the host's date and SETIME sets the chip; with none, and with one in
+slot 2, there is no date. Planted, each failed: the host's time not
+given, and the SmartWatch answering SCS from any slot. Not yet on the
+device, where the Multi-Pak waits for its settings and page.
+
 ### 12.8 The cartridge port and the Multi-Pak
 
 **Planned for M17** (the owner, 2026-11-24). Nothing here is built yet.

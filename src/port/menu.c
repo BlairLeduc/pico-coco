@@ -68,7 +68,7 @@ enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_POWER, I_SAVE, 
        I_ABOUT, I_COUNT };
 
 enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_VDG, D_ARTEFACTS, D_PHASE,
-       D_BACKGROUND, D_CLOCK, D_DISK_SOUNDS, D_COUNT };
+       D_BACKGROUND, D_DISK_SOUNDS, D_COUNT };
 _Static_assert(ROW_TOP + I_COUNT + 2 <= ROW_STATUS, "the main page's rows fit");
 /* The layout's bindings go below the rows, as many as there is room
  * for: with the background's row, none. */
@@ -336,10 +336,6 @@ static void draw_setup(void) {
         case D_BACKGROUND:
             /* pico-atom's: the datasheet's dark green or orange, or black (§9.5). */
             snprintf(line, sizeof line, " BACKGROUND      < %s >", g_ui.dark_bg ? "DARK" : "BLACK");
-            break;
-        case D_CLOCK:
-            /* A DS1216 at $FF78-$FF7F, for OS-9's clock_tc3 (rtc.h). */
-            snprintf(line, sizeof line, " SMARTWATCH      < %s >", on_off(g_ui.smartwatch));
             break;
         case D_DISK_SOUNDS:
             /* The drives' steps and motor (drivesnd.h). */
@@ -681,7 +677,6 @@ static void save_settings(void) {
     out.artefacts = g_ui.artefacts;
     out.artefact_phase = g_ui.artefact_phase;
     out.dark_bg = g_ui.dark_bg;
-    out.smartwatch = g_ui.smartwatch;
     out.disk_sounds = g_ui.disk_sounds;
     /* A layout a loaded file chose is not the user's choice, so the file
      * keeps the one it had (§11.3). */
@@ -1151,19 +1146,6 @@ static void key_setup(uint8_t c) {
     case D_DISK_SOUNDS:
         g_ui.disk_sounds = !g_ui.disk_sounds;
         log_core1("  setup        : disk sounds %s\n", g_ui.disk_sounds ? "on" : "off");
-        break;
-    case D_CLOCK:
-        g_ui.smartwatch = !g_ui.smartwatch;
-        if (g_ui.smartwatch) {
-            /* Where its time comes from (rtc.h). */
-            char t[24];
-            int off = g_clock.offset_min, a = off < 0 ? -off : off;
-            snprintf(t, sizeof t, "THE SHELL'S, UTC%c%02d:%02d", off < 0 ? '-' : '+', a / 60,
-                     a % 60);
-            say(" TIME: %.24s", g_clock.source == RTC_SHELL    ? t
-                                : g_clock.source == RTC_DS3231 ? "THE DS3231'S, AS UTC"
-                                                               : "NONE, FROM 2000");
-        }
         break;
     }
 }

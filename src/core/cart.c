@@ -192,3 +192,9 @@ cart_t *cart_smartwatch(coco_t *m) {
         if (m->port.slot[s].kind == CART_SMARTWATCH) return &m->port.slot[s];
     return NULL;
 }
+
+void cart_clock_host(coco_t *m, uint32_t seconds_since_2000) {
+    for (unsigned s = 0; s < COCO_MPI_SLOTS; s++)
+        if (m->port.slot[s].kind == CART_SMARTWATCH)
+            smartwatch_set_host(&m->port.slot[s].u.clock, seconds_since_2000);
+}

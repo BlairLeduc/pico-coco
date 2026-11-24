@@ -29,7 +29,6 @@ int main(void) {
         CHECK(!d.cart[0] && !d.boot_tape[0], "no cartridge, no tape");
         CHECK(d.fast_tape && !d.layout[0], "fast tape, the standard keys (§11.3, §12.3)");
         CHECK(!d.vdg_t1, "the MC6847, not the T1 (§9.2)");
-        CHECK(!d.smartwatch, "no SmartWatch (§12.7)");
         CHECK(d.disk_sounds, "the drives heard (§10)");
         CHECK(d.artefacts == SETTINGS_ARTEFACTS_SIMPLE && d.artefact_phase == SETTINGS_PHASE_BLUE,
               "simple artefacts, blue (§9.5)");
@@ -82,7 +81,8 @@ int main(void) {
         CHECK(!s.fast_tape && strcmp(s.layout, "JOY RIGHT") == 0,
               "fast_tape, and the layout in capitals with its space: %s", s.layout);
         CHECK(s.vdg_t1, "vdg = 6847T1");
-        CHECK(s.smartwatch, "smartwatch = on");
+        /* smartwatch = on, retired (§12.7): taken, as the file's status
+         * above says, and nothing to set. */
         CHECK(!s.disk_sounds, "disk_sounds = off");
         CHECK(s.artefacts == SETTINGS_ARTEFACTS_FULL, "artifacts = full");
         CHECK(s.artefact_phase == SETTINGS_PHASE_RANDOM, "artifact_phase = random");

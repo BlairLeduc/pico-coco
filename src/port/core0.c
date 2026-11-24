@@ -507,9 +507,8 @@ void core0_run(coco_t *m, keymatrix_t *k) {
             alt = false;
         }
 
-        /* The SmartWatch and the board's time (rtc.h). */
-        m->clock.fitted = g_ui.smartwatch;
-        smartwatch_set_host(&m->clock, g_clock.secs);
+        /* The board's time to any SmartWatch cartridge (rtc.h, cart.h). */
+        cart_clock_host(m, g_clock.secs);
         /* The drives heard, or not; after every power-on too, which
          * leaves them off (rsdos.h). */
         coco_disk_sounds(m, g_ui.disk_sounds);
