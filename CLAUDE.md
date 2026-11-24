@@ -221,6 +221,11 @@ one: the core building clean without the SDK is what keeps SDK headers out of
   the caller carries the debt. Never add a "run exactly N" variant.
 - **Copy a machine with `coco_copy`, never `=`.** The page table points into
   the struct.
+- **The cartridge port is `cart.h`** (`design.md` §12.8): `coco.c` calls
+  `cart_*` and never a kind's own functions, and the port reaches the
+  disk controller through `coco_disk_fdc`. A new cartridge is a kind in
+  its enumeration and union, with no function pointers, so a machine
+  still copies and saves whole.
 - **A frame's lines have modes of their own** (`coco_frame_t.how`, §9.4):
   draw one with `present_render_line`, and call `coco_frame_plain` on a
   frame you fill by hand.

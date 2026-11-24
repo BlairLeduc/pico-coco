@@ -180,7 +180,7 @@ static void restore_media(coco_t *m) {
      * tape does. Every drive that changes is emptied before any is
      * filled: a disk is in one drive at a time (dskio_insert), so two
      * disks swapped since the state would otherwise refuse the first. */
-    if (!m->cfg.rsdos) return;
+    if (!coco_disk_fdc(m)) return;
     bool change[COCO_DISK_DRIVES] = { false };
     for (unsigned d = 0; d < COCO_DISK_DRIVES && d < COCO_SNAP_DRIVES; d++) {
         change[d] = strcmp(s_media.disk[d], dskio_inserted(d)) != 0;

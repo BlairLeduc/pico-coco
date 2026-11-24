@@ -109,8 +109,8 @@ static const unsigned k_rams[4] = { 4u, 16u, 32u, 64u };
 
 /* The Machine page's cartridge row: none, the RS-DOS controller, then
  * the card's images by index. */
-#define CART_NONE  (-1)
-#define CART_RSDOS (-2)
+#define MENU_CART_NONE  (-1)
+#define MENU_CART_RSDOS (-2)
 static unsigned       s_slot;      /* the Snapshots page's, kept between openings */
 
 static struct {
@@ -139,7 +139,7 @@ static struct {
     int      machine_sel;
     bool     st_ext;           /* staged: applied only by a power-on */
     unsigned st_ram;           /* index into k_rams                  */
-    int      st_cart;          /* CART_NONE, CART_RSDOS, else into s_carts */
+    int      st_cart;          /* MENU_CART_NONE, MENU_CART_RSDOS, else into s_carts */
     int      run_cart;         /* the running cartridge's             */
     unsigned n_carts;
 
@@ -411,8 +411,8 @@ static void draw_machine(void) {
             break;
         case M_CART:
             snprintf(line, sizeof line, "%cCART    < %.16s >", mark,
-                     s.st_cart == CART_NONE    ? "NONE"
-                     : s.st_cart == CART_RSDOS ? "RS-DOS"
+                     s.st_cart == MENU_CART_NONE    ? "NONE"
+                     : s.st_cart == MENU_CART_RSDOS ? "RS-DOS"
                      : s.st_cart == (int)s.n_carts ? base(g_boot.cart_path)
                                                    : base(s_carts[s.st_cart]));
             break;
@@ -633,9 +633,9 @@ static void open_machine(void) {
     s.n_carts = s.card ? card_cart_list(s_carts, COCO_CART_LIST_MAX) : 0;
     /* The running cartridge among the card's; one the card no longer
      * lists is offered as itself, after them. */
-    s.run_cart = CART_NONE;
+    s.run_cart = MENU_CART_NONE;
     if (g_machine.rsdos) {
-        s.run_cart = CART_RSDOS;
+        s.run_cart = MENU_CART_RSDOS;
     } else if (g_machine.cart) {
         s.run_cart = (int)s.n_carts;
         for (unsigned i = 0; i < s.n_carts; i++)
@@ -706,13 +706,13 @@ static void apply_machine(void) {
     rom_id_t basic = roms_basic_for(&g_boot.job, k_rams[s.st_ram], &ext, &why);
     if (basic == ROM_UNKNOWN || ext != s.st_ext) { say(" %.30s", why ? why : "NO BASIC"); return; }
     machine_t mc = { .ram_k = k_rams[s.st_ram], .basic = basic, .extended = ext,
-                     .cart = s.st_cart != CART_NONE, .rsdos = s.st_cart == CART_RSDOS };
+                     .cart = s.st_cart != MENU_CART_NONE, .rsdos = s.st_cart == MENU_CART_RSDOS };
     if (mc.rsdos) {
         const char *no = roms_rsdos_why(mc.ram_k, mc.extended);
         if (no) { say(" %.30s", no); return; }
     }
     if (s.st_cart != s.run_cart) {
-        if (s.st_cart == CART_RSDOS) {
+        if (s.st_cart == MENU_CART_RSDOS) {
             say(" READING DISK11.ROM...", "");
             draw();
             uint32_t len = 0;
@@ -1189,9 +1189,9 @@ static void key_machine(uint8_t c) {
             /* None, RS-DOS, the card's, and the running one if the card
              * has it no longer: as places 0, 1, 2 on. */
             int n = 2 + (int)s.n_carts + (s.run_cart == (int)s.n_carts ? 1 : 0);
-            int at = s.st_cart == CART_NONE ? 0 : s.st_cart == CART_RSDOS ? 1 : s.st_cart + 2;
+            int at = s.st_cart == MENU_CART_NONE ? 0 : s.st_cart == MENU_CART_RSDOS ? 1 : s.st_cart + 2;
             at = ((at + dir) % n + n) % n;
-            s.st_cart = at == 0 ? CART_NONE : at == 1 ? CART_RSDOS : at - 2;
+            s.st_cart = at == 0 ? MENU_CART_NONE : at == 1 ? MENU_CART_RSDOS : at - 2;
             break;
         }
         case M_APPLY: return;

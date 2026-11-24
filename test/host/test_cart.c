@@ -64,7 +64,7 @@ static int own_cart(void) {
     CHECK(bus_read(&g.m, 0xFE00) == 0x12, "8 KB not repeated to $FEFF");
     coco_cart_remove(&g.m);
     coco_power_on(&g.m);
-    CHECK(!g.m.cart_present && g.m.page[0xC0].read == NULL, "the slot still has a cartridge");
+    CHECK(!g.m.port.rom && g.m.page[0xC0].read == NULL, "the slot still has a cartridge");
     CHECK(guest_boot(&g), "BASIC did not boot with the cartridge out");
     CHECK(bus_read(&g.m, 0x0600) != 0x5A, "the mark after the cartridge was taken out");
     return 0;

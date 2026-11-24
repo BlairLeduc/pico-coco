@@ -17,7 +17,7 @@
 void coco_config_default(coco_config_t *cfg) {
     cfg->ram_k = 64;
     cfg->tape_trap = true;
-    cfg->rsdos = false;
+    cfg->cart = CART_NONE;
 }
 
 /* The chips for each size, as XRoar fits them: 4K x 1, 16K x 1, 32K x 1
@@ -136,7 +136,7 @@ static void map(coco_t *m) {
             pg->read = rom_page(m, p);
             pg->write = NULL;
         } else {
-            pg->read = m->cart_present ? &m->cart[(p - 0xC0u) * COCO_PAGE_SIZE] : NULL;
+            pg->read = m->port.rom ? &m->cart[(p - 0xC0u) * COCO_PAGE_SIZE] : NULL;
             pg->write = NULL;
         }
     }
@@ -222,7 +222,7 @@ static void raise_due(coco_t *m, uint64_t t) {
  * change of CB1's polarity. XRoar toggles the line every 100 ms instead
  * (its cart.c), and BASIC, which waits for the flag, cannot tell. */
 static void cart_q(coco_t *m, uint64_t t) {
-    if (!m->cart_present || !m->cart_autostart) return;
+    if (!cart_on_q(&m->port)) return;
     bool active = (m->pia1.b.cr & MC6821_CR_C1_RISE) != 0;
     c1_edge(m, 3, !active, t);
     c1_edge(m, 3, active, t);
@@ -553,10 +553,13 @@ static uint8_t io_read(coco_t *m, uint16_t a) {
     }
     if (off >= 0xE0u)   /* the vectors, from the BASIC ROM whatever the map */
         return m->rom_present[1] ? m->rom[COCO_ROM_SIZE - 0x20u + (off - 0xE0u)] : open_bus(m);
-    if (m->cfg.rsdos && rsdos_decodes(off)) return rsdos_read(m, a, open_bus(m), access_tick(m));
+    /* The cartridge port (§12.8), then the SmartWatch (§12.7); what
+     * neither answers is unused. */
+    uint8_t bus = open_bus(m);
+    if (off < 0xC0u) bus = cart_io_read(m, a, bus, access_tick(m));
     if (m->clock.fitted && (off & 0xF8u) == (SMARTWATCH_BASE & 0xF8u))
-        return smartwatch_read(&m->clock, a, open_bus(m));
-    return open_bus(m);  /* the rest unused */
+        return smartwatch_read(&m->clock, a, bus);
+    return bus;
 }
 
 static void io_write(coco_t *m, uint16_t a, uint8_t v) {
@@ -585,8 +588,8 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         if (reg & 1u) mc6809_stop(&m->cpu);
         return;
     }
-    if (m->cfg.rsdos && rsdos_decodes(off)) {
-        rsdos_write(m, a, v, access_tick(m));
+    if (off < 0xC0u) {   /* the cartridge port (§12.8) */
+        cart_io_write(m, a, v, access_tick(m));
         return;
     }
     if (off >= 0xC0u && off < 0xE0u) {
@@ -664,7 +667,8 @@ void coco_init(coco_t *m, const coco_config_t *cfg) {
     m->cas.fast = true;
     joysticks_centre(m);
     mc6809_init(&m->cpu);
-    wd_init(&m->dk.fdc);
+    m->port.kind = cfg->cart == CART_RSDOS ? CART_RSDOS : CART_NONE;
+    cart_init(m);
     pcm_init(&m->pcm, 0, COCO_SOUND_LEVEL_MAX, COCO_TICK_HZ, 0, 0);
     m->vid_bytes_mode = 0x01u;   /* no mode yet (lines_due) */
     map(m);
@@ -683,8 +687,9 @@ bool coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len) {
         memcpy(m->cart, data, len);
         if ((len & (len - 1u)) == 0)
             for (size_t at = len; at < COCO_CART_SIZE; at += len) memcpy(&m->cart[at], data, len);
-        m->cart_present = true;
-        m->cart_autostart = true;
+        if (m->port.kind == CART_NONE) m->port.kind = CART_ROM;
+        m->port.rom = true;
+        m->port.autostart = m->port.kind == CART_ROM;
     } else {
         return false;
     }
@@ -695,13 +700,14 @@ bool coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len) {
 
 void coco_cart_remove(coco_t *m) {
     memset(m->cart, 0xFF, sizeof(m->cart));
-    m->cart_present = false;
-    m->cart_autostart = false;
+    if (m->port.kind == CART_ROM) m->port.kind = CART_NONE;
+    m->port.rom = false;
+    m->port.autostart = false;
     map(m);
 }
 
 void coco_cart_autostart(coco_t *m, bool on) {
-    m->cart_autostart = on;
+    m->port.autostart = on;
 }
 
 void coco_reset(coco_t *m) {
@@ -728,11 +734,7 @@ void coco_reset(coco_t *m) {
     update_sound(m);   /* the bus holds what it had: nothing drives it */
     mode_written(m, t);   /* the PIA's outputs go to inputs: mode $00 */
     mc6809_reset(m);
-    if (m->cfg.rsdos) rsdos_reset(m);
-    else {
-        mc6809_set_halt(&m->cpu, false);
-        mc6809_set_nmi(&m->cpu, false);
-    }
+    cart_reset(m);
 }
 
 static void lines_begin(coco_t *m);
@@ -904,15 +906,15 @@ uint32_t COCO_HOT2(coco_run)(coco_t *m, uint32_t ticks) {
         }
         uint64_t due = next_due(m);
         if (due != UINT64_MAX && due + m->tpc < stop) stop = due + m->tpc;
-        /* The disk controller's next event: a byte ready, which ends a
-         * HALT, or INTRQ, which is the NMI (rsdos.h). */
-        if (m->cfg.rsdos) {
-            if (m->dk.fdc.due <= now) {
-                rsdos_run(m, now);
-                continue;
-            }
-            if (m->dk.fdc.due < stop) stop = m->dk.fdc.due;
+        /* The cartridge's next event (cart.h): for the disk controller,
+         * a byte ready, which ends a HALT, or INTRQ, which is the NMI
+         * (rsdos.h). */
+        uint64_t cart_at = cart_due(&m->port);
+        if (cart_at <= now) {
+            cart_run(m, now);
+            continue;
         }
+        if (cart_at < stop) stop = cart_at;
         if (stop <= now) stop = now + 1u;
         /* Within the run's ticks, so 32 bits, divided in hardware. */
         uint32_t left = (uint32_t)(stop - now);
@@ -924,7 +926,7 @@ uint32_t COCO_HOT2(coco_run)(coco_t *m, uint32_t ticks) {
             (void)mc6809_run(m, cycles);
         }
         hs_catch_up(m, coco_ticks(m));
-        if (m->cfg.rsdos && m->dk.fdc.due <= coco_ticks(m)) rsdos_run(m, coco_ticks(m));
+        if (cart_due(&m->port) <= coco_ticks(m)) cart_run(m, coco_ticks(m));
     }
     return (uint32_t)(coco_ticks(m) - start);
 }
@@ -1089,9 +1091,9 @@ void coco_restored(coco_t *m) {
     map(m);
     m->cpu.irq = m->cpu.firq = 0;
     update_irq(m);
-    if (m->cfg.rsdos) rsdos_lines(m);
+    cart_restored(m);
     uint32_t now = (uint32_t)coco_ticks(m);
-    drivesnd_motor(&m->pcm.drive, m->cfg.rsdos && (m->dk.latch & DK_MOTOR));
+    coco_disk_restored(m);
     drivesnd_quiet(&m->pcm.drive);
     pcm_restart(&m->pcm, now);
     pcm_set_level(&m->pcm, now, m->sound_level);

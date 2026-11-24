@@ -66,12 +66,12 @@ void guest_build_disk(guest_t *g, unsigned ram_k) {
     coco_config_t cfg;
     coco_config_default(&cfg);
     cfg.ram_k = ram_k;
-    cfg.rsdos = true;
+    cfg.cart = CART_RSDOS;
     coco_init(&g->m, &cfg);
     coco_load_rom(&g->m, 0xA000u, images[ROM_COCO_BAS13], romset_images[ROM_COCO_BAS13].size);
     coco_load_rom(&g->m, 0x8000u, images[ROM_COCO_EXTBAS11], romset_images[ROM_COCO_EXTBAS11].size);
+    /* RS-DOS's CART line is not on Q (§12.2): coco_load_rom leaves it off. */
     coco_load_rom(&g->m, 0xC000u, images[ROM_COCO_DISK11], romset_images[ROM_COCO_DISK11].size);
-    coco_cart_autostart(&g->m, false);   /* RS-DOS's CART line is not on Q (§12.2) */
     coco_power_on(&g->m);
     keymatrix_init(&g->k);
     g->ok_ticks = 0;

@@ -148,7 +148,7 @@ void core0_power_on(coco_t *m, const machine_t *mc) {
     cfg.ram_k = mc->ram_k;
     /* The RS-DOS cartridge, never in a 4 KB CoCo (roms.h). */
     bool rsdos = mc->rsdos && mc->cart && g_boot.cart_len > 0 && mc->ram_k >= 16u;
-    cfg.rsdos = rsdos;
+    cfg.cart = rsdos ? CART_RSDOS : CART_NONE;
     coco_init(m, &cfg);
     /* Color BASIC 1.1 kept apart for a 4 KB CoCo (roms.h); otherwise the
      * job's image, 1.3 or 1.1 without it. */
@@ -156,10 +156,9 @@ void core0_power_on(coco_t *m, const machine_t *mc) {
     coco_load_rom(m, 0xA000u, use11 ? g_boot.basic11 : g_boot.basic, COCO_ROM_HALF);
     if (mc->extended) coco_load_rom(m, 0x8000u, g_boot.ext, COCO_ROM_HALF);
     bool cart = mc->cart && g_boot.cart_len > 0;
-    if (cart) coco_load_rom(m, 0xC000u, g_boot.cart, g_boot.cart_len);
     /* Disk BASIC is started by Color BASIC's look at $C000, not by the
-     * CART line (§12.2). */
-    if (rsdos) coco_cart_autostart(m, false);
+     * CART line (§12.2), and coco_load_rom leaves its line off. */
+    if (cart) coco_load_rom(m, 0xC000u, g_boot.cart, g_boot.cart_len);
     coco_power_on(m);
     g_c0.resets++;
     tapeio_attach(m);
@@ -734,8 +733,8 @@ void core0_run(coco_t *m, keymatrix_t *k) {
                        (unsigned long)turbo_fields, (unsigned long)cas->edges,
                        (unsigned long)cas->rec_blocks, (unsigned long)cas->rec_errors,
                        (unsigned long)m->tape.requests, (unsigned long)m->split_dropped);
-            if (m->cfg.rsdos) {
-                const wd1793_t *f = &m->dk.fdc;
+            const wd1793_t *f = coco_disk_fdc_c(m);
+            if (f) {
                 log_printf("  disk         : %lu sectors read, %lu written, %lu tracks formatted; "
                            "%lu tracks fetched, %lu put back, %lu lost; %lu parks, %llu us, "
                            "longest %lu us\n",

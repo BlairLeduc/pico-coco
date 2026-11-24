@@ -154,9 +154,10 @@ _Static_assert(MD_FLAGS + 8u == SNAP_MEDIA_LEN, "the media section's length");
 
 static uint8_t fitted_of(const coco_t *m) {
     return (uint8_t)((m->rom_present[0] ? M_ROM_LO : 0) | (m->rom_present[1] ? M_ROM_HI : 0) |
-                     (m->cart_present ? M_CART : 0) |
-                     (m->cart_present && m->cart_autostart ? M_AUTOSTART : 0) |
-                     (m->cfg.tape_trap ? M_TAPE_TRAP : 0) | (m->cfg.rsdos ? M_RSDOS : 0));
+                     (m->port.rom ? M_CART : 0) |
+                     (cart_on_q(&m->port) ? M_AUTOSTART : 0) |
+                     (m->cfg.tape_trap ? M_TAPE_TRAP : 0) |
+                     (m->port.kind == CART_RSDOS ? M_RSDOS : 0));
 }
 
 /* The three hashes as a state has them: zero for a half or a slot with
@@ -165,7 +166,7 @@ static void rom_hashes(const coco_t *m, uint8_t *st) {
     memset(st + S_ROM_LO, 0, 3u * SHA1_DIGEST_LEN);
     if (m->rom_present[0]) sha1(m->rom, COCO_ROM_HALF, st + S_ROM_LO);
     if (m->rom_present[1]) sha1(m->rom + COCO_ROM_HALF, COCO_ROM_HALF, st + S_ROM_HI);
-    if (m->cart_present) sha1(m->cart, COCO_CART_SIZE, st + S_CART);
+    if (m->port.rom) sha1(m->cart, COCO_CART_SIZE, st + S_CART);
 }
 
 static mc6821_port_t *port_of(coco_t *m, unsigned i) {
@@ -233,8 +234,8 @@ static void state_encode(const coco_t *m, uint8_t st[SNAP_STATE_LEN]) {
     put16(st + S_FIELD_LEAD, 0u);
     rom_hashes(m, st);
 
-    if (m->cfg.rsdos) {
-        const rsdos_t *d = &m->dk;
+    if (m->port.kind == CART_RSDOS) {
+        const rsdos_t *d = &m->port.u.rsdos;
         const wd1793_t *f = &d->fdc;
         st[S_DK_LATCH] = d->latch;
         st[S_DK_FLAGS] = (uint8_t)((d->halt_enable ? D_HALT_ENABLE : 0) | (d->intrq ? D_INTRQ : 0) |
@@ -549,8 +550,8 @@ snap_status_t snapshot_load(coco_t *m, snap_read_fn read, void *ctx) {
     m->video_split = (st[S_M_FLAGS] & F_VIDEO_SPLIT) != 0;
     m->tape.hot = get16(st + S_TAPE_HOT);
 
-    if (m->cfg.rsdos) {
-        rsdos_t *d = &m->dk;
+    if (m->port.kind == CART_RSDOS) {
+        rsdos_t *d = &m->port.u.rsdos;
         wd1793_t *f = &d->fdc;
         uint8_t df = st[S_DK_FLAGS];
         d->latch = st[S_DK_LATCH];

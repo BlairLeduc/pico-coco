@@ -147,15 +147,15 @@ static inline void host_disk_serve(coco_t *m, host_disk_t *disks[COCO_DISK_DRIVE
     if (!r) return;
     bool ok = true;
     if (r->put) {
-        if (host_disk_put_hook) host_disk_put_hook(m->dk.fdc.buf, r->put_cyl, r->put_side);
+        if (host_disk_put_hook) host_disk_put_hook(coco_disk_fdc(m)->buf, r->put_cyl, r->put_side);
         host_disk_t *d = disks[r->put_drive];
-        if (d && !d->protect && host_disk_put(d, r->put_cyl, r->put_side, m->dk.fdc.buf)) d->puts++;
+        if (d && !d->protect && host_disk_put(d, r->put_cyl, r->put_side, coco_disk_fdc(m)->buf)) d->puts++;
         else if (d) d->lost++;
     }
     if (r->get) {
         host_disk_t *d = disks[r->drive];
         if (d) {
-            host_disk_get(d, r->cyl, r->side, m->dk.fdc.buf);
+            host_disk_get(d, r->cyl, r->side, coco_disk_fdc(m)->buf);
             d->gets++;
         } else {
             ok = false;

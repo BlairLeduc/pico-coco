@@ -1862,6 +1862,24 @@ the interface with nothing else changed, in a commit of their own, and
 diff and the 150-field log give what they gave before it. The settings
 keep `cart = RS-DOS`, and a version 1 save state still loads.
 
+**Step one as built** (2026-11-24, host and firmware): `cart.h` and
+`cart.c`, with `coco_t.port` a `cart_t` of kind `CART_NONE`, `CART_ROM`
+or `CART_RSDOS`; `coco_config_t.cart` names the controller, and a ROM
+loaded at $C000 into an empty port makes it a `CART_ROM`. The ROM's
+bytes stay in `coco_t.cart`, the room the Multi-Pak's slots will share.
+`rsdos.c` acts on its `cart_t`, sets the NMI and HALT it drives, and
+`cart_lines` puts the port's onto the CPU, where the Multi-Pak will OR
+its slots'. `coco_load_rom` leaves the RS-DOS controller's CART line
+off itself. The port and the tests reach the WD1793 by
+`coco_disk_fdc`, not `coco_t.dk`. The save state's format is unchanged.
+Checked: the 36 host tests pass; a per-field hash of RAM, the CPU's
+registers, the cycle count and the clock, over 8,253 fields of Disk
+BASIC with `DIR`, NitrOS-9 and Tandy OS-9 2.01 with its SmartWatch
+booting to their shells, and a ROM cartridge starting, is identical
+before and after, and so are the disks written and the 150-field log;
+the default, release and UART0 firmware build, the hot functions in
+SRAM at tier 2. Not checked on the device.
+
 **The Multi-Pak** (Tandy 26-3024): four slots and a register at $FF7F.
 As XRoar's `mpi.c` has it (§18: medium):
 
