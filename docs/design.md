@@ -1932,7 +1932,13 @@ needs both, and so needs M17's Multi-Pak.
   does (D10), and without it the cartridge is refused by name, as a
   missing ROM is (§12.1). XRoar 1.13 has no Speech/Sound Cartridge, so
   there is no oracle; what the chip is held to is settled at M18's
-  start, before its code is written.
+  start, before its code is written. **The chip is modelled from its
+  mask ROM** (the owner, 2026-11-24), not imitated: Pico-Logo's formant
+  synthesiser (MIT, the same author) speaks a different alphabet by a
+  different filter, and lends only its shape, an engine that fills one
+  refill block at a time and an offline render for tests. Mapping the
+  allophones onto it may follow as a fallback for a card without the
+  AL2's ROM, if the owner asks for one.
 - **The sound** goes into the multiplexer's cartridge input (§10), the
   bus's level built from the two chips' outputs at the sample rate;
   the guest hears it only with the multiplexer set to the cartridge.
