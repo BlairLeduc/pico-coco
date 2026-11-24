@@ -2000,6 +2000,19 @@ images) and the SWITCH; choosing the SmartWatch for a slot other than
 4 says `clock_bb` looks in 4, and for 4 says where the time comes from,
 as the Setup row did. The status line names the switch's slot.
 
+**On the board** (2026-11-24, the owner's Plus 2 W, the UART0 build,
+driven over the UART, `out/m17/board1.log`): the plain RS-DOS
+cartridge boots Disk BASIC at field 77 as before; the Machine page set
+to a Multi-Pak with RS-DOS in slot 3, the SmartWatch in slot 4 and the
+switch at 3 restarts into Disk BASIC from slot 3; `DOS` with
+`OS9-L1V201M-BB.DSK` in drive 0 boots Tandy OS-9 2.01 to its shell
+with no `TIME ?`, `DATE T` gives the DS3231's date and time, and
+`SETIME 1999/12/31 23:59:00` then `DATE T` reads back the time set.
+Real time throughout (rt 1.000, no late fields). To drive the menu,
+the UART passes the PicoCalc's arrow codes, $B4–$B7, through
+`keymap_picocalc_text` (`tools/uart-type.sh`). Not checked: a ROM
+cartridge in a slot, and the settings file saved with a Multi-Pak.
+
 **Tested by** `test_mpi`: each line routed, the register read back, a
 CART edge from a slot that is not the CTS slot not seen, NMI and HALT
 from any slot, RESET to the switch; each shown to bite by a planted

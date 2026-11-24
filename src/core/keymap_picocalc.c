@@ -376,6 +376,10 @@ unsigned keymap_picocalc_text(uint8_t ch, picocalc_event_t out[COCO_KEY_TEXT_EVE
         code = ch;
         /* A code that is not its own key's base is a Shift chord. */
         if (keymap_picocalc_canonical(ch) != ch) mod = PICOCALC_KEY_SHIFT_L;
+    } else if (ch >= PICOCALC_KEY_LEFT && ch <= PICOCALC_KEY_RIGHT) {
+        /* The arrows as their own codes, for driving the menu over the
+         * UART (tools/uart-type.sh). */
+        code = ch;
     } else if ((ch >= PICOCALC_KEY_F1 && ch <= PICOCALC_KEY_F1 + 8u) || ch == PICOCALC_KEY_F10) {
         /* The function keys as their own codes; F6-F10 are Shift+F1-F5. */
         code = ch;

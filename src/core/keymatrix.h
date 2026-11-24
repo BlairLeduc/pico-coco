@@ -203,7 +203,8 @@ typedef struct { uint8_t state, code; } picocalc_event_t;
  * as a Shift chord; CR and LF are Enter, BS and DEL Backspace, ESC is
  * Esc, TAB is Tab, and the other control characters are Ctrl with a
  * letter, which is CLEAR with it, OS-9's control key. A function key's code is that
- * key, F6-F10 inside Shift. Returns the count, 0 for a byte no key
+ * key, F6-F10 inside Shift, and an arrow's code ($B4-$B7) is that arrow.
+ * Returns the count, 0 for a byte no key
  * sends. */
 unsigned keymap_picocalc_text(uint8_t ch, picocalc_event_t out[COCO_KEY_TEXT_EVENTS]);
 
