@@ -60,7 +60,8 @@ saturation in cyan and graphics orange, and a dark orange behind the
 text nearer a dark red: cyan $12AF56, orange $FF6000 and dark orange
 $601400 (from $402000). Ten goldens changed, in cyan and orange pixels
 alone; the dark orange is in none, the goldens drawing black
-backgrounds.
+backgrounds. On the panel the dark orange was still too bright and too green:
+$440400.
 
 **Not checked:** the dark backgrounds and the curve's primaries on the
 panel by the owner since the TV palettes went; the `color_` keys on the

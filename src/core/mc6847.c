@@ -31,7 +31,7 @@ const uint16_t mc6847_palette[VDG_COLOUR_COUNT] = {
     /* The datasheet gives no level for either: dark green a quarter of
      * the ink, dark orange a dark red, as the chip's is (§9.5). */
     [VDG_DARK_GREEN]    = RGB565(0x00, 0x40, 0x00),
-    [VDG_DARK_ORANGE]   = RGB565(0x60, 0x14, 0x00),   /* the owner's, 2026-11-24 */
+    [VDG_DARK_ORANGE]   = RGB565(0x44, 0x04, 0x00),   /* the owner's, 2026-11-24 */
     [VDG_BRIGHT_ORANGE] = RGB565(0xFF, 0x80, 0x00),
     [VDG_ARTEFACT_BLUE] = RGB565(0x00, 0x80, 0xFF),
     [VDG_ARTEFACT_RED]  = RGB565(0xFF, 0x80, 0x00),
