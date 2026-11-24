@@ -21,7 +21,8 @@ void settings_default(settings_t *s) {
     s->vdg_t1    = false;       /* the MC6847 of the CoCo 1 and 2 (§9.2) */
     s->artefacts = SETTINGS_ARTEFACTS_SIMPLE;   /* §9.5 */
     s->artefact_phase = SETTINGS_PHASE_BLUE;
-    s->palette = SETTINGS_PALETTE_PRIMARY;      /* §9.5, until judged on the panel */
+    s->dark_bg   = true;        /* the datasheet's backgrounds (§9.5) */
+    for (unsigned c = 0; c < VDG_COLOUR_COUNT; c++) s->colour[c] = SETTINGS_COLOUR_NONE;
     s->disk_sounds = true;      /* the drives heard (§10) */
 }
 
@@ -52,6 +53,34 @@ static settings_status_t vdg(const char *v, bool *t1) {
     return SET_BAD_VALUE;
 }
 
+/* pico-atom's words: the datasheet's dark green or orange, or black. */
+static settings_status_t background(settings_t *s, const char *v) {
+    if (same_name(v, "dark"))  { s->dark_bg = true;  return SET_OK; }
+    if (same_name(v, "black")) { s->dark_bg = false; return SET_OK; }
+    return SET_BAD_VALUE;
+}
+
+/* Six hex digits, RRGGBB, with $ or 0x before them if the writer likes.
+ * Empty is refused: it is what `#00FF00` leaves, # starting a comment. */
+static settings_status_t colour(const char *v, uint32_t *out) {
+    if (!*v) return SET_BAD_VALUE;
+    if (*v == '$') v++;
+    else if (v[0] == '0' && (v[1] == 'x' || v[1] == 'X')) v += 2;
+    uint32_t n = 0;
+    unsigned i = 0;
+    for (; v[i]; i++) {
+        char c = v[i];
+        unsigned d = c >= '0' && c <= '9' ? (unsigned)(c - '0')
+                   : c >= 'a' && c <= 'f' ? (unsigned)(c - 'a' + 10)
+                   : c >= 'A' && c <= 'F' ? (unsigned)(c - 'A' + 10) : 16u;
+        if (d > 15u || i >= 6u) return SET_BAD_VALUE;
+        n = n << 4 | d;
+    }
+    if (i != 6u) return SET_BAD_VALUE;
+    *out = n;
+    return SET_OK;
+}
+
 /* A value from a list of names, its index into *out. */
 static settings_status_t one_of(const char *v, const char *const *names, unsigned n,
                                 uint8_t *out) {
@@ -63,8 +92,6 @@ static settings_status_t one_of(const char *v, const char *const *names, unsigne
 /* In SETTINGS_ARTEFACTS_* and SETTINGS_PHASE_* order. */
 static const char *const k_artefacts[] = { "off", "simple", "full" };
 static const char *const k_phases[] = { "blue", "red", "random" };
-static const char *const k_palettes[SETTINGS_PALETTE_COUNT] = { "primary", "tv100", "tv115",
-                                                                 "tv130" };
 
 const char *settings_artefacts_str(unsigned a) {
     return a < 3u ? k_artefacts[a] : "simple";
@@ -72,10 +99,6 @@ const char *settings_artefacts_str(unsigned a) {
 
 const char *settings_phase_str(unsigned p) {
     return p < 3u ? k_phases[p] : "blue";
-}
-
-const char *settings_palette_str(unsigned p) {
-    return p < SETTINGS_PALETTE_COUNT ? k_palettes[p] : "primary";
 }
 
 static settings_status_t number(const char *v, unsigned lo, unsigned hi, unsigned *out) {
@@ -136,23 +159,32 @@ static settings_status_t layout(settings_t *s, const char *v) {
  * cartridge, the boot tape and the boot disk may be left empty, meaning
  * none. */
 enum { K_BASIC, K_RAM, K_CART, K_VOLUME, K_PERF, K_STATUS, K_BACKLIGHT, K_LAYOUT, K_FAST_TAPE,
-       K_VDG, K_SMARTWATCH, K_DISK_SOUNDS, K_ARTIFACTS, K_ARTIFACT_PHASE, K_PALETTE, K_BOOT_TAPE,
-       K_BOOT_DISK,
-       K_BOOT_DISK1, K_BOOT_DISK2, K_BOOT_DISK3, K_COUNT };
+       K_VDG, K_SMARTWATCH, K_DISK_SOUNDS, K_ARTIFACTS, K_ARTIFACT_PHASE, K_BACKGROUND, K_BOOT_TAPE,
+       K_BOOT_DISK, K_BOOT_DISK1, K_BOOT_DISK2, K_BOOT_DISK3,
+       K_COLOUR, K_COUNT = K_COLOUR + VDG_COLOUR_COUNT };
 _Static_assert(K_BOOT_DISK3 - K_BOOT_DISK + 1 == COCO_DISK_DRIVES, "a key for each drive");
-_Static_assert(K_COUNT <= 32, "the keys seen fit an unsigned");
+
+/* The keys a pass over the file has seen, one bit each. */
+typedef uint64_t keys_t;
+#define KEY(k) ((keys_t)1u << (k))
+_Static_assert(K_COUNT <= 64, "the keys seen fit a keys_t");
 
 /* The artefacts' keys are spelt as the CoCo's own manuals and its
  * users spell the word. */
 static const char *const k_names[K_COUNT] = {
     "basic", "ram", "cart", "volume", "perf", "status", "backlight", "layout", "fast_tape",
-    "vdg", "smartwatch", "disk_sounds", "artifacts", "artifact_phase", "palette", "boot_tape",
-    "boot_disk",
-    "boot_disk1", "boot_disk2", "boot_disk3",
+    "vdg", "smartwatch", "disk_sounds", "artifacts", "artifact_phase", "background", "boot_tape",
+    "boot_disk", "boot_disk1", "boot_disk2", "boot_disk3",
+    /* In vdg_colour_t's order. */
+    "color_green", "color_yellow", "color_blue", "color_red", "color_buff", "color_cyan",
+    "color_magenta", "color_orange", "color_black", "color_dark_green", "color_dark_orange",
+    "color_text_orange", "color_artifact_blue", "color_artifact_red",
 };
+_Static_assert(VDG_COLOUR_COUNT == 14, "a key for each VDG colour");
 
 static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
     bool disk = k >= K_BOOT_DISK && k <= K_BOOT_DISK3;
+    if (k >= K_COLOUR) return colour(v, &s->colour[k - K_COLOUR]);
     if (!*v && k != K_CART && k != K_BOOT_TAPE && !disk) return SET_SYNTAX;
     if (disk) return path(v, s->boot_disk[k - K_BOOT_DISK]);
     switch (k) {
@@ -170,7 +202,7 @@ static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
     case K_DISK_SOUNDS: return on_off(v, &s->disk_sounds);
     case K_ARTIFACTS: return one_of(v, k_artefacts, 3u, &s->artefacts);
     case K_ARTIFACT_PHASE: return one_of(v, k_phases, 3u, &s->artefact_phase);
-    case K_PALETTE:   return one_of(v, k_palettes, SETTINGS_PALETTE_COUNT, &s->palette);
+    case K_BACKGROUND: return background(s, v);
     case K_BOOT_TAPE: return path(v, s->boot_tape);
     }
     return SET_UNKNOWN;
@@ -189,7 +221,7 @@ static void strip_comment(char *line) {
 
 /* One line, NUL-terminated and writable. *key is the setting it named,
  * or K_COUNT if it named none. */
-static settings_status_t parse_line(settings_t *s, char *line, unsigned *seen, unsigned *key) {
+static settings_status_t parse_line(settings_t *s, char *line, keys_t *seen, unsigned *key) {
     *key = K_COUNT;
     strip_comment(line);
     char *t = trim(line);
@@ -204,9 +236,9 @@ static settings_status_t parse_line(settings_t *s, char *line, unsigned *seen, u
     for (unsigned k = 0; k < K_COUNT; k++) {
         if (!same_name(name, k_names[k])) continue;
         *key = k;
-        if (*seen & (1u << k)) return SET_DUPLICATE;
+        if (*seen & KEY(k)) return SET_DUPLICATE;
         settings_status_t st = apply(s, k, val);
-        if (st == SET_OK) *seen |= 1u << k;
+        if (st == SET_OK) *seen |= KEY(k);
         return st;
     }
     return SET_UNKNOWN;
@@ -214,7 +246,7 @@ static settings_status_t parse_line(settings_t *s, char *line, unsigned *seen, u
 
 /* A line of `n` bytes as the parser sees it: too long, not text, or
  * parsed over *s. */
-static settings_status_t classify(settings_t *s, const char *text, size_t n, unsigned *seen,
+static settings_status_t classify(settings_t *s, const char *text, size_t n, keys_t *seen,
                                   unsigned *key) {
     char buf[COCO_SETTINGS_LINE_MAX + 1];
     *key = K_COUNT;
@@ -229,7 +261,8 @@ static settings_status_t classify(settings_t *s, const char *text, size_t n, uns
 settings_status_t settings_parse(settings_t *s, const char *text, size_t len,
                                  unsigned *line) {
     settings_status_t first = SET_OK;
-    unsigned seen = 0, n_line = 0;
+    keys_t seen = 0;
+    unsigned n_line = 0;
     *line = 0;
 
     size_t at = 0;
@@ -286,6 +319,7 @@ static bool same_path(const char *dir, const char *a, const char *b) {
 /* b is the settings being saved, whose backlight of 0 says "the file's,
  * whatever it is": equal to anything, so the line is kept. */
 static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
+    if (k >= K_COLOUR) return a->colour[k - K_COLOUR] == b->colour[k - K_COLOUR];
     switch (k) {
     case K_BASIC:     return a->extended == b->extended;
     case K_RAM:       return a->ram_k == b->ram_k;
@@ -301,7 +335,7 @@ static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
     case K_DISK_SOUNDS: return a->disk_sounds == b->disk_sounds;
     case K_ARTIFACTS: return a->artefacts == b->artefacts;
     case K_ARTIFACT_PHASE: return a->artefact_phase == b->artefact_phase;
-    case K_PALETTE:   return a->palette == b->palette;
+    case K_BACKGROUND: return a->dark_bg == b->dark_bg;
     case K_BOOT_TAPE: return same_path(SETTINGS_TAPE_DIR, a->boot_tape, b->boot_tape);
     case K_BOOT_DISK: case K_BOOT_DISK1: case K_BOOT_DISK2: case K_BOOT_DISK3:
         return same_path(SETTINGS_DISK_DIR, a->boot_disk[k - K_BOOT_DISK],
@@ -311,7 +345,14 @@ static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
 }
 
 /* The value a save writes for k. */
-static const char *value_of(unsigned k, const settings_t *s, char num[4]) {
+static const char *value_of(unsigned k, const settings_t *s, char num[8]) {
+    if (k >= K_COLOUR) {
+        uint32_t c = s->colour[k - K_COLOUR];
+        if (c == SETTINGS_COLOUR_NONE) return "";   /* never written: unsayable */
+        for (unsigned i = 0; i < 6u; i++) num[i] = "0123456789ABCDEF"[(c >> (20u - 4u * i)) & 15u];
+        num[6] = 0;
+        return num;
+    }
     switch (k) {
     case K_BASIC:     return settings_basic_str(s->extended);
     case K_RAM:       return settings_ram_str(s->ram_k);
@@ -333,7 +374,7 @@ static const char *value_of(unsigned k, const settings_t *s, char num[4]) {
     case K_DISK_SOUNDS: return s->disk_sounds ? "on" : "off";
     case K_ARTIFACTS: return settings_artefacts_str(s->artefacts);
     case K_ARTIFACT_PHASE: return settings_phase_str(s->artefact_phase);
-    case K_PALETTE:   return settings_palette_str(s->palette);
+    case K_BACKGROUND: return s->dark_bg ? "dark" : "black";
     case K_BOOT_TAPE: return s->boot_tape;
     case K_BOOT_DISK: case K_BOOT_DISK1: case K_BOOT_DISK2: case K_BOOT_DISK3:
         return s->boot_disk[k - K_BOOT_DISK];
@@ -410,21 +451,21 @@ settings_status_t settings_rewrite(const char *text, size_t len, const settings_
      * the save writes the value in force over the refused one. If another
      * line is, the refused one is made a comment, keeping its text. Either
      * way the problem the status row names goes with the save. */
-    unsigned good = 0;
+    keys_t good = 0;
     {
-        unsigned seen0 = 0;
+        keys_t seen0 = 0;
         for (size_t a = 0; a < len;) {
             size_t e = a;
             while (e < len && text[e] != '\n') e++;
             settings_t tmp = def;
             unsigned k;
             if (classify(&tmp, text + a, e - a, &seen0, &k) == SET_OK && k < K_COUNT)
-                good |= 1u << k;
+                good |= KEY(k);
             a = e + 1;
         }
     }
 
-    unsigned seen = 0, present = 0;
+    keys_t seen = 0, present = 0;
     size_t at = 0;
     while (at < len) {
         size_t end = at;
@@ -442,27 +483,29 @@ settings_status_t settings_rewrite(const char *text, size_t len, const settings_
         /* A backlight of 0 is "leave it", which no line can say: a
          * refused one has nothing to be replaced with, and is made a
          * comment like one beside the key's own line. */
-        bool unsayable = key == K_BACKLIGHT && s->backlight == 0;
-        bool refused = bad && !unsayable && !(good & (1u << key)) && !(present & (1u << key));
+        bool unsayable = (key == K_BACKLIGHT && s->backlight == 0) ||
+                         (key >= K_COLOUR && key < K_COUNT &&
+                          s->colour[key - K_COLOUR] == SETTINGS_COLOUR_NONE);
+        bool refused = bad && !unsayable && !(good & KEY(key)) && !(present & KEY(key));
 
         if (bad && !refused) {
             emit_str(&o, "# ");
             emit(&o, text + at, n);
         } else if (refused || (applies && !key_equal(key, &line_says, s))) {
-            char num[4];
+            char num[8];
             emit_changed(&o, text + at, n, value_of(key, s, num));
         } else {
             emit(&o, text + at, n);
         }
-        if (applies || refused) present |= 1u << key;
+        if (applies || refused) present |= KEY(key);
         if (end < len) emit(&o, "\n", 1);
         at = end + 1;
     }
 
     for (unsigned k = 0; k < K_COUNT; k++) {
-        if ((present & (1u << k)) || key_equal(k, &def, s)) continue;
+        if ((present & KEY(k)) || key_equal(k, &def, s)) continue;
         if (o.n && buf[o.n - 1] != '\n') emit_str(&o, eol);
-        char num[4];
+        char num[8];
         emit_str(&o, k_names[k]);
         emit_str(&o, " = ");
         emit_str(&o, value_of(k, s, num));

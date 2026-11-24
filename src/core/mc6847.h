@@ -81,11 +81,11 @@ typedef enum {
 
 extern const uint16_t mc6847_palette[VDG_COLOUR_COUNT];
 
-/* What an NTSC set showed from the chip and its MC1372 (§9.5), by where
- * the set put white: at the VDG's white (100 IRE), or above it with room
- * for the text screen's orange, which is brighter than white. */
-enum { MC6847_TV100, MC6847_TV115, MC6847_TV130, MC6847_TV_COUNT };
-extern const uint16_t mc6847_palette_tv[MC6847_TV_COUNT][VDG_COLOUR_COUNT];
+/* mc6847_palette with some colours replaced: over[c] is 0xRRGGBB, or
+ * anything above 0xFFFFFF for the palette's own (the settings file's
+ * color_ keys, §9.5). Only the table's colours: the full artefacts'
+ * colours are mixed from their own table. */
+void mc6847_palette_over(uint16_t out[VDG_COLOUR_COUNT], const uint32_t over[VDG_COLOUR_COUNT]);
 
 /* The same colours through the luminance output alone (§9.5). */
 extern const uint16_t mc6847_palette_mono[VDG_COLOUR_COUNT];
@@ -153,8 +153,8 @@ static inline uint8_t mc6847_glyph_ascii(uint8_t index) {
  * panel the light a display of gamma 2.2 gives the first: the palettes
  * are written for such a display. Built from three points on each
  * channel's curve, the codes that give a quarter, a half and three
- * quarters of full light, as fractions of full (paneltest.h measures
- * them by eye; hardware-notes.md §4.12). */
+ * quarters of full light, as fractions of full (measured by eye;
+ * hardware-notes.md §4.12). */
 typedef struct {
     uint8_t r[32], g[64], b[32];
 } mc6847_curve_t;

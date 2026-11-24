@@ -37,7 +37,6 @@
 #include "keymapio.h"
 #include "keymatrix.h"
 #include "log.h"
-#include "paneltest.h"
 #include "pico_coco_version.h"
 #include "roms.h"
 #include "sd.h"
@@ -69,10 +68,10 @@ enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_POWER, I_SAVE, 
        I_ABOUT, I_COUNT };
 
 enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_VDG, D_ARTEFACTS, D_PHASE,
-       D_PALETTE, D_CLOCK, D_DISK_SOUNDS, D_COUNT };
+       D_BACKGROUND, D_CLOCK, D_DISK_SOUNDS, D_COUNT };
 _Static_assert(ROW_TOP + I_COUNT + 2 <= ROW_STATUS, "the main page's rows fit");
-/* The layout's bindings go below the rows when there is room; with the
- * palette's row there is none (design.md §9.5). */
+/* The layout's bindings go below the rows, as many as there is room
+ * for: with the background's row, none. */
 _Static_assert(ROW_TOP + D_COUNT <= ROW_STATUS, "the Setup page's rows fit");
 
 /* The Tapes page: three things to do with the deck, then the card's
@@ -121,8 +120,7 @@ static struct {
     bool     done;
     bool     direct;          /* opened at a page: closing it resumes */
     int      item;
-    enum { P_MAIN, P_TAPES, P_DISKS, P_SNAPS, P_SETUP, P_MACHINE, P_ABOUT, P_HELP,
-           P_PANEL } page;
+    enum { P_MAIN, P_TAPES, P_DISKS, P_SNAPS, P_SETUP, P_MACHINE, P_ABOUT, P_HELP } page;
     char     status[TEXT_COLS + 1];
     int      battery;
 
@@ -155,7 +153,6 @@ static struct {
     int      sb_ver;
     int      temp_c;
     bool     about_job;
-    bool     panel_shown;      /* the panel test drawn over the picture */
 } s;
 
 void menu_init(coco_frame_t *page) {
@@ -336,13 +333,9 @@ static void draw_setup(void) {
                 snprintf(line, sizeof line, " PHASE           < %s >", now);
             break;
         }
-        case D_PALETTE:
-            /* The idealised primaries, or an NTSC set's by its white
-             * (§9.5). */
-            static const char *const pal[SETTINGS_PALETTE_COUNT] = { "PRIMARY", "TV 100",
-                                                                     "TV 115", "TV 130" };
-            snprintf(line, sizeof line, " PALETTE         < %s >",
-                     pal[g_ui.palette % SETTINGS_PALETTE_COUNT]);
+        case D_BACKGROUND:
+            /* pico-atom's: the datasheet's dark green or orange, or black (§9.5). */
+            snprintf(line, sizeof line, " BACKGROUND      < %s >", g_ui.dark_bg ? "DARK" : "BLACK");
             break;
         case D_CLOCK:
             /* A DS1216 at $FF78-$FF7F, for OS-9's clock_tc3 (rtc.h). */
@@ -520,15 +513,13 @@ static void draw(void) {
         [P_SNAPS] = " PICO-COCO: SNAPSHOTS",
         [P_SETUP] = " PICO-COCO: SETUP",  [P_MACHINE] = " PICO-COCO: MACHINE",
         [P_ABOUT] = " PICO-COCO: ABOUT",  [P_HELP] = " PICO-COCO: KEYS",
-        [P_PANEL] = " PICO-COCO: PANEL TEST",
     };
     static const char *const keys[] = {
         [P_MAIN] = " ARROWS ENTER  ESC RESUMES",  [P_TAPES] = " ENTER INSERTS  ESC BACK",
         [P_DISKS] = " < > DRIVE  ENTER  ESC BACK",
         [P_SNAPS] = " < > SLOT  ENTER  ESC BACK",
         [P_SETUP] = " < > CHANGES  ESC BACK",     [P_MACHINE] = " < > STAGES  ENTER  ESC BACK",
-        [P_ABOUT] = " P PANEL TEST  ESC BACK",    [P_HELP] = " ESC RESUMES",
-        [P_PANEL] = " < > MATCH  ^ V NEXT  C  ESC",
+        [P_ABOUT] = " ESC BACK",                  [P_HELP] = " ESC RESUMES",
     };
     textpage_clear(s_scr);
     textpage_line(s_scr, 0, title[s.page], true);
@@ -541,14 +532,6 @@ static void draw(void) {
     case P_MACHINE: draw_machine(); break;
     case P_ABOUT:   draw_about(); break;
     case P_HELP:    draw_help(); break;
-    case P_PANEL:
-        for (unsigned r = 0; r < 2u; r++) {
-            char line[TEXT_COLS + 1];
-            paneltest_summary(r, line, sizeof line);
-            textpage_line(s_scr, PANELTEST_SUMMARY_ROW + (int)r, line, false);
-        }
-        paneltest_status(s.status, sizeof s.status);
-        break;
     default:        draw_main(); break;
     }
     if (s.name.on) {
@@ -562,14 +545,8 @@ static void draw(void) {
         textpage_line(s_scr, ROW_STATUS, s.status, false);
         textpage_line(s_scr, ROW_KEYS, keys[s.page], true);
     }
-    /* The panel test draws over the picture behind the presenter's back
-     * (paneltest.h), so the page after it, or a redraw of it, starts
-     * from a full repaint. */
-    if (s.panel_shown) display_invalidate();
     display_present(s_scr, NULL);
     display_settle();   /* the border now, not at the next key */
-    s.panel_shown = s.page == P_PANEL;
-    if (s.panel_shown) paneltest_draw();
 }
 
 /* ---- opening the pages ------------------------------------------------------ */
@@ -703,7 +680,7 @@ static void save_settings(void) {
     out.vdg_t1 = g_ui.vdg_t1;
     out.artefacts = g_ui.artefacts;
     out.artefact_phase = g_ui.artefact_phase;
-    out.palette = g_ui.palette;
+    out.dark_bg = g_ui.dark_bg;
     out.smartwatch = g_ui.smartwatch;
     out.disk_sounds = g_ui.disk_sounds;
     /* A layout a loaded file chose is not the user's choice, so the file
@@ -1166,11 +1143,10 @@ static void key_setup(uint8_t c) {
         log_core1("  setup        : artifact phase %s\n",
                   settings_phase_str(g_ui.artefact_phase));
         break;
-    case D_PALETTE:
-        g_ui.palette = (uint8_t)((g_ui.palette + SETTINGS_PALETTE_COUNT + (dir < 0 ? -1 : 1)) %
-                                 SETTINGS_PALETTE_COUNT);
-        display_set_palette(g_ui.palette);
-        log_core1("  setup        : palette %s\n", settings_palette_str(g_ui.palette));
+    case D_BACKGROUND:
+        g_ui.dark_bg = !g_ui.dark_bg;
+        display_set_dark_bg(g_ui.dark_bg);
+        log_core1("  setup        : background %s\n", g_ui.dark_bg ? "dark" : "black");
         break;
     case D_DISK_SOUNDS:
         g_ui.disk_sounds = !g_ui.disk_sounds;
@@ -1255,29 +1231,6 @@ static void keys(void) {
         case P_DISKS:   key_disks(c); break;
         case P_SNAPS:   key_snaps(c); break;
         case P_ABOUT:
-            if (c == 'p' || c == 'P') {
-                s.page = P_PANEL;
-                paneltest_reset();
-                log_core1("  panel test   : open\n");
-                break;
-            }
-            if (c == PICOCALC_KEY_ESC || c == PICOCALC_KEY_ENTER) s.page = P_MAIN;
-            break;
-        case P_PANEL:
-            if (c == PICOCALC_KEY_ESC || c == PICOCALC_KEY_ENTER) {
-                paneltest_log();
-                s.page = P_ABOUT;
-                say("", "");
-            }
-            else if (c == 'c' || c == 'C') {
-                display_set_curve(!display_curve_on());
-                log_core1("  panel test   : curve %s\n", display_curve_on() ? "on" : "off");
-            }
-            else if (c == PICOCALC_KEY_LEFT)  paneltest_key(-1, 0);
-            else if (c == PICOCALC_KEY_RIGHT) paneltest_key(1, 0);
-            else if (c == PICOCALC_KEY_UP)    paneltest_key(0, -1);
-            else if (c == PICOCALC_KEY_DOWN)  paneltest_key(0, 1);
-            break;
         case P_HELP:
             if (c == PICOCALC_KEY_ESC || c == PICOCALC_KEY_ENTER) s.page = P_MAIN;
             break;

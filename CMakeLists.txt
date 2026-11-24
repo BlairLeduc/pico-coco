@@ -310,7 +310,6 @@ else()
         src/port/log.c
         src/port/main.c
         src/port/menu.c
-        src/port/paneltest.c
         src/port/park.c
         src/port/roms.c
         src/port/rtc.c

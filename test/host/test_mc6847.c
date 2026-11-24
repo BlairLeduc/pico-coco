@@ -5,8 +5,8 @@
  * pixels: the CoCo's wiring (§3.4), SG4 and SG6 by GM0, INV on bit 6, the
  * external-ROM case, the colour sets, artefacts, the mono palette, the
  * character ROM's layout against its data, the dirty-band span, and the
- * MC6847T1's lower case, inverse and border (mc6847.h), and an NTSC
- * set's palettes derived again from the chip's voltages (§9.5).
+ * MC6847T1's lower case, inverse and border (mc6847.h), the text
+ * screen's dark backgrounds, and the panel's curve (§9.5).
  * test_vdg_oracle holds the same decode to XRoar's for random bytes;
  * this test says what each part of it is, so a failure there can be
  * read here.
@@ -31,7 +31,6 @@ static uint8_t gfx(unsigned gm, bool css) {
 }
 
 #define P(c) mc6847_palette[c]
-#define RGB565_WHITE 0xFFFFu
 
 /* Does cell 0 of row `row` show glyph g of the T1's ROM, inverted or not,
  * in ink on its background? */
@@ -42,45 +41,6 @@ static bool t1_shows(unsigned g, unsigned row, bool inv, vdg_colour_t ink, vdg_c
         if (px[x] != P(((bits >> (7u - x)) & 1u) ? ink : bg)) return false;
     return true;
 }
-
-/* What an NTSC set shows from the MC6847's typical Y, φB and φA (volts,
- * the colour differences about 1.5 V), as §9.5 derives it: the MC1372's
- * two modulators of equal gain, φA `lag` degrees from φB; the set's
- * colour control holding the burst, φB 0.25 V low, at 20 IRE; luminance
- * with blanking (0.77 V) at 0 IRE and the VDG's white (0.42 V) at 100;
- * demodulated on axes 90° apart and decoded with NTSC's weights; shown
- * with the VDG's black as black and `white` IRE as white, each channel
- * clipped. tools/vdg-palette.py is the same model, written apart. */
-static uint16_t tv_colour(double y, double phb, double pha, double lag, double white) {
-    double lum = (0.77 - y) / 0.35 * 100.0;
-    double k = 20.0 / 0.25;                       /* IRE of chroma per volt */
-    double cb = k * (phb - 1.5), ca = k * (pha - 1.5);
-    double th = lag * M_PI / 180.0;
-    double u = cb + ca * cos(th), w = ca * sin(th);
-    double by = u / 0.492, ry = w / 0.877;
-    double gy = -(0.299 / 0.587) * ry - (0.114 / 0.587) * by;
-    double black = 0.05 / 0.35 * 100.0;
-    double c[3] = { lum + ry, lum + gy, lum + by };
-    unsigned b[3];
-    for (unsigned i = 0; i < 3u; i++) {
-        double x = (c[i] - black) / (white - black);
-        x = x < 0.0 ? 0.0 : x > 1.0 ? 1.0 : x;
-        b[i] = (unsigned)floor(x * 255.0 + 0.5);
-    }
-    return (uint16_t)(((b[0] & 0xF8u) << 8) | ((b[1] & 0xFCu) << 3) | (b[2] >> 3));
-}
-
-/* The MC6847 datasheet's figure 10, typical values, by colour; the dark
- * backgrounds are black's luminance with the ink's colour differences,
- * and the text screen's orange is orange's at white's luminance. */
-static const struct { vdg_colour_t c; double y, phb, pha; } k_volts[] = {
-    { VDG_GREEN,   0.54, 1.0, 1.0 }, { VDG_YELLOW,  0.42, 1.0, 1.5 },
-    { VDG_BLUE,    0.65, 2.0, 1.5 }, { VDG_RED,     0.65, 1.5, 2.0 },
-    { VDG_BUFF,    0.42, 1.5, 1.5 }, { VDG_CYAN,    0.54, 1.5, 1.0 },
-    { VDG_MAGENTA, 0.54, 2.0, 2.0 }, { VDG_ORANGE,  0.54, 1.0, 2.0 },
-    { VDG_BLACK,   0.72, 1.5, 1.5 }, { VDG_DARK_GREEN, 0.72, 1.0, 1.0 },
-    { VDG_DARK_ORANGE, 0.72, 1.0, 2.0 }, { VDG_BRIGHT_ORANGE, 0.42, 1.0, 2.0 },
-};
 
 int main(void) {
     /* ---- the mode table --------------------------------------------- */
@@ -394,56 +354,63 @@ int main(void) {
         CHECK(!mc6847_is_t1(&v), "the MC6847 again");
     }
 
-    /* ---- an NTSC set's palettes (§9.5) -------------------------------- */
+    /* ---- the text screen's backgrounds (§9.5) ------------------------- */
     {
-        static const double whites[MC6847_TV_COUNT] = { 100.0, 115.0, 130.0 };
-        for (unsigned t = 0; t < MC6847_TV_COUNT; t++) {
-            const uint16_t *d = mc6847_palette_tv[t];
-            for (unsigned i = 0; i < sizeof k_volts / sizeof k_volts[0]; i++) {
-                vdg_colour_t c = k_volts[i].c;
-                uint16_t want = tv_colour(k_volts[i].y, k_volts[i].phb, k_volts[i].pha, 100.0,
-                                          whites[t]);
-                CHECK(d[c] == want, "white %.0f IRE, colour %u: %04X, not %04X", whites[t],
-                      (unsigned)c, d[c], want);
-            }
-            CHECK(d[VDG_ARTEFACT_BLUE] == mc6847_palette[VDG_ARTEFACT_BLUE] &&
-                      d[VDG_ARTEFACT_RED] == mc6847_palette[VDG_ARTEFACT_RED],
-                  "white %.0f IRE: the artefacts are XRoar's simple table's", whites[t]);
-        }
-        const uint16_t *d = mc6847_palette_tv[MC6847_TV115];
-        /* The control: decoded as if φA were 90° from φB, as on a Dragon's
-         * LM1889, cyan and red are other colours. */
-        CHECK(tv_colour(0.54, 1.5, 1.0, 90.0, 115.0) != d[VDG_CYAN] &&
-                  tv_colour(0.65, 1.5, 2.0, 90.0, 115.0) != d[VDG_RED],
-              "a 90° decode differs");
-        /* The text screen's orange is brighter than graphics orange, and
-         * only room above white keeps it orange (§9.5). */
-        CHECK(d[VDG_BRIGHT_ORANGE] != d[VDG_ORANGE], "two oranges");
-        CHECK(mc6847_palette_tv[MC6847_TV100][VDG_BUFF] == RGB565_WHITE &&
-                  mc6847_palette_tv[MC6847_TV130][VDG_BUFF] != RGB565_WHITE,
-              "buff is white only with white at 100 IRE");
-
-        /* Drawn: CG2 with CSS high, buff cyan magenta orange. */
         mc6847_init(&v);
         mc6847_set_font(&v, font_6847);
-        mc6847_set_palette(&v, d);
         memset(line, 0, sizeof line);
-        line[0] = 0x1Bu;                      /* 00 01 10 11 */
+        line[0] = 0x20u;                               /* a space */
+        line[1] = (uint8_t)(0x20u | VDG_BYTE_INV);     /* an inverse space */
+        for (unsigned dark = 0; dark < 2u; dark++) {
+            mc6847_set_dark_bg(&v, dark != 0);
+            mc6847_set_mode(&v, 0);
+            mc6847_render_line(&v, line, 5, px);
+            uint16_t bg = dark ? P(VDG_DARK_GREEN) : P(VDG_BLACK);
+            CHECK(px[0] == bg && px[7] == bg && px[8] == P(VDG_GREEN) && px[15] == P(VDG_GREEN),
+                  "CSS low, %s: a space on %04X, an inverse space green", dark ? "dark" : "black",
+                  bg);
+            mc6847_set_mode(&v, VDG_CSS);
+            mc6847_render_line(&v, line, 5, px);
+            bg = dark ? P(VDG_DARK_ORANGE) : P(VDG_BLACK);
+            CHECK(px[0] == bg && px[7] == bg && px[8] == P(VDG_BRIGHT_ORANGE) &&
+                      px[15] == P(VDG_BRIGHT_ORANGE),
+                  "CSS high, %s: a space on %04X, an inverse space orange",
+                  dark ? "dark" : "black", bg);
+        }
+        CHECK(P(VDG_DARK_GREEN) != P(VDG_BLACK) && P(VDG_DARK_ORANGE) != P(VDG_BLACK) &&
+                  P(VDG_DARK_GREEN) != P(VDG_DARK_ORANGE),
+              "two dark backgrounds, neither black");
+        mc6847_set_dark_bg(&v, false);
+    }
+
+    /* ---- the settings file's colours (§9.5) ------------------------------ */
+    {
+        uint32_t over[VDG_COLOUR_COUNT];
+        uint16_t pal[VDG_COLOUR_COUNT];
+        for (unsigned c = 0; c < VDG_COLOUR_COUNT; c++) over[c] = 0xFFFFFFFFu;
+        mc6847_palette_over(pal, over);
+        CHECK(memcmp(pal, mc6847_palette, sizeof pal) == 0, "none given: the VDG's own");
+        over[VDG_ORANGE] = 0xFFA000u;
+        over[VDG_DARK_GREEN] = 0x002000u;
+        mc6847_palette_over(pal, over);
+        CHECK(pal[VDG_ORANGE] == 0xFD00u && pal[VDG_DARK_GREEN] == 0x0100u &&
+                  pal[VDG_GREEN] == P(VDG_GREEN), "orange %04X, dark green %04X", pal[VDG_ORANGE],
+              pal[VDG_DARK_GREEN]);
+        /* Drawn: CG2 with CSS high shows the given orange; the text
+         * screen's space the given dark green. */
+        mc6847_init(&v);
+        mc6847_set_font(&v, font_6847);
+        mc6847_set_palette(&v, pal);
+        memset(line, 0, sizeof line);
+        line[0] = 0x1Bu;
         mc6847_set_mode(&v, gfx(2, true));
         mc6847_render_line(&v, line, 0, px);
-        CHECK(px[0] == d[VDG_BUFF] && px[2] == d[VDG_CYAN] && px[4] == d[VDG_MAGENTA] &&
-              px[6] == d[VDG_ORANGE], "CG2, CSS: drawn from the set's palette");
-        /* The text screen with CSS high and the dark backgrounds on: a
-         * space is the dark orange, an inverse space the text's orange. */
+        CHECK(px[6] == 0xFD00u, "CG2, CSS: the given orange, %04X", px[6]);
         mc6847_set_dark_bg(&v, true);
-        mc6847_set_mode(&v, VDG_CSS);
+        mc6847_set_mode(&v, 0);
         line[0] = 0x20u;
-        line[1] = (uint8_t)(0x20u | VDG_BYTE_INV);
         mc6847_render_line(&v, line, 5, px);
-        CHECK(px[0] == d[VDG_DARK_ORANGE] && px[7] == d[VDG_DARK_ORANGE],
-              "a space: the chip's dark orange");
-        CHECK(px[8] == d[VDG_BRIGHT_ORANGE] && px[15] == d[VDG_BRIGHT_ORANGE],
-              "an inverse space: the text screen's orange");
+        CHECK(px[0] == 0x0100u, "a space on the given dark green, %04X", px[0]);
         mc6847_set_dark_bg(&v, false);
         mc6847_set_palette(&v, mc6847_palette);
     }
@@ -494,13 +461,19 @@ int main(void) {
         mc6847_init(&b2);
         mc6847_set_font(&a, font_6847);
         mc6847_set_font(&b2, font_6847);
-        mc6847_set_palette(&a, mc6847_palette_tv[MC6847_TV115]);
-        mc6847_set_palette(&b2, mc6847_palette_tv[MC6847_TV115]);
+        mc6847_set_dark_bg(&a, true);
+        mc6847_set_dark_bg(&b2, true);
         mc6847_set_curve(&b2, &c);
         bool same = true;
         for (unsigned k = 0; k < VDG_COLOUR_COUNT; k++)
             same &= b2.col[k] == mc6847_curve_apply(&c, a.col[k]);
         CHECK(same, "the drawn palette through the curve");
+        CHECK(b2.col[VDG_ORANGE] != a.col[VDG_ORANGE] &&
+                  b2.col[VDG_DARK_GREEN] != a.col[VDG_DARK_GREEN] &&
+                  b2.col[VDG_GREEN] == a.col[VDG_GREEN] && b2.col[VDG_BLACK] == a.col[VDG_BLACK],
+              "the primaries' half and quarter shades move, full and none do not");
+        mc6847_set_dark_bg(&a, false);
+        mc6847_set_dark_bg(&b2, false);
         for (unsigned art = 0; art < 2u; art++) {
             vdg_artefact_t how = art ? VDG_ARTEFACT_FULL_KRBW : VDG_ARTEFACT_FULL_KBRW;
             mc6847_set_artefact(&a, how);

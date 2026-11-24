@@ -56,20 +56,16 @@ void display_set_t1(bool t1);
  * (`red`) or blue. A change repaints every band. */
 void display_set_artefacts(unsigned how, bool red);
 
-/* The colours, SETTINGS_PALETTE_*: the idealised primaries, with the
- * dark backgrounds drawn black, or what an NTSC set showed, with the
- * chip's dark backgrounds (mc6847.h, design.md §9.5). A change repaints
- * every band. */
-void display_set_palette(unsigned palette);
+/* Text and the two-colour screens on the datasheet's dark green or
+ * orange, or on black (mc6847_set_dark_bg, design.md §9.5). A change
+ * repaints every band. Every colour is drawn through the panel's
+ * measured curve (mc6847_set_curve), from display_init. */
+void display_set_dark_bg(bool dark);
 
-/* Every colour through the panel's measured curve, or as written
- * (mc6847_set_curve, design.md §9.5): on from display_init. A change
- * repaints every band. display_corrected is a colour as the screen
- * would draw it; display_colour, a VDG colour as drawn now. */
-void display_set_curve(bool on);
-bool display_curve_on(void);
-uint16_t display_corrected(uint16_t rgb565);
-uint16_t display_colour(unsigned c);
+/* The settings file's colours (settings.h's color_ keys), each 0xRRGGBB
+ * or above 0xFFFFFF for the VDG's own; drawn through the panel's curve
+ * like the rest. Never from the menu. */
+void display_set_colours(const uint32_t colour[VDG_COLOUR_COUNT]);
 
 /* The perf line at the panel's top and the status line at its foot
  * (§9.6): COCO_TEXT_COLS characters in the VDG's glyphs, capitals only,

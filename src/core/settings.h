@@ -27,11 +27,18 @@
  *   boot_tape = <file>             a tape in /coco/tapes/ put in the deck
  *   artifacts = off | simple | full    the artefact colours (§9.5)
  *   artifact_phase = blue | red | random
- *   palette   = primary | tv100 | tv115 | tv130   the idealised
- *                                  primaries, or what an NTSC set showed,
- *                                  white at 100, 115 or 130 IRE (§9.5)
+ *   background = dark | black      text and the two-colour screens on dark
+ *                                  green or orange, or on black (§9.5)
  *   boot_disk = <file>             a disk in /coco/disks/ put in drive 0;
  *   boot_disk1 .. boot_disk3       and in drives 1 to 3 (§12.4)
+ *   color_<name> = RRGGBB          a colour drawn as given, in hex, in
+ *                                  place of the VDG's own: green, yellow,
+ *                                  blue, red, buff, cyan, magenta,
+ *                                  orange, black, dark_green, dark_orange,
+ *                                  text_orange, artifact_blue and
+ *                                  artifact_red; left out, the VDG's
+ *                                  own. Only the file sets them (§9.5),
+ *                                  and a save keeps them.
  *
  * The parser is here, in the core, so it is tested on the host. What a
  * value names on the card is the port's to find, and it says so when it
@@ -44,9 +51,11 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "config.h"
 #include "coco.h"
+#include "mc6847.h"
 
 /* Where a bare tape, cartridge or disk name in the file is looked for
  * (§12.6). */
@@ -59,10 +68,7 @@
 enum { SETTINGS_ARTEFACTS_OFF, SETTINGS_ARTEFACTS_SIMPLE, SETTINGS_ARTEFACTS_FULL };
 enum { SETTINGS_PHASE_BLUE, SETTINGS_PHASE_RED, SETTINGS_PHASE_RANDOM };
 
-/* The colours (§9.5): mc6847_palette, or mc6847_palette_tv by its
- * white; SETTINGS_PALETTE_TV100 + MC6847_TV* in that order. */
-enum { SETTINGS_PALETTE_PRIMARY, SETTINGS_PALETTE_TV100, SETTINGS_PALETTE_TV115,
-       SETTINGS_PALETTE_TV130, SETTINGS_PALETTE_COUNT };
+#define SETTINGS_COLOUR_NONE 0xFFFFFFFFu
 
 typedef struct {
     bool       extended;    /* Extended Color BASIC, else Color BASIC alone */
@@ -82,7 +88,10 @@ typedef struct {
      * comes up locked to either clock edge. */
     uint8_t    artefacts;       /* SETTINGS_ARTEFACTS_*                  */
     uint8_t    artefact_phase;  /* SETTINGS_PHASE_*                      */
-    uint8_t    palette;         /* SETTINGS_PALETTE_* (§9.5)             */
+    bool       dark_bg;         /* text on dark green or orange (§9.5)   */
+    /* Each VDG colour as 0xRRGGBB, or SETTINGS_COLOUR_NONE for the VDG's
+     * own (mc6847_palette_over, §9.5). */
+    uint32_t   colour[VDG_COLOUR_COUNT];
     /* A layout's name, upper case; "" is the standard map (§11.3). */
     char       layout[COCO_KEYMAP_NAME_LEN + 1];
 
@@ -153,9 +162,5 @@ const char *settings_ram_str(unsigned ram_k);
  * "simple", "full"; "blue", "red", "random". */
 const char *settings_artefacts_str(unsigned a);
 const char *settings_phase_str(unsigned p);
-
-/* The palette as the file writes it: "primary", "tv100", "tv115",
- * "tv130". */
-const char *settings_palette_str(unsigned p);
 
 #endif /* PICO_COCO_SETTINGS_H */
