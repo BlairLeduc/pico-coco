@@ -31,13 +31,18 @@
  * at the field's end.
  *
  * Its sound: the AY and the SP0256 mixed into one level, the
- * multiplexer's cartridge input (§10), to SSC_LEVEL_MAX: the AY's full
- * scale, all three channels at 15, SSC_AY_SHARE of it; the SP0256's
- * swing about SSC_SP_MID, SSC_SP_SHARE of it at the chip's full scale,
- * clipped to the level's range. The weights are an estimate (§18): MAME
- * sums its AY at gain 2.0 and its SP0256 at 1.75, unclipped, where the
- * manual's speech is about 0.7 of BASIC's loudest DAC sound; here it is
- * about half that, which clips no speech the AL2 makes in the tests.
+ * multiplexer's cartridge input (§10), to SSC_LEVEL_MAX, about
+ * SSC_SP_MID: the AY's full scale, all three channels at 15,
+ * SSC_AY_SHARE of it, and the SP0256's output SSC_SP_SHARE of it at the
+ * chip's full scale. The sum's swing passes unchanged to SSC_KNEE and
+ * is bent above it, smoothly, towards the level's rails, never reaching
+ * them (ssc_mix): speech's peaks are several times its body, and the
+ * loudest allophones would clip. The weights are an estimate (§18):
+ * MAME sums its AY at gain 2.0 and its SP0256 at 1.75, unclipped; the
+ * manual's speech is about 0.7 of BASIC's loudest DAC sound; and the
+ * owner, hearing The Interbank Incident on the device (2026-11-25),
+ * asked for it louder than half that, the first weights, so they were
+ * doubled.
  * The level goes to the machine at each change, stamped
  * (ssc_level_changed, coco.c).
  */
@@ -61,10 +66,13 @@
 #define SSC_SP_TICKS_DEN  1000u
 
 #define SSC_LEVEL_MAX    65535u
-#define SSC_AY_SHARE     22937u   /* 0.35                                 */
+#define SSC_AY_SHARE     45875u   /* 0.70                                 */
 #define SSC_SP_MID       32768u   /* 0.50                                 */
-#define SSC_SP_SHARE     131070u  /* 2.0: speech peaks near a sixth of the
-                                   * SP0256's scale; louder ones clip     */
+#define SSC_SP_SHARE     262140u  /* 4.0: the AL2's speech peaks near a
+                                   * third of the SP0256's scale, its
+                                   * body near a fortieth                 */
+#define SSC_HALF         32767u   /* the swing about SSC_SP_MID, at most  */
+#define SSC_KNEE         16384u   /* where the swing starts to bend       */
 
 #define SSC_RESET   0xFF7Du
 #define SSC_DATA    0xFF7Eu
@@ -133,6 +141,10 @@ void    ssc_write(ssc_t *s, const uint8_t *rom, const uint8_t *al2, uint16_t a, 
 
 /* Run the cartridge to tick `now`. */
 void ssc_run(ssc_t *s, const uint8_t *rom, const uint8_t *al2, uint64_t now);
+
+/* The mix: the AY's level (to AY_LEVEL_MAX) and an SP0256 sample
+ * (-8192 to 8191) as the cartridge's level, 1 to SSC_LEVEL_MAX. */
+uint32_t ssc_mix(uint32_t ay_level, int32_t sp);
 
 /* The machine's (coco.c): the cartridge's level is now s->level, from
  * tick `at`. */

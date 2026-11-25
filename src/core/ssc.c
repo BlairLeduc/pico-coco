@@ -28,14 +28,23 @@ static void sp_catch_up(ssc_t *s, uint64_t tick);
 
 /* ---- the sound ----------------------------------------------------------- */
 
-static void mix(ssc_t *s, uint64_t at) {
-    int32_t sp = s->sp.out;
-    int64_t v = (int64_t)s->ay_level * SSC_AY_SHARE / AY_LEVEL_MAX + SSC_SP_MID +
+uint32_t ssc_mix(uint32_t ay_level, int32_t sp) {
+    int64_t d = (int64_t)ay_level * SSC_AY_SHARE / AY_LEVEL_MAX +
                 (int64_t)sp * SSC_SP_SHARE / (SP0256_LEVEL_MAX + 1);
-    if (v < 0) v = 0;
-    if (v > SSC_LEVEL_MAX) v = SSC_LEVEL_MAX;
-    if ((uint32_t)v == s->level) return;
-    s->level = (uint32_t)v;
+    int64_t a = d < 0 ? -d : d;
+    if (a > SSC_KNEE) {
+        /* Above the knee, k + r.e/(r + e): its slope 1 at the knee,
+         * falling, and short of the rail however large e grows. */
+        int64_t r = SSC_HALF - SSC_KNEE, e = a - SSC_KNEE;
+        a = SSC_KNEE + r * e / (r + e);
+    }
+    return (uint32_t)(SSC_SP_MID + (d < 0 ? -a : a));
+}
+
+static void mix(ssc_t *s, uint64_t at) {
+    uint32_t v = ssc_mix(s->ay_level, s->sp.out);
+    if (v == s->level) return;
+    s->level = v;
     if (s->attached) ssc_level_changed(s, at);
 }
 

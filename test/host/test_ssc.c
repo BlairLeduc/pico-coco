@@ -1,6 +1,13 @@
 /* test_ssc.c — the Speech/Sound Cartridge in a CoCo (ssc.h, design.md
  * §12.9).
  *
+ * Without ROMs: the mix (ssc_mix), silence at the middle; speech at
+ * the AL2's typical level (an RMS of 188) moved 32 levels a unit, twice
+ * the first weights' 16, as the owner asked (2026-11-25); the AY at
+ * half its scale likewise; rising with each input, odd about the middle,
+ * without a step, and short of both rails at the inputs' extremes, the
+ * AL2's loudest peak (2,962) bent below its straight line.
+ *
  * With Color BASIC, Extended BASIC and the cartridge's two ROMs
  * (pic-7040-510.bin, sp0256-al2.bin) in the ROM directory; skipped
  * without them:
@@ -25,7 +32,8 @@
  * Planted one at a time (2026-11-25), each failed: a lost noise register
  * and a lost RAM in the save state; a skip 8 cycles long; a settled
  * pitch pulse a sample long; and a pass with an interrupt in it taken
- * for a cycle (the bug the skipping first had).
+ * for a cycle (the bug the skipping first had); in the mix (the same
+ * day, later), the first weights and a hard clip in place of the knee.
  */
 
 #include <stdio.h>
@@ -308,7 +316,47 @@ static int test_skip(void) {
     return 0;
 }
 
+/* The mix, from its inputs alone. */
+static int test_mix(void) {
+    const int32_t mid = (int32_t)SSC_SP_MID;
+    CHECK(ssc_mix(0, 0) == SSC_SP_MID, "silence mixed to %u", ssc_mix(0, 0));
+    int32_t body = (int32_t)ssc_mix(0, 188) - mid;
+    CHECK(body >= 188 * 32 - 2 && body <= 188 * 32, "speech's body moved %d levels", body);
+    int32_t ay = (int32_t)ssc_mix(AY_LEVEL_MAX / 4u, 0) - mid;
+    CHECK(ay >= 11400 && ay <= 11500, "the AY at a quarter of its scale moved %d levels", ay);
+
+    uint32_t last = ssc_mix(0, -8192);
+    int bad_rise = 0, bad_odd = 0, big_step = 0;
+    for (int32_t sp = -8191; sp <= 8191; sp++) {
+        uint32_t v = ssc_mix(0, sp);
+        if (v < last) bad_rise++;
+        if (v - last > 33u) big_step++;
+        if ((int32_t)v - mid != mid - (int32_t)ssc_mix(0, -sp)) bad_odd++;
+        last = v;
+    }
+    CHECK(bad_rise == 0, "the mix fell %d times as speech rose", bad_rise);
+    CHECK(big_step == 0, "the mix stepped %d times", big_step);
+    CHECK(bad_odd == 0, "the mix not odd about the middle at %d samples", bad_odd);
+    last = 0;
+    for (uint32_t a = 0; a <= AY_LEVEL_MAX; a += 7u) {
+        uint32_t v = ssc_mix(a, 0);
+        if (v < last) bad_rise++;
+        last = v;
+    }
+    CHECK(bad_rise == 0, "the mix fell %d times as the AY rose", bad_rise);
+
+    uint32_t hi = ssc_mix(AY_LEVEL_MAX, 8191), lo = ssc_mix(0, -8192);
+    CHECK(hi < SSC_LEVEL_MAX && lo > 0, "the mix reached a rail: %u to %u", lo, hi);
+    int32_t peak = (int32_t)ssc_mix(0, 2962) - mid;
+    CHECK(peak > (int32_t)SSC_KNEE && peak < 2962 * 32 && peak < (int32_t)SSC_HALF - 2000,
+          "the loudest allophone moved %d levels", peak);
+    printf("mix: speech's body %d levels, the AY at a quarter %d, the loudest peak %d of %u\n", body,
+           ay, peak, SSC_HALF);
+    return 0;
+}
+
 int main(void) {
+    if (test_mix()) return 1;
     const char *dir;
     if (!guest_find_roms(&dir) || !guest_have_rom(ROM_COCO_EXTBAS11)) {
         printf("skip: Color BASIC 1.3 and Extended 1.1 not in %s\n", dir);
