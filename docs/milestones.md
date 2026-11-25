@@ -7,9 +7,10 @@ and done-when criteria; this file keeps the full record (EL §14.3).
 ## M18: the sound cartridges
 
 On branch `m18`, 2026-11-24 to 2026-11-25 (`design.md` §12.5,
-§12.9, §12.10, §17, §18). **Built, checked on the host, and the
-Speech/Sound Cartridge checked on the owner's board, The Interbank
-Incident speaking; the Orchestra-90 not on the device.** Of §17's row: the registers settled from a primary
+§12.9, §12.10, §17, §18). **Done: built, checked on the host, and
+both cartridges checked on the owner's board**, the Speech/Sound
+Cartridge with The Interbank Incident speaking, and the Orchestra-90
+playing its overture. Of §17's row: the registers settled from a primary
 source (the cartridge's manual), the TMS7000 core held to MAME's, the
 AY's tests from pico-oric passing, the Orchestra-90 held to XRoar's by
 the trace diff and the audio test, and the speech held to MAME's; The
@@ -117,10 +118,14 @@ had been a cartridge image in `/coco/carts/` (still known there). The
 About page's ROM rows, which had shown five of the six images, now
 show BASIC's four and a row for the two cartridges. Host tests and the
 three firmware builds pass; the board scans `/coco/roms/` and names
-`orch90.rom` missing until it is copied there.
+`orch90.rom` missing until it is copied there. Once the owner had
+copied it, chosen ORCHESTRA-90 on the Machine page and played the
+William Tell Overture (S, ENTER, P, ENTER), they judged its volume good
+and its sound as they expect of the cartridge (2026-11-25). Its cost on
+core 0 while playing was not measured.
 
-**Not checked.** The Orchestra-90 on the device; The Interbank
-Incident played to its end. The status
+**Not checked.** The Orchestra-90's cost on core 0; its stereo (mixed
+to one channel here); The Interbank Incident played to its end. The status
 bit for a sound in progress is a stand-in for an analogue detector; the
 mix of the AY and the SP0256 is an estimate (§18).
 

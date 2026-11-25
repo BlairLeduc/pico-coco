@@ -12,9 +12,7 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M18 is built, checked on the host, and the Speech/Sound
-Cartridge checked on the device with The Interbank Incident (the
-Orchestra-90 not yet);
+**Status: M18 is done, both sound cartridges checked on the device;
 M17, M13 and M12 are done** (`docs/design.md` §12.9, §12.10, §17,
 `docs/milestones.md`).
 M18: the Orchestra-90 (`CART_ORCH90`, known by its ROM's SHA-1, and
