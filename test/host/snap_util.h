@@ -210,6 +210,27 @@ static inline bool snap_same(const coco_t *a, const coco_t *b, const char *what)
                   f->req.get != h->req.get || f->req.put != h->req.put, "the track in hand");
     }
 
+    /* The RS-232 pak's 6551 and its rings (acia6551.h). */
+    SNAP_DIFF(pa->rs232_slot != pb->rs232_slot || pa->cart_low != pb->cart_low,
+              "the RS-232 pak: slot %d/%d, CART %d/%d", pa->rs232_slot, pb->rs232_slot,
+              pa->cart_low, pb->cart_low);
+    if (pa->rs232_slot >= 0) {
+        const acia_t *p = &pa->acia, *q = &pb->acia;
+        SNAP_DIFF(p->control != q->control || p->command != q->command || p->status != q->status ||
+                  p->tdr != q->tdr || p->rdr != q->rdr || p->irq_src != q->irq_src,
+                  "the 6551's registers: status %02X/%02X", p->status, q->status);
+        SNAP_DIFF(p->tx_busy != q->tx_busy || p->tx_shift != q->tx_shift || p->tx_end != q->tx_end ||
+                  p->tx_next != q->tx_next || p->rx_busy != q->rx_busy || p->rx_shift != q->rx_shift ||
+                  p->rx_end != q->rx_end || p->due != q->due || p->frame != q->frame,
+                  "the 6551's characters in hand");
+        const acia_ring_t *r[2][2] = { { &p->tx, &q->tx }, { &p->rx, &q->rx } };
+        for (unsigned i = 0; i < 2; i++)
+            SNAP_DIFF(r[i][0]->head != r[i][1]->head || r[i][0]->tail != r[i][1]->tail ||
+                      r[i][0]->lost != r[i][1]->lost ||
+                      memcmp(r[i][0]->buf, r[i][1]->buf, sizeof r[i][0]->buf) != 0,
+                      "the 6551's %s ring", i ? "receive" : "transmit");
+    }
+
     /* The page table, each pointer as an offset into its own machine. */
     for (unsigned p = 0; p < COCO_PAGE_COUNT; p++) {
         const uint8_t *ra = a->page[p].read, *rb = b->page[p].read;

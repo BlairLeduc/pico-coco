@@ -19,6 +19,7 @@ cart_kind_t carts_kind(const char *name) {
     if (strcasecmp(name, CARTS_SMARTWATCH) == 0) return CART_SMARTWATCH;
     if (strcasecmp(name, CARTS_SSC) == 0) return CART_SSC;
     if (strcasecmp(name, CARTS_ORCH90) == 0) return CART_ORCH90;
+    if (strcasecmp(name, CARTS_RS232) == 0) return CART_RS232;
     if (strcasecmp(name, CARTS_MPI) == 0) return CART_MPI;
     return CART_ROM;
 }
@@ -52,12 +53,13 @@ const char *carts_load(port_media_t *pm, const card_job_t *job) {
     static char why[COCO_TEXT_COLS + 1];
     const char *first = NULL;
     uint32_t at = 0;
-    bool rsdos = false, ssc = false;
+    bool rsdos = false, ssc = false, rs232 = false;
     for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
         slot_media_t *sm = &pm->slot[s];
         sm->at = sm->len = 0;
         cart_kind_t k = carts_kind(sm->name);
-        if (k != CART_ROM && k != CART_RSDOS && k != CART_SSC && k != CART_ORCH90) continue;
+        if (k != CART_ROM && k != CART_RSDOS && k != CART_SSC && k != CART_ORCH90 && k != CART_RS232)
+            continue;
         const char *err = NULL;
         uint32_t len = 0;
         if (k == CART_SSC && ssc) {
@@ -73,6 +75,14 @@ const char *carts_load(port_media_t *pm, const card_job_t *job) {
             if (COCO_CART_POOL - at < romset_images[ROM_COCO_DISK11].size) err = CARTS_NO_ROOM;
             else err = card_disk_rom_load(job, g_cart_pool + at, &len);
             rsdos = err == NULL;
+        } else if (k == CART_RS232 && rs232) {
+            err = "ONE RS-232 PAK";   /* cart.h */
+        } else if (k == CART_RS232) {
+            if (COCO_CART_POOL - at < romset_images[ROM_RS232].size) err = CARTS_NO_ROOM;
+            else err = card_rs232_load(job, g_cart_pool + at, &len);
+            rs232 = err == NULL;
+            /* Without its ROM, the 6551 alone: nothing in the pool. */
+            if (!err && !len) continue;
         } else if (k == CART_ORCH90) {
             if (COCO_CART_POOL - at < romset_images[ROM_ORCH90].size) err = CARTS_NO_ROOM;
             else err = card_orch90_load(job, g_cart_pool + at, &len);
@@ -129,7 +139,10 @@ void carts_config(const port_media_t *pm, coco_config_t *cfg) {
         }
     } else {
         cart_kind_t k = carts_kind(pm->slot[0].name);
-        cfg->cart = (k == CART_RSDOS || k == CART_SSC || k == CART_ORCH90) && pm->slot[0].len ? k : CART_NONE;
+        /* The RS-232 pak's 6551 is fitted with its ROM or without. */
+        cfg->cart = (k == CART_RSDOS || k == CART_SSC || k == CART_ORCH90) && pm->slot[0].len ? k
+                    : k == CART_RS232                                                 ? k
+                                                                                      : CART_NONE;
     }
 }
 
@@ -159,6 +172,7 @@ const char *carts_label(const port_media_t *pm) {
     case CART_SMARTWATCH: return "XT-RTC CLOCK";
     case CART_SSC:        return "SPEECH/SOUND";
     case CART_ORCH90:     return "ORCHESTRA-90";
+    case CART_RS232:      return "RS-232 PAK";
     default:              return base_of(sm->name);
     }
 }

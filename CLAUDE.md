@@ -12,9 +12,16 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M18 is done, both sound cartridges checked on the device;
-M17, M13 and M12 are done** (`docs/design.md` §12.9, §12.10, §17,
+**Status: M19 is done, the RS-232 pak checked on the device; M18,
+M17, M13 and M12 are done** (`docs/design.md` §12.9-§12.11, §17,
 `docs/milestones.md`).
+M19: the Deluxe RS-232 Program Pak (`CART_RS232`, `acia6551.h`), its
+6551 from Synertek's data sheet, /IRQ on the CART line to FIRQ, its ROM
+known by SHA-1 (`rs232.rom`); its line on the USB-C connector, UART0 on
+GP0/GP1 (`serial.h`), the UART0 development build's log moved to a PIO
+UART on GP2/GP3 (`piouart.h`); OS-9's drivers want the pak in Multi-Pak
+slot 1 (`test_rs232`, `test_acia`, `test_os9`); save states at version
+4.
 M18: the Orchestra-90 (`CART_ORCH90`, known by its ROM's SHA-1, and
 ORCHESTRA-90 on the Machine page with `orch90.rom` in `/coco/roms/`); the
 Speech/Sound Cartridge (`CART_SSC`, `ssc.h`): a TMS7040 (`tms7000.h`,

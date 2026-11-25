@@ -31,6 +31,7 @@
 #include "kbd.h"
 #include "keymatrix.h"
 #include "log.h"
+#include "piouart.h"
 #include "pico_coco_version.h"
 #include "roms.h"
 
@@ -93,6 +94,11 @@ int main(void) {
      * clock that stays. */
     bool clocks_ok = board_init_clocks();
     stdio_init_all();
+#if PICO_COCO_LOG_PIO
+    /* UART0 is the RS-232 pak's: the log on PIO, on the same pins
+     * (piouart.h, design.md §12.11). */
+    piouart_init(PICO_COCO_LOG_TX, PICO_COCO_LOG_RX, 115200u);
+#endif
     board_identify(&g_board);
 
     /* A startup banner plus consecutive heartbeats is more useful boot

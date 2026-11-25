@@ -6,7 +6,8 @@
  * is named as the settings file writes it: "" empty, "rsdos" the RS-DOS
  * controller, "smartwatch" the SmartWatch (§12.7), "ssc" the
  * Speech/Sound Cartridge, "orch90" the Orchestra-90 (its ROM from
- * /coco/roms/, as the RS-DOS controller's is), else a ROM image in
+ * /coco/roms/, as the RS-DOS controller's is), "rs232" the Deluxe RS-232
+ * Program Pak (likewise, and without it, its 6551 alone), else a ROM image in
  * /coco/carts/, an Orchestra-90 too if its SHA-1 is that ROM's. Core 1 reads the ROMs off the card straight into the
  * machine's pool, coco_t.cart, with the guest parked, and records where
  * each went; core 0's power-on, after coco_init, which leaves the pool,
@@ -28,6 +29,9 @@
 #define CARTS_SSC_BYTES  6144u        /* its two ROMs in the pool          */
 #define CARTS_ORCH90     "orch90"     /* the Orchestra-90 CC, its ROM from
                                        * /coco/roms/ (§12.10)             */
+#define CARTS_RS232      "rs232"      /* the Deluxe RS-232 Program Pak, its
+                                       * ROM from /coco/roms/ if there
+                                       * (§12.11)                         */
 /* Why a ROM that fits the window does not fit what the pool has left. */
 #define CARTS_NO_ROOM    "NO ROOM: 32K FOR ALL"
 

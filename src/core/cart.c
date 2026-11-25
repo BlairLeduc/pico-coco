@@ -27,6 +27,8 @@ void cart_init(coco_t *m) {
     p->rsdos_slot = -1;
     p->ssc_slot = -1;
     p->ssc_roms = false;
+    p->rs232_slot = -1;
+    p->cart_low = false;
     for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
         cart_kind_t k = CART_NONE;
         if (p->mpi) k = cfg->slot[s];
@@ -40,10 +42,15 @@ void cart_init(coco_t *m) {
             if (p->ssc_slot >= 0) k = CART_NONE;     /* one cartridge (cart.h) */
             else p->ssc_slot = (int8_t)s;
         }
+        if (k == CART_RS232) {
+            if (p->rs232_slot >= 0) k = CART_NONE;   /* one 6551 (cart.h) */
+            else p->rs232_slot = (int8_t)s;
+        }
         p->slot[s].kind = k;
         if (k == CART_SMARTWATCH) smartwatch_init(&p->slot[s].u.clock);
     }
     if (p->rsdos_slot >= 0) wd_init(&p->dk.fdc);
+    if (p->rs232_slot >= 0) acia_init(&p->acia, 0);
     p->switch_slot = p->mpi ? (uint8_t)(cfg->mpi_switch & 3u) : 0u;
     p->switch_on = true;
     p->cts = p->scs = p->switch_slot;
@@ -69,24 +76,37 @@ void cart_pool_finish(uint8_t *room, size_t len) {
     }
 }
 
+static bool is_image(const uint8_t *h, size_t len, rom_id_t id) {
+    return len == romset_images[id].size && memcmp(h, romset_images[id].sha1, SHA1_DIGEST_LEN) == 0;
+}
+
 /* Slot s's bookkeeping for an image of len bytes already whole at `at`:
- * an empty slot becomes a ROM, or an Orchestra-90 by its SHA-1; one the
- * configuration fitted stays one, whatever its ROM. */
+ * an empty slot becomes a ROM, or an Orchestra-90 or the RS-232 pak by
+ * its SHA-1; one the configuration fitted stays one, whatever its ROM. */
 static void take(coco_t *m, cart_t *c, uint32_t at, uint32_t room, size_t len) {
     cart_port_t *p = &m->port;
+    int8_t s = (int8_t)(c - p->slot);
     c->rom_at = at;
     c->rom_room = room;
     c->rom = true;
     if (c->kind == CART_NONE || c->kind == CART_ROM) {
         uint8_t h[SHA1_DIGEST_LEN];
         sha1(&m->cart[at], len, h);
-        /* The Orchestra-90's ROM, Tandy's 26-3143 (§12.10). */
-        c->kind = len == romset_images[ROM_ORCH90].size &&
-                          memcmp(h, romset_images[ROM_ORCH90].sha1, sizeof h) == 0
-                      ? CART_ORCH90
-                      : CART_ROM;
+        /* The Orchestra-90's ROM, Tandy's 26-3143 (§12.10); the Deluxe
+         * RS-232 Program Pak's, 26-2226, if the port has no 6551 yet
+         * (§12.11). */
+        if (is_image(h, len, ROM_ORCH90)) {
+            c->kind = CART_ORCH90;
+        } else if (is_image(h, len, ROM_RS232) && p->rs232_slot < 0) {
+            c->kind = CART_RS232;
+            p->rs232_slot = s;
+            acia_init(&p->acia, coco_ticks(m));
+        } else {
+            c->kind = CART_ROM;
+        }
     }
-    /* Both tie CART to the Q clock (§12.2; MAME's coco_orch90.cpp). */
+    /* Both tie CART to the Q clock (§12.2; MAME's coco_orch90.cpp); the
+     * RS-232 pak's is its 6551's /IRQ (MAME's coco_rs232.cpp). */
     c->autostart = c->kind == CART_ROM || c->kind == CART_ORCH90;
     if (at + room > p->pool_used) p->pool_used = at + room;
 }
@@ -122,7 +142,8 @@ void cart_remove_rom(coco_t *m, unsigned s) {
     if (s >= COCO_MPI_SLOTS) return;
     cart_t *c = &p->slot[s];
     if (c->rom && c->rom_at + c->rom_room == p->pool_used) p->pool_used = c->rom_at;
-    if (c->kind == CART_ROM || c->kind == CART_ORCH90) c->kind = CART_NONE;
+    if (c->kind == CART_RS232) p->rs232_slot = -1;
+    if (c->kind == CART_ROM || c->kind == CART_ORCH90 || c->kind == CART_RS232) c->kind = CART_NONE;
     memset(&c->u, 0, sizeof c->u);
     c->rom = false;
     c->autostart = false;
@@ -172,6 +193,11 @@ uint8_t COCO_HOT1(cart_io_read)(coco_t *m, uint16_t a, uint8_t bus, uint64_t now
      * only. */
     if ((a == SSC_RESET || a == SSC_DATA) && cart_ssc_live(p))
         return ssc_read(&p->ssc, ssc_rom(m), ssc_al2(m), a, now);
+    if (a - ACIA_FIRST <= ACIA_LAST - ACIA_FIRST && p->rs232_slot >= 0) {
+        uint8_t v = acia_read(&p->acia, a, now);
+        coco_cart_line(m, now);   /* a status read clears IRQ */
+        return v;
+    }
     return bus;
 }
 
@@ -184,6 +210,11 @@ bool COCO_HOT1(cart_io_write)(coco_t *m, uint16_t a, uint8_t v, uint64_t now) {
     if ((a == SSC_RESET || a == SSC_DATA) && cart_ssc_live(p)) {
         ssc_write(&p->ssc, ssc_rom(m), ssc_al2(m), a, v, now);
         return false;   /* its sound reaches the bus by itself */
+    }
+    if (a - ACIA_FIRST <= ACIA_LAST - ACIA_FIRST && p->rs232_slot >= 0) {
+        acia_write(&p->acia, a, v, now);
+        coco_cart_line(m, now);
+        return false;
     }
     if (a == ORCH90_LEFT || a == ORCH90_RIGHT) {
         /* Every slot sees the rest of the page (§12.8). */
@@ -289,11 +320,34 @@ void cart_reset(coco_t *m) {
     }
     if (p->rsdos_slot >= 0) rsdos_reset(m, &p->slot[p->rsdos_slot]);   /* sets the lines */
     else cart_lines(m);
+    /* RESET reaches the 6551's RES: the hardware reset, its /IRQ high.
+     * A CART line not on Q is high, pulled up, whichever slot is CTS,
+     * so the 6551's first interrupt is an edge once it reaches CB1. */
+    if (p->rs232_slot >= 0) {
+        acia_init(&p->acia, coco_ticks(m));
+        p->cart_low = false;
+        if (!cart_on_q(p)) m->pia1.b.c1 = true;
+    }
 }
 
 void COCO_HOT1(cart_run)(coco_t *m, uint64_t now) {
     cart_port_t *p = &m->port;
     if (p->rsdos_slot >= 0) rsdos_run(m, &p->slot[p->rsdos_slot], now);
+    if (p->rs232_slot >= 0 && p->acia.due <= now) {
+        acia_run(&p->acia, now);
+        coco_cart_line(m, now);
+    }
+}
+
+bool cart_serial_put(coco_t *m, uint8_t c, uint64_t now) {
+    cart_port_t *p = &m->port;
+    if (p->rs232_slot < 0) return false;
+    return acia_rx_put(&p->acia, c, now);
+}
+
+int cart_serial_get(coco_t *m) {
+    cart_port_t *p = &m->port;
+    return p->rs232_slot >= 0 ? acia_tx_get(&p->acia) : -1;
 }
 
 void COCO_HOT1(cart_lines)(coco_t *m) {
@@ -310,6 +364,7 @@ void COCO_HOT1(cart_lines)(coco_t *m) {
 void cart_restored(coco_t *m) {
     cart_port_t *p = &m->port;
     if (p->rsdos_slot >= 0) rsdos_lines(m, &p->slot[p->rsdos_slot]);
+    p->cart_low = cart_line_low(p);   /* PIA1's CB1 is in the state */
 }
 
 cart_t *cart_rsdos(coco_t *m) {

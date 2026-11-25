@@ -32,6 +32,7 @@
 #include "roms.h"
 #include "rtc.h"
 #include "sd.h"
+#include "serial.h"
 #include "settingsio.h"
 #include "southbridge.h"
 #include "status.h"
@@ -235,6 +236,8 @@ void core1_main(void) {
     g_bringup.lcd_us = time_us_32() - t0;
     display_init();
     board_temp_init();
+    /* The RS-232 pak's UART, its interrupt on this core (serial.h). */
+    serial_init();
 
     /* 3. The card's ROMs. */
     t0 = time_us_32();
@@ -281,6 +284,7 @@ void core1_main(void) {
         }
 
         log_pump();
+        serial_pump();
         rtc_poll();
 
         /* The guest parked: its job. Until core 0 claims the ROMs, a card

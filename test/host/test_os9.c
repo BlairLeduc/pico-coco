@@ -27,6 +27,17 @@
  * one at a time, each failed this test (2026-11-24): the host's time not
  * given to the cartridge (cart_clock_host), and the SmartWatch answering
  * SCS from any slot.
+ *
+ * The Deluxe RS-232 Program Pak (acia6551.h, §12.11): NitrOS-9's sc6551
+ * and t2_sc6551 loaded off its 720K disk, and Tandy's ACIAPAK and T2 off
+ * 2.01's configuration disk in /D1, the pak in slot 1 of a Multi-Pak and
+ * the controller in slot 4: both drivers write $03 to $FF7F, CTS at slot
+ * 1 for the pak's CART line, SCS at slot 4 for the disks. ECHO's line to
+ * /T2 reaches the host, and the host's line, ESC at its end, LIST /T2
+ * shows; the controls, the pak in slot 2, hear nothing. OS-9 types '_'
+ * as CLEAR and '-', the PicoCalc's Ctrl and '-' (os9_type). Planted
+ * (2026-11-25), each failed: CART taken from any slot; IRQ withdrawn
+ * when its source is disabled, which hangs ACIAPAK after a character.
  */
 #include <dirent.h>
 #include <stdio.h>
@@ -40,7 +51,9 @@
 #include "sha1.h"
 #include "test_util.h"
 
-typedef enum { TANDY_V200, NITROS9_40D, NITROS9_80D, TANDY_V201_RTC, DISK_COUNT } disk_id_t;
+typedef enum {
+    TANDY_V200, NITROS9_40D, NITROS9_80D, TANDY_V201_RTC, TANDY_V201, TANDY_V201_B, DISK_COUNT
+} disk_id_t;
 
 static const struct {
     const char *name, *sha1;
@@ -52,6 +65,8 @@ static const struct {
       "8695113e8a9e7d616e7db055af2b1f4a00989808" },
     { "OS-9 Level One 02.01.00 with clock_bb, by tools/os9-clock.py",
       "cabff8e7d111896fd97a4bb0d81815232eba409b" },
+    { "OS-9 Level One 02.01.00, the system disk", "7019d3b476a3f944a6dab77c7c4c8e1d67b18863" },
+    { "OS-9 Level One 02.01.00, the configuration disk", "0ade5dec3cdc0f34654e5ebfc779fb41c2a92737" },
 };
 
 static char s_path[DISK_COUNT][1024];
@@ -89,9 +104,24 @@ static bool     s_mpi;
 static int      s_clock_slot = -1;
 static uint32_t s_clock_host;
 
+/* The RS-232 pak's slot, 0 to 3, in a Multi-Pak with the controller in
+ * slot 4 and the switch at it, or -1 for none; and its line: what the
+ * guest sent, and what waits to be sent to it. */
+static int      s_rs232_slot = -1;
+static char     s_tx[4096];
+static unsigned s_tx_n;
+static const char *s_rx;
+/* A disk for drive 1 in place of the empty one, or -1. */
+static int      s_d1_id = -1;
+
 static void serve_fields(guest_t *gg) {
     host_disk_serve(&gg->m, s_drives);
     cart_clock_host(&gg->m, s_clock_host);
+    int c;
+    while ((c = coco_serial_get(&gg->m)) >= 0)
+        if (s_tx_n + 1u < sizeof s_tx) s_tx[s_tx_n++] = (char)c, s_tx[s_tx_n] = 0;
+    /* A character a field, well under the line's rate. */
+    if (s_rx && *s_rx && coco_serial_put(&gg->m, (uint8_t)*s_rx)) s_rx++;
 }
 
 static bool screen_has(const char *s) {
@@ -146,7 +176,11 @@ static bool shell(const char *line, int max) {
 /* DOS from Disk BASIC with d0 in drive 0 and an empty disk in drive 1,
  * as the Disks page makes one. True once the shell's prompt shows. */
 static bool boot(int max) {
-    if (s_mpi) {
+    if (s_rs232_slot >= 0) {
+        cart_kind_t kinds[4] = { CART_NONE, CART_NONE, CART_NONE, CART_RSDOS };
+        kinds[s_rs232_slot] = CART_RS232;
+        guest_build_mpi(&g, 64, kinds, 3, NULL, NULL);
+    } else if (s_mpi) {
         cart_kind_t kinds[4] = { CART_NONE, CART_NONE, CART_RSDOS, CART_NONE };
         if (s_clock_slot >= 0) kinds[s_clock_slot] = CART_SMARTWATCH;
         guest_build_mpi(&g, 64, kinds, 2, NULL, NULL);
@@ -155,7 +189,12 @@ static bool boot(int max) {
     }
     g.after_field = serve_fields;
     host_disk_free(&s_d1);
-    host_disk_new(&s_d1);
+    if (s_d1_id >= 0) {
+        const char *why = host_disk_load(&s_d1, s_path[s_d1_id]);
+        if (why) printf("%s: %s\n", s_path[s_d1_id], why);
+    } else {
+        host_disk_new(&s_d1);
+    }
     s_drives[0] = &s_d0;
     s_drives[1] = &s_d1;
     host_disk_insert(&g.m, 0, &s_d0);
@@ -374,6 +413,118 @@ static int test_tandy_rtc(void) {
     return 0;
 }
 
+/* The RS-232 pak (§12.11): its driver and its descriptor loaded from
+ * disk, a line sent to /T2 reaches the host, and a line from the host
+ * read from /T2, both through the 6551's interrupt on the CART line,
+ * FIRQ through PIA1 CB1. Both drivers set $FF7F to $03, CTS at slot 1
+ * for the pak's CART line and SCS at slot 4 for the controller, so the
+ * pak is in slot 1. The control: the pak in slot 2, whose interrupt the
+ * Multi-Pak does not pass, reads nothing. */
+/* A line typed at OS-9's shell, each '_' as OS-9's keyboard takes it,
+ * CLEAR and '-' (VTIO's key table), so Ctrl and '-' on the PicoCalc,
+ * whose Ctrl is CLEAR; SHIFT and the up arrow, which Color BASIC takes
+ * for '_', is $1C to OS-9. */
+static void os9_type(const char *line) {
+    char seg[256];
+    while (*line) {
+        size_t n = strcspn(line, "_");
+        if (n) {
+            snprintf(seg, sizeof seg, "%.*s", (int)n, line);
+            guest_type(&g, seg);
+            line += n;
+        }
+        if (*line == '_') {
+            keymatrix_event(&g.k, KEY_EV_PRESSED, PICOCALC_KEY_CTRL);
+            keymatrix_event(&g.k, KEY_EV_PRESSED, '-');
+            keymatrix_event(&g.k, KEY_EV_RELEASED, '-');
+            keymatrix_event(&g.k, KEY_EV_RELEASED, PICOCALC_KEY_CTRL);
+            guest_settle(&g, 100);
+            line++;
+        }
+    }
+}
+
+/* The session: false if the modules do not load; *sent and *heard
+ * whether ECHO's line reached the host and LIST read the host's line. */
+static bool rs232_session(const char *driver, const char *descriptor, bool *sent, bool *heard) {
+    s_tx_n = 0;
+    s_tx[0] = 0;
+    s_rx = NULL;
+    *sent = *heard = false;
+    char line[256];
+    snprintf(line, sizeof line, "LOAD %s\r", driver);
+    os9_type(line);
+    if (!prompt(30) || screen_has("ERROR")) {
+        printf("rs232: %s did not load\n", driver);
+        dump();
+        return false;
+    }
+    snprintf(line, sizeof line, "LOAD %s\r", descriptor);
+    os9_type(line);
+    if (!prompt(30) || screen_has("ERROR")) {
+        printf("rs232: %s did not load\n", descriptor);
+        dump();
+        return false;
+    }
+    /* A line out. */
+    guest_type(&g, "ECHO HELLO FROM OS9>/T2\r");
+    *sent = prompt(30) && strstr(s_tx, "HELLO FROM OS9\r") != NULL;
+    if (!*sent) printf("rs232: the host got \"%s\"\n", s_tx);
+    /* A line in, and ESC, OS-9's end of file, for LIST: the driver takes
+     * each character on the receiver's interrupt. */
+    guest_type(&g, "LIST /T2\r");
+    /* Sent once /T2 is open, its DTR on: before, the line is lost, as
+     * the 6551's receiver is off (acia6551.h). */
+    for (int f = 0; f < 600 && !(coco_serial(&g.m)->command & ACIA_CMD_DTR); f++) guest_fields(&g, 1);
+    s_rx = "PICOCALC SAYS HI\r\x1b";
+    *heard = prompt(20) && screen_has("PICOCALC SAYS HI");
+    return true;
+}
+
+static int test_nitros9_rs232(void) {
+    static const char *dr = "/D0/NITROS9/6809L1/MODULES/SCF/SC6551.DR",
+                      *dd = "/D0/NITROS9/6809L1/MODULES/SCF/T2_SC6551.DD";
+    bool sent, heard;
+    s_rs232_slot = 0;
+    CHECK(load(NITROS9_80D) && boot(60), "NitrOS-9 RS-232: it boots from a Multi-Pak");
+    CHECK(shell("TMODE PAU=0\r", 30), "NitrOS-9 RS-232: TMODE");
+    CHECK(rs232_session(dr, dd, &sent, &heard), "NitrOS-9 RS-232: the modules load");
+    CHECK(sent, "NitrOS-9 RS-232: ECHO >/T2 did not reach the host");
+    if (!heard) dump();
+    CHECK(heard, "NitrOS-9 RS-232: LIST /T2 did not read the host's line");
+    s_rs232_slot = 1;
+    CHECK(load(NITROS9_80D) && boot(60), "NitrOS-9 RS-232 control: it boots");
+    CHECK(shell("TMODE PAU=0\r", 30), "NitrOS-9 RS-232 control: TMODE");
+    CHECK(rs232_session(dr, dd, &sent, &heard), "NitrOS-9 RS-232 control: the modules load");
+    CHECK(!heard, "NitrOS-9 RS-232 control: the pak in slot 2, its interrupt not passed, was heard");
+    s_rs232_slot = -1;
+    return 0;
+}
+
+/* Tandy's: ACIAPAK and T2 from the configuration disk in /D1. Its T2
+ * is 2400 baud, 8N1 (BAU 4). Before the 6551 kept IRQ until its status
+ * was read, ACIAPAK sent one character and hung (acia6551.c). */
+static int test_tandy_rs232(void) {
+    static const char *dr = "/D1/MODULES/ACIAPAK.DR", *dd = "/D1/MODULES/T2.DD";
+    bool sent, heard;
+    s_d1_id = TANDY_V201_B;
+    s_rs232_slot = 0;
+    CHECK(load(TANDY_V201) && boot(60), "Tandy RS-232: 2.01 boots from a Multi-Pak");
+    CHECK(rs232_session(dr, dd, &sent, &heard), "Tandy RS-232: the modules load");
+    CHECK(sent, "Tandy RS-232: ECHO >/T2 did not reach the host");
+    if (!heard) dump();
+    CHECK(heard, "Tandy RS-232: LIST /T2 did not read the host's line");
+    CHECK(coco_serial(&g.m) && acia_baud(coco_serial(&g.m)) == 2400u, "Tandy RS-232: %u baud",
+          coco_serial(&g.m) ? acia_baud(coco_serial(&g.m)) : 0u);
+    s_rs232_slot = 1;
+    CHECK(load(TANDY_V201) && boot(60), "Tandy RS-232 control: it boots");
+    CHECK(rs232_session(dr, dd, &sent, &heard), "Tandy RS-232 control: the modules load");
+    CHECK(!heard, "Tandy RS-232 control: the pak in slot 2 was heard");
+    s_rs232_slot = -1;
+    s_d1_id = -1;
+    return 0;
+}
+
 /* The 720K disk: two sides of 80. */
 static int test_nitros9_80(void) {
     CHECK(load(NITROS9_80D) && s_d0.g.os9 && s_d0.g.sides == 2 && s_d0.g.tracks == 80,
@@ -407,5 +558,7 @@ int main(void) {
     if (s_path[NITROS9_40D][0] && test_nitros9_t1()) return 1;
     if (s_path[TANDY_V200][0] && test_tandy_t1()) return 1;
     if (s_path[TANDY_V201_RTC][0] && test_tandy_rtc()) return 1;
+    if (s_path[NITROS9_80D][0] && test_nitros9_rs232()) return 1;
+    if (s_path[TANDY_V201][0] && s_path[TANDY_V201_B][0] && test_tandy_rs232()) return 1;
     TEST_DONE();
 }

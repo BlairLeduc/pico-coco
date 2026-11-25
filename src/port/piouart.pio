@@ -1,0 +1,22 @@
+; piouart.pio — the development log's UART on GP2/GP3 through PIO, in
+; the UART0 build, whose hardware UART0 the RS-232 pak has on GP0/GP1
+; (design.md §12.11, hardware-notes.md §1.1). 8N1, eight PIO cycles a
+; bit. Adapted from the Raspberry Pi pico-examples uart_tx and
+; uart_rx_mini programs (THIRD-PARTY.md):
+;   Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+;   SPDX-License-Identifier: BSD-3-Clause
+
+.program piouart_tx
+.side_set 1 opt
+    pull       side 1 [7]   ; the stop bit, idle high, until a byte comes
+    set x, 7   side 0 [7]   ; the start bit
+bitloop:
+    out pins, 1             ; eight data bits, least first
+    jmp x-- bitloop   [6]
+
+.program piouart_rx
+    wait 0 pin 0            ; the start bit
+    set x, 7          [10]  ; to the middle of the first data bit
+bitloop:
+    in pins, 1              ; autopush after eight
+    jmp x-- bitloop   [6]

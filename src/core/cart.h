@@ -47,6 +47,13 @@
  *                    One in the port at most, as RS-DOS: its state is the
  *                    port's, `ssc`, its two ROMs in the pool, and without
  *                    them it is fitted silent
+ *   CART_RS232       the Deluxe RS-232 Program Pak (acia6551.h, §12.11): a
+ *                    6551 at $FF68-$FF6B, outside SCS, whose /IRQ is its
+ *                    CART line, and its ROM on CTS, which does not
+ *                    autostart. One in the port at most, as RS-DOS: its
+ *                    chip is the port's, `acia`. A ROM whose SHA-1 is the
+ *                    pak's makes its slot one; the configuration may fit
+ *                    one without
  * CART_MPI is a Multi-Pak, and only ever the port's. The kinds after it
  * were added after save states had numbered the first five.
  *
@@ -63,6 +70,7 @@
 #include <stdint.h>
 
 #include "config.h"
+#include "acia6551.h"
 #include "rsdos.h"
 #include "smartwatch.h"
 #include "ssc.h"
@@ -77,6 +85,7 @@ typedef enum {
     CART_MPI,
     CART_ORCH90,
     CART_SSC,
+    CART_RS232,
     CART_KINDS
 } cart_kind_t;
 
@@ -109,6 +118,9 @@ typedef struct {
     uint32_t ssc_rom_at;     /* the TMS7040's 4 KB, in the pool            */
     uint32_t ssc_al2_at;     /* the SP0256-AL2's 2 KB                      */
     ssc_t    ssc;
+    int8_t   rs232_slot;     /* the Deluxe RS-232 Program Pak's, or -1     */
+    bool     cart_low;       /* the CART line from the CTS slot's 6551     */
+    acia_t   acia;
 } cart_port_t;
 
 /* The port's cartridges from the configuration (coco.h), for coco_init,
@@ -173,7 +185,9 @@ void cart_reset(struct coco_s *m);
 /* The tick of the port's next event, UINT64_MAX for none; the run loop
  * stops there and calls cart_run (design.md §6). */
 static inline uint64_t cart_due(const cart_port_t *p) {
-    return p->rsdos_slot >= 0 ? p->dk.fdc.due : UINT64_MAX;
+    uint64_t d = p->rsdos_slot >= 0 ? p->dk.fdc.due : UINT64_MAX;
+    if (p->rs232_slot >= 0 && p->acia.due < d) d = p->acia.due;
+    return d;
 }
 
 /* The cartridges' events up to tick now, and the lines they move. */
@@ -200,6 +214,21 @@ void cart_lines(struct coco_s *m);
  * is restored (coco_restored). */
 void cart_restored(struct coco_s *m);
 
+/* The CART line a 6551 drives, low while its IRQ is: the CTS slot's
+ * alone reaches PIA1 CB1 (above). */
+static inline bool cart_line_low(const cart_port_t *p) {
+    return p->rs232_slot >= 0 && p->rs232_slot == p->cts && acia_irq(&p->acia);
+}
+
+/* The Deluxe RS-232 Program Pak's line, for the port: a character from
+ * it at tick now (false if the ring is full), the next sent (-1 for
+ * none), and the pak's 6551, NULL without one. */
+bool cart_serial_put(struct coco_s *m, uint8_t c, uint64_t now);
+int  cart_serial_get(struct coco_s *m);
+static inline const acia_t *cart_acia(const cart_port_t *p) {
+    return p->rs232_slot >= 0 ? &p->acia : NULL;
+}
+
 /* Whether the CTS slot's CART line is tied to the Q clock. */
 static inline bool cart_on_q(const cart_port_t *p) {
     const cart_t *c = &p->slot[p->cts];
@@ -220,5 +249,9 @@ void cart_clock_host(struct coco_s *m, uint32_t seconds_since_2000);
 /* Called by the port when the CTS slot changes: the page table and the
  * CART line again (coco.c). */
 void coco_cart_selected(struct coco_s *m);
+
+/* Called by the port when a cartridge's CART line may have moved: PIA1
+ * CB1 to cart_line_low's level, at tick now (coco.c). */
+void coco_cart_line(struct coco_s *m, uint64_t now);
 
 #endif /* PICO_COCO_CART_H */

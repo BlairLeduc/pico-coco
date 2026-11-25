@@ -24,6 +24,7 @@ typedef enum {
     ROM_SSC_PIC7040,    /* the Speech/Sound Cartridge's TMS7040 (M18)  */
     ROM_SSC_AL2,        /* its SP0256-AL2's allophones (M18)           */
     ROM_ORCH90,         /* the Orchestra-90 CC's, $C000 (M18)          */
+    ROM_RS232,          /* the Deluxe RS-232 Program Pak's, $C000 (M19) */
     ROM_IMAGE_COUNT,
     ROM_UNKNOWN = -1,
 } rom_id_t;

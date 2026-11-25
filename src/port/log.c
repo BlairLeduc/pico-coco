@@ -10,6 +10,16 @@
 #include "pico/stdlib.h"
 
 #include "config.h"
+#include "piouart.h"
+
+/* The log's UART: stdio's, or the PIO one in the UART0 build (piouart.h). */
+#if PICO_COCO_LOG_PIO
+#define LOG_WRITABLE() piouart_writable()
+#define LOG_PUTC(c)    piouart_putc(c)
+#else
+#define LOG_WRITABLE() uart_is_writable(uart_default)
+#define LOG_PUTC(c)    uart_putc_raw(uart_default, (c))
+#endif
 
 /* Power of two, so the indices can run free and wrap by mask. */
 #define LOG_RING COCO_LOG_RING
@@ -61,9 +71,9 @@ void log_pump(void) {
     uint32_t head = s_head;
     if (tail == head) return;
     __dmb();                    /* read the bytes after seeing the index */
-    while (tail != head && uart_is_writable(uart_default)) {
+    while (tail != head && LOG_WRITABLE()) {
         char c = s_ring[tail++ & (LOG_RING - 1u)];
-        uart_putc_raw(uart_default, c);
+        LOG_PUTC(c);
         s_mid_line = c != '\n';
     }
     __dmb();

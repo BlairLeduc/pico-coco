@@ -134,6 +134,7 @@ static void one_rom(card_job_t *j, const FILINFO *fi, uint8_t *basic, uint8_t *b
     if (id == ROM_SSC_PIC7040) snprintf(j->ssc_pic_path, sizeof j->ssc_pic_path, "%s", path);
     if (id == ROM_SSC_AL2) snprintf(j->ssc_al2_path, sizeof j->ssc_al2_path, "%s", path);
     if (id == ROM_ORCH90) snprintf(j->orch90_path, sizeof j->orch90_path, "%s", path);
+    if (id == ROM_RS232) snprintf(j->rs232_path, sizeof j->rs232_path, "%s", path);
     log_core1("  rom          : %s, %lu bytes, sha1 %s, %s%s, %lu us\n", fi->fname,
               (unsigned long)len, hex, id == ROM_UNKNOWN ? "" : "recognised as ", what,
               (unsigned long)us);
@@ -299,6 +300,20 @@ const char *card_orch90_load(const card_job_t *job, uint8_t *dst, uint32_t *len)
     if (romset_identify(dst, r->size) != ROM_ORCH90) return "ORCH90.ROM HAS CHANGED";
     *len = r->size;
     log_core1("  cart         : orchestra-90, %s, %lu bytes\n", job->orch90_path, (unsigned long)r->size);
+    return NULL;
+}
+
+const char *card_rs232_load(const card_job_t *job, uint8_t *dst, uint32_t *len) {
+    const rom_info_t *r = &romset_images[ROM_RS232];
+    *len = 0;
+    if (!job->rs232_path[0]) {
+        log_core1("  cart         : rs-232 pak, no rs232.rom: its 6551 alone\n");
+        return NULL;
+    }
+    if (!load_file(job->rs232_path, dst, r->size)) return "CANNOT READ RS232.ROM";
+    if (romset_identify(dst, r->size) != ROM_RS232) return "RS232.ROM HAS CHANGED";
+    *len = r->size;
+    log_core1("  cart         : rs-232 pak, %s, %lu bytes\n", job->rs232_path, (unsigned long)r->size);
     return NULL;
 }
 
