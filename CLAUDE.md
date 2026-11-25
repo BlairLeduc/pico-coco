@@ -165,6 +165,7 @@ build/host/test/host/page-ppm out/pages        # the missing-ROM pages, to look 
 # tools/trace/build-xroar.sh, the host build's coco-trace, ROMs in roms/
 tools/trace/trace-coco.sh -ram 64 -ext -fields 600 -type "$(printf 'PRINT 2+3\r')"
 tools/trace/trace-coco.sh -bas bas11 -ram 4 -fields 600   # a 4 KB CoCo
+tools/trace/trace-coco.sh -ram 64 -ext -cart mpi -mpi-slot 2 -mpi-load-cart 2=rsdos   # Multi-Pak
 
 # the archive run (design.md §15.4): the Color Computer Archive, fetched
 # politely into out/corpus, then run on the host and reported
