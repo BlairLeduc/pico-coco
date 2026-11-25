@@ -33,10 +33,13 @@
  * Its sound: the AY and the SP0256 mixed into one level, the
  * multiplexer's cartridge input (§10), to SSC_LEVEL_MAX: the AY's full
  * scale, all three channels at 15, SSC_AY_SHARE of it; the SP0256's
- * swing about SSC_SP_MID, SSC_SP_SHARE either way. The weights are an
- * estimate, set so that MAME's (its AY at gain 2.0 and its SP0256 at
- * 1.75) and these sound alike (§18). The level goes to the machine at
- * each change, stamped (ssc_level_changed, coco.c).
+ * swing about SSC_SP_MID, SSC_SP_SHARE of it at the chip's full scale,
+ * clipped to the level's range. The weights are an estimate (§18): MAME
+ * sums its AY at gain 2.0 and its SP0256 at 1.75, unclipped, where the
+ * manual's speech is about 0.7 of BASIC's loudest DAC sound; here it is
+ * about half that, which clips no speech the AL2 makes in the tests.
+ * The level goes to the machine at each change, stamped
+ * (ssc_level_changed, coco.c).
  */
 #ifndef PICO_COCO_SSC_H
 #define PICO_COCO_SSC_H
@@ -58,9 +61,10 @@
 #define SSC_SP_TICKS_DEN  1000u
 
 #define SSC_LEVEL_MAX    65535u
-#define SSC_AY_SHARE     22937u   /* 0.35 */
-#define SSC_SP_MID       19661u   /* 0.30 */
-#define SSC_SP_SHARE     19661u   /* 0.30 */
+#define SSC_AY_SHARE     22937u   /* 0.35                                 */
+#define SSC_SP_MID       32768u   /* 0.50                                 */
+#define SSC_SP_SHARE     131070u  /* 2.0: speech peaks near a sixth of the
+                                   * SP0256's scale; louder ones clip     */
 
 #define SSC_RESET   0xFF7Du
 #define SSC_DATA    0xFF7Eu

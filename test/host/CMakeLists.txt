@@ -35,7 +35,8 @@ endforeach()
 # The tests that run the real ROMs share the harness (§15.3), and find
 # the images in roms/ unless PICO_COCO_ROMS says otherwise.
 foreach(t test_boot test_romset test_screen test_keyboard test_audio_rom test_tape test_cart
-          test_snapshot_rom test_soak test_cassette test_disk test_os9 test_drivesnd test_tms7000)
+          test_snapshot_rom test_soak test_cassette test_disk test_os9 test_drivesnd test_tms7000
+          test_sp0256 test_ssc)
     add_executable(${t} ${t}.c guest.c frame_ppm.c)
     target_link_libraries(${t} PRIVATE pico_coco_core m)
     target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -57,6 +58,29 @@ target_link_libraries(test_ay8912 PRIVATE m)
 target_compile_options(test_ay8912 PRIVATE ${PICO_COCO_WARNINGS})
 add_test(NAME test_ay8912 COMMAND test_ay8912)
 set_tests_properties(test_ay8912 PROPERTIES SKIP_RETURN_CODE 77)
+
+# The SP0256's oracle (design.md §12.9): MAME's sp0256.cpp, fetched at a
+# pinned commit into reference/mame (tools/mame/fetch-mame.sh), compiled
+# through a shim of the little of MAME's framework it needs, linked only
+# into test_sp0256 (D2, D8). Without it, test_sp0256 runs its own tests
+# and says the oracle was skipped.
+set(PICO_COCO_MAME_DIR ${PROJECT_SOURCE_DIR}/reference/mame
+    CACHE PATH "MAME's files at the pinned commit (tools/mame/fetch-mame.sh)")
+if (EXISTS ${PICO_COCO_MAME_DIR}/sp0256.cpp)
+    enable_language(CXX)
+    add_library(mame_sp0256 STATIC ${PICO_COCO_MAME_DIR}/sp0256.cpp mame_sp0256.cpp)
+    target_include_directories(mame_sp0256 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/mame_shim
+        ${PICO_COCO_MAME_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
+    set_target_properties(mame_sp0256 PROPERTIES CXX_STANDARD 17)
+    target_compile_options(mame_sp0256 PRIVATE -w)
+    target_link_libraries(test_sp0256 PRIVATE mame_sp0256)
+    target_compile_definitions(test_sp0256 PRIVATE PICO_COCO_MAME_SP0256=1)
+    set_target_properties(test_sp0256 PROPERTIES LINKER_LANGUAGE CXX)
+    set_tests_properties(test_sp0256 PROPERTIES LABELS "rom;oracle")
+else()
+    message(STATUS "pico-coco: no MAME sp0256.cpp at ${PICO_COCO_MAME_DIR}; test_sp0256 runs "
+                   "without its oracle (tools/mame/fetch-mame.sh)")
+endif()
 
 # The bench's library brings the slow path, which the CPU tests define
 # for themselves, so only test_bench links it.
