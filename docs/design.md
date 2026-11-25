@@ -2161,7 +2161,9 @@ passes are skipped whole up to the timer's next interrupt; a machine
 doing so ends where one stepping every pass does (`test_ssc`). AY
 changes made while the SP0256 runs ahead reach the bus up to 6.4 ms
 late against the speech. Measured on the host: +13% idle, +58%
-speaking, against the same machine without the cartridge.
+speaking, against the same machine without the cartridge. On the
+owner's board (2026-11-25): core 0 25.0% busy without it, 27.8% idle,
+41.0% speaking, with no late fields or audio underruns.
 
 ### 12.10 The Orchestra-90 CC
 

@@ -7,8 +7,9 @@ and done-when criteria; this file keeps the full record (EL §14.3).
 ## M18: the sound cartridges
 
 On branch `m18`, 2026-11-24 to 2026-11-25 (`design.md` §12.5,
-§12.9, §12.10, §17, §18). **Built, and checked on the host; not yet
-on the device.** Of §17's row: the registers settled from a primary
+§12.9, §12.10, §17, §18). **Built, checked on the host, and the
+speech checked on the owner's board; The Interbank Incident not yet on
+the device.** Of §17's row: the registers settled from a primary
 source (the cartridge's manual), the TMS7000 core held to MAME's, the
 AY's tests from pico-oric passing, the Orchestra-90 held to XRoar's by
 the trace diff and the audio test, and the speech held to MAME's; The
@@ -70,7 +71,20 @@ SP0256's oracle).
   chosen characters; its speech comes later in play than was reached.
 - Cost on the host (3,000 fields of BASIC): +13% with the cartridge
   idle, +58% while it speaks, after the skipping (+86% and +87%
-  before). Not measured on the board.
+  before).
+
+**On the board** (the owner's Plus 2 W, UART0 build at `2f7d697`,
+2026-11-25, `out/m18/dev/boot.log`, `ssc.log`, `talk.log`): both ROMs
+recognised on the card by SHA-1; SPEECH/SOUND chosen on the Machine
+page over the UART, the machine restarted with it; the manual's
+program, typed over the UART and looped (a line waiting for the
+speaking bit, then `GOTO 30`), spoke I CAN TALK through the PicoCalc's
+speakers, which the owner heard and judged as they remember the real
+cartridge. Core 0, against the same machine with the disk controller
+in the same sitting: 25.0% busy without the cartridge, 27.8% with it
+idle, 41.0% while it speaks (headroom 4.20x, 3.71x, 2.48x); no late
+fields, no slips, no audio underruns or late refills over 300-field
+windows while it spoke.
 
 **Planted**, each failed: in `test_tms7000`, ten (the subtraction's C,
 SWAP's C, RRC, the prescaler, DECD's Z, BTJZ, IOCNT0's flags, an
@@ -83,9 +97,8 @@ settled pulse a sample long, and a pass with an interrupt taken for a
 cycle; in `test_audio` and `test_cart`, the Orchestra-90's right DAC,
 its bus update and another kind taking its writes.
 
-**Not checked.** Anything on the device: the Machine page's
-SPEECH/SOUND, the ROMs from the card, the sound through the PicoCalc,
-the cost on core 0, and The Interbank Incident speaking. The status
+**Not checked.** The Interbank Incident on the device, and its speech
+anywhere; the Orchestra-90 on the device. The status
 bit for a sound in progress is a stand-in for an analogue detector; the
 mix of the AY and the SP0256 is an estimate (§18).
 
