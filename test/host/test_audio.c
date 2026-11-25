@@ -19,6 +19,11 @@
  * count's 32-bit wrap; the DC blocker coming to rest at 0 from either
  * level, and the side channel's to 0 from a held difference; and PIA1
  * PB1 reading the bus back.
+ *
+ * Planted one at a time for stereo (2026-11-25), each failed: the ears
+ * swapped in cart_side; a change of the side alone not stamped; the side
+ * set without the pcm brought up to it; and the ears' DC blockers not
+ * seeded from the mono's.
  */
 
 #include <stdlib.h>
