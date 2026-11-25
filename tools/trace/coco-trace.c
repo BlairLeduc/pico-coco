@@ -1,7 +1,13 @@
 /* coco-trace.c — this core's half of the trace diff against XRoar
  * (design.md §15.2, EL §11.4).
  *
- *   coco-trace [-bas bas13|bas11] [-ram K] [-ext] [-fields N] [-type STRING] > ours.trace
+ *   coco-trace [-bas bas13|bas11] [-ram K] [-ext] [-fields N] [-type STRING]
+ *              [-cart rsdos|mpi] [-mpi-slot N] [-mpi-load-cart N=rsdos] > ours.trace
+ *
+ * The cartridge options are XRoar's own, so trace-coco.sh gives the same
+ * to both (design.md §12.8): the disk controller in the port, or a
+ * Multi-Pak with its switch at slot N (0 to 3) and the disk controller in
+ * a slot. Disk BASIC needs Extended (-ext).
  *
  * Boots a CoCo on the real ROMs (found as test/host/guest.c finds them)
  * and prints a line after each instruction: its address and every
@@ -83,18 +89,25 @@ static void hook(coco_t *m) {
 }
 
 int main(int argc, char **argv) {
-    unsigned ram_k = 0, fields = 300;
+    unsigned ram_k = 0, fields = 300, mpi_slot = 0;
     bool ext = false, bas11 = false;
-    const char *type = NULL;
+    const char *type = NULL, *cart = "";
+    cart_kind_t kinds[COCO_MPI_SLOTS] = { CART_NONE, CART_NONE, CART_NONE, CART_NONE };
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-ram") && i + 1 < argc) ram_k = (unsigned)atoi(argv[++i]);
         else if (!strcmp(argv[i], "-ext")) ext = true;
         else if (!strcmp(argv[i], "-fields") && i + 1 < argc) fields = (unsigned)atoi(argv[++i]);
         else if (!strcmp(argv[i], "-type") && i + 1 < argc) type = argv[++i];
         else if (!strcmp(argv[i], "-bas") && i + 1 < argc) bas11 = !strcmp(argv[++i], "bas11");
+        else if (!strcmp(argv[i], "-cart") && i + 1 < argc) cart = argv[++i];
+        else if (!strcmp(argv[i], "-mpi-slot") && i + 1 < argc) mpi_slot = (unsigned)atoi(argv[++i]) & 3u;
+        else if (!strcmp(argv[i], "-mpi-load-cart") && i + 1 < argc &&
+                 argv[i + 1][0] >= '0' && argv[i + 1][0] <= '3' && argv[i + 1][1] == '=' &&
+                 !strcmp(argv[i + 1] + 2, "rsdos"))
+            kinds[argv[++i][0] - '0'] = CART_RSDOS;
         else {
-            fprintf(stderr, "usage: %s [-bas bas13|bas11] [-ram K] [-ext]"
-                            " [-fields N] [-type STRING]\n", argv[0]);
+            fprintf(stderr, "usage: %s [-bas bas13|bas11] [-ram K] [-ext] [-fields N] [-type STRING]"
+                            " [-cart rsdos|mpi] [-mpi-slot N] [-mpi-load-cart N=rsdos]\n", argv[0]);
             return 2;
         }
     }
@@ -106,7 +119,15 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (!ram_k) ram_k = 64;
-    guest_build_as(&g, ram_k, basic, ext);
+    bool disk = !strcmp(cart, "rsdos"), mpi = !strcmp(cart, "mpi");
+    if ((disk || mpi) && (bas11 || !ext || !guest_have_rom(ROM_COCO_EXTBAS11) ||
+                          !guest_have_rom(ROM_COCO_DISK11))) {
+        fprintf(stderr, "coco-trace: a cartridge needs -ext, bas13 and disk11.rom\n");
+        return 1;
+    }
+    if (disk) guest_build_disk(&g, ram_k);
+    else if (mpi) guest_build_mpi(&g, ram_k, kinds, mpi_slot, NULL, NULL);
+    else guest_build_as(&g, ram_k, basic, ext);
     t.at = bas11 ? bas11_at : bas13_at;
     t.pc = g.m.cpu.pc;
     t.insns = g.m.cpu.instructions;

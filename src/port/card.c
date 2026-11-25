@@ -249,7 +249,7 @@ static bool cart_name(const char *name) {
     return strcmp(e, "ccc") == 0 || strcmp(e, "rom") == 0;
 }
 
-unsigned card_cart_list(char paths[][COCO_PATH_MAX], unsigned max) {
+unsigned card_cart_list(char paths[][COCO_PATH_MAX], uint32_t *sizes, unsigned max) {
     unsigned n = 0;
     if (f_opendir(&s_dir, COCO_CART_DIR) != FR_OK) return 0;
     while (n < max && f_readdir(&s_dir, &s_info) == FR_OK && s_info.fname[0]) {
@@ -258,13 +258,14 @@ unsigned card_cart_list(char paths[][COCO_PATH_MAX], unsigned max) {
         if (!cart_name(s_info.fname)) continue;
         if (snprintf(paths[n], COCO_PATH_MAX, "%s/%s", COCO_CART_DIR, s_info.fname) >= (int)COCO_PATH_MAX)
             continue;
+        if (sizes) sizes[n] = (uint32_t)s_info.fsize;
         n++;
     }
     f_closedir(&s_dir);
     return n;
 }
 
-const char *card_disk_rom_load(const card_job_t *job, uint8_t dst[COCO_CART_SIZE], uint32_t *len) {
+const char *card_disk_rom_load(const card_job_t *job, uint8_t *dst, uint32_t *len) {
     const rom_info_t *r = &romset_images[ROM_COCO_DISK11];
     if (!job->disk_path[0]) return "NEEDS DISK11.ROM";
     if (!load_file(job->disk_path, dst, r->size)) return "CANNOT READ DISK11.ROM";
@@ -278,7 +279,7 @@ bool card_is_rsdos(const char *name) {
     return strcasecmp(name, CARD_RSDOS) == 0;
 }
 
-const char *card_cart_load(const char *path, uint8_t dst[COCO_CART_SIZE], uint32_t *len) {
+const char *card_cart_load(const char *path, uint8_t *dst, uint32_t max, uint32_t *len) {
     char full[COCO_PATH_MAX + 16];
     /* A bare name is in /coco/carts/, as the settings file writes it. */
     if (path[0] == '/') snprintf(full, sizeof full, "%s", path);
@@ -290,6 +291,10 @@ const char *card_cart_load(const char *path, uint8_t dst[COCO_CART_SIZE], uint32
     if (size == 0 || size > COCO_CART_SIZE) {
         f_close(f);
         return size ? "OVER 16 KB" : "EMPTY";
+    }
+    if (size > max) {
+        f_close(f);
+        return "NO ROOM: 32K FOR ALL";   /* CARTS_NO_ROOM */
     }
     UINT got = 0;
     fr = f_read(f, dst, (UINT)size, &got);

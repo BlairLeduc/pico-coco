@@ -152,7 +152,7 @@ bool dskio_protected(unsigned drive) {
 }
 
 void dskio_attach(coco_t *m) {
-    if (!m->cfg.rsdos) return;
+    if (!coco_disk_fdc(m)) return;
     for (unsigned d = 0; d < COCO_DISK_DRIVES; d++)
         if (s_drive[d].path[0]) coco_disk_insert(m, d, s_drive[d].protect);
 }
@@ -341,13 +341,14 @@ bool dskio_serve(coco_t *m, uint32_t *us) {
 /* The request, with the card mounted or not: without, it fails. */
 static bool serve_mounted(coco_t *m, bool mounted, uint32_t t0, uint32_t *us) {
     wd_req_t q = *coco_disk_request(m);
+    uint8_t *buf = coco_disk_fdc(m)->buf;
     bool ok = mounted;
     if (ok && q.put) {
-        ok = put_track(q.put_drive, q.put_side, q.put_cyl, m->dk.fdc.buf);
+        ok = put_track(q.put_drive, q.put_side, q.put_cyl, buf);
         if (ok) s_put++;
     }
     if (ok && q.get) {
-        ok = get_track(q.drive, q.side, q.cyl, m->dk.fdc.buf);
+        ok = get_track(q.drive, q.side, q.cyl, buf);
         if (ok) s_got++;
     }
     *us = time_us_32() - t0;

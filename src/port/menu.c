@@ -68,7 +68,7 @@ enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_POWER, I_SAVE, 
        I_ABOUT, I_COUNT };
 
 enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_VDG, D_ARTEFACTS, D_PHASE,
-       D_BACKGROUND, D_CLOCK, D_DISK_SOUNDS, D_COUNT };
+       D_BACKGROUND, D_DISK_SOUNDS, D_COUNT };
 _Static_assert(ROW_TOP + I_COUNT + 2 <= ROW_STATUS, "the main page's rows fit");
 /* The layout's bindings go below the rows, as many as there is room
  * for: with the background's row, none. */
@@ -92,7 +92,10 @@ enum { N_SLOT, N_SAVE, N_LOAD, N_DELETE, N_COUNT };
 
 /* The Machine page: BASIC, the RAM and the cartridge staged, and the
  * power-on that applies them. */
-enum { M_BASIC, M_RAM, M_CART, M_APPLY, M_COUNT };
+/* The slots and the switch show only with a Multi-Pak (§12.8). */
+enum { M_BASIC, M_RAM, M_CART, M_SLOT1, M_SLOT2, M_SLOT3, M_SLOT4, M_SWITCH, M_APPLY, M_COUNT };
+_Static_assert(M_SLOT4 - M_SLOT1 + 1 == COCO_MPI_SLOTS, "a row for each slot");
+_Static_assert(ROW_TOP + M_COUNT + 2 <= ROW_STATUS, "the Machine page's rows fit");
 
 static coco_frame_t *s_scr;
 static settings_t    s_file;       /* what the file says, for the save */
@@ -104,13 +107,18 @@ static dirlist_t      s_disks;
 static unsigned       s_drive;     /* the Disks page's, kept between openings */
 static char           s_disk_dir[COCO_PATH_MAX] = DSKIO_DIR;   /* likewise   */
 static char           s_carts[COCO_CART_LIST_MAX][COCO_PATH_MAX];
+static uint32_t       s_cart_size[COCO_CART_LIST_MAX];   /* bytes, as listed */
 
 static const unsigned k_rams[4] = { 4u, 16u, 32u, 64u };
 
-/* The Machine page's cartridge row: none, the RS-DOS controller, then
- * the card's images by index. */
-#define CART_NONE  (-1)
-#define CART_RSDOS (-2)
+/* The Machine page's cartridge and slot rows: none, the RS-DOS
+ * controller, a Multi-Pak (the cartridge row's) or the SmartWatch (a
+ * slot's), then the card's images by index, and past them, n_carts + s,
+ * slot s's running image if the card no longer lists it. */
+#define MENU_CART_NONE       (-1)
+#define MENU_CART_RSDOS      (-2)
+#define MENU_CART_MPI        (-3)
+#define MENU_CART_SMARTWATCH (-4)
 static unsigned       s_slot;      /* the Snapshots page's, kept between openings */
 
 static struct {
@@ -139,8 +147,10 @@ static struct {
     int      machine_sel;
     bool     st_ext;           /* staged: applied only by a power-on */
     unsigned st_ram;           /* index into k_rams                  */
-    int      st_cart;          /* CART_NONE, CART_RSDOS, else into s_carts */
+    int      st_cart;          /* MENU_CART_*, else into s_carts      */
     int      run_cart;         /* the running cartridge's             */
+    int      st_slot[COCO_MPI_SLOTS], run_slot[COCO_MPI_SLOTS];   /* likewise */
+    unsigned st_switch, run_switch;   /* 0 to 3                       */
     unsigned n_carts;
 
     struct {
@@ -206,7 +216,7 @@ static void draw_main(void) {
     textpage_line(s_scr, ROW_TOP + I_COUNT + 1, line, false);
     if (g_machine.rsdos) {
         const char *d = dskio_inserted(0);
-        snprintf(line, sizeof line, " RS-DOS, DISK 0: %.15s", d[0] ? base(d) : "NONE");
+        snprintf(line, sizeof line, " DISK 0: %.23s", d[0] ? base(d) : "NONE");
         textpage_line(s_scr, ROW_TOP + I_COUNT + 2, line, false);
     }
 }
@@ -285,7 +295,7 @@ static void draw_disks(void) {
         textpage_line(s_scr, ROW_TOP + 1 + r, line, i == s.disk_sel);
     }
     if (!g_machine.rsdos)
-        textpage_line(s_scr, ROW_STATUS - 1, " RS-DOS IS NOT IN: MACHINE PAGE", false);
+        textpage_line(s_scr, ROW_STATUS - 1, " FIT A DISK CONTROLLER: MACHINE", false);
 }
 
 static void draw_setup(void) {
@@ -337,10 +347,6 @@ static void draw_setup(void) {
             /* pico-atom's: the datasheet's dark green or orange, or black (§9.5). */
             snprintf(line, sizeof line, " BACKGROUND      < %s >", g_ui.dark_bg ? "DARK" : "BLACK");
             break;
-        case D_CLOCK:
-            /* A DS1216 at $FF78-$FF7F, for OS-9's clock_tc3 (rtc.h). */
-            snprintf(line, sizeof line, " SMARTWATCH      < %s >", on_off(g_ui.smartwatch));
-            break;
         case D_DISK_SOUNDS:
             /* The drives' steps and motor (drivesnd.h). */
             snprintf(line, sizeof line, " DISK SOUNDS     < %s >", on_off(g_ui.disk_sounds));
@@ -382,13 +388,61 @@ static void draw_snaps(void) {
     textpage_line(s_scr, ROW_TOP + N_COUNT + 4 + (int)SNAPIO_SLOTS, " ON, WITH ITS TAPE, CART, DISKS.", false);
 }
 
+static bool mpi_staged(void) { return s.st_cart == MENU_CART_MPI; }
+
+static bool machine_row_shown(int r) {
+    return (r < M_SLOT1 || r > M_SWITCH) || mpi_staged();
+}
+
 static bool machine_changed(int r) {
+    if (!machine_row_shown(r)) return false;
+    bool was_mpi = s.run_cart == MENU_CART_MPI;
     switch (r) {
     case M_BASIC: return s.st_ext != g_machine.extended;
     case M_RAM:   return k_rams[s.st_ram] != g_machine.ram_k;
     case M_CART:  return s.st_cart != s.run_cart;
+    case M_SWITCH: return !was_mpi || s.st_switch != s.run_switch;
+    case M_SLOT1: case M_SLOT2: case M_SLOT3: case M_SLOT4:
+        return !was_mpi || s.st_slot[r - M_SLOT1] != s.run_slot[r - M_SLOT1];
     }
     return false;
+}
+
+/* What a choice names, as the settings file and carts.h write it. */
+static const char *choice_name(int c, unsigned slot) {
+    switch (c) {
+    case MENU_CART_NONE:       return "";
+    case MENU_CART_RSDOS:      return CARD_RSDOS;
+    case MENU_CART_MPI:        return CARTS_MPI;
+    case MENU_CART_SMARTWATCH: return CARTS_SMARTWATCH;
+    }
+    if (c >= (int)s.n_carts) return g_boot.port.slot[slot].name;
+    return s_carts[c];
+}
+
+/* As the row shows it. */
+static const char *choice_label(int c, unsigned slot) {
+    switch (c) {
+    case MENU_CART_NONE:       return "NONE";
+    case MENU_CART_RSDOS:      return "DISK CONTROLLER";
+    case MENU_CART_MPI:        return "MULTI-PAK";
+    case MENU_CART_SMARTWATCH: return "XT-RTC CLOCK";
+    }
+    return base(choice_name(c, slot));
+}
+
+/* The choice a running name is: among the card's, or n_carts + slot. */
+static int choice_of(const char *name, unsigned slot) {
+    switch (carts_kind(name)) {
+    case CART_NONE:       return MENU_CART_NONE;
+    case CART_RSDOS:      return MENU_CART_RSDOS;
+    case CART_SMARTWATCH: return MENU_CART_SMARTWATCH;
+    case CART_MPI:        return MENU_CART_MPI;
+    default:              break;
+    }
+    for (unsigned i = 0; i < s.n_carts; i++)
+        if (strcmp(base(s_carts[i]), base(name)) == 0) return (int)i;
+    return (int)s.n_carts + (int)slot;
 }
 
 static bool machine_staged(void) {
@@ -397,9 +451,98 @@ static bool machine_staged(void) {
     return false;
 }
 
+/* A choice's ROM in bytes: Disk BASIC's 8 KB, an image's file as listed,
+ * or the running one's; 0 for none. */
+static uint32_t choice_size(int c, unsigned slot) {
+    if (c == MENU_CART_RSDOS) return romset_images[ROM_COCO_DISK11].size;
+    if (c < 0) return 0;
+    if (c >= (int)s.n_carts) return g_boot.port.slot[slot].len;
+    return s_cart_size[c];
+}
+
+/* What a choice is, in two lines of up to TEXT_COLS - 1. */
+static void choice_info(int c, unsigned slot, bool in_mpi, char a[TEXT_COLS], char b[TEXT_COLS]) {
+    a[0] = b[0] = 0;
+    uint32_t n = choice_size(c, slot), k = (n + 1023u) / 1024u;
+    switch (c) {
+    case MENU_CART_NONE:
+        snprintf(a, TEXT_COLS, "%s", in_mpi ? "EMPTY" : "NO CARTRIDGE");
+        return;
+    case MENU_CART_RSDOS:
+        snprintf(a, TEXT_COLS, "DISK BASIC 1.1, 8K ROM");
+        snprintf(b, TEXT_COLS, "NEEDS 16K OR MORE AND EXTENDED");
+        return;
+    case MENU_CART_SMARTWATCH:
+        snprintf(a, TEXT_COLS, "A CLOCK, NO ROM");
+        snprintf(b, TEXT_COLS, "OS-9'S CLOCK_BB LOOKS IN SLOT 4");
+        return;
+    case MENU_CART_MPI:
+        snprintf(a, TEXT_COLS, "MULTI-PAK: FOUR SLOTS");
+        snprintf(b, TEXT_COLS, "%uK AVAILABLE FOR ROMS", (unsigned)(COCO_CART_POOL / 1024u));
+        return;
+    }
+    snprintf(a, TEXT_COLS, "%.30s", base(choice_name(c, slot)));
+    if (n > COCO_CART_SIZE) snprintf(b, TEXT_COLS, "OVER 16K: WILL NOT LOAD");
+    else if (cart_room(n) > n && n >= COCO_PAGE_SIZE)
+        snprintf(b, TEXT_COLS, "%uK ROM, TAKES %uK", (unsigned)k, (unsigned)(cart_room(n) / 1024u));
+    else snprintf(b, TEXT_COLS, "%uK ROM, STARTS ITSELF", (unsigned)k);
+}
+
+/* The Machine page's lines below its rows, from `row`: the choice on the
+ * selected row, or the cartridge's, or with a Multi-Pak the switch's
+ * slot's; and with a Multi-Pak, the room its ROMs take of the pool. */
+static void machine_info(int row) {
+    char a[TEXT_COLS], b[TEXT_COLS], line[TEXT_COLS + 1];
+    bool mpi = mpi_staged();
+    /* A cartridge only for the rows about one: on BASIC, RAM and Apply,
+     * the machine alone. */
+    bool about_cart = s.machine_sel == M_CART || s.machine_sel == M_SWITCH ||
+                      (s.machine_sel >= M_SLOT1 && s.machine_sel <= M_SLOT4);
+    if (!about_cart) {
+        snprintf(line, sizeof line, " = %.28s", machine_name(s.st_ext, k_rams[s.st_ram]));
+        textpage_line(s_scr, row, line, false);
+        if (!s.card && !mpi) textpage_line(s_scr, row + 5, " NO CARD: NO CARTRIDGES", false);
+        return;
+    }
+    int c = s.st_cart;
+    unsigned k = 0;
+    if (s.machine_sel >= M_SLOT1 && s.machine_sel <= M_SLOT4) k = (unsigned)(s.machine_sel - M_SLOT1);
+    else if (mpi && s.machine_sel != M_CART) k = s.st_switch;
+    if (mpi && s.machine_sel != M_CART) c = s.st_slot[k];
+    choice_info(c, k, mpi && s.machine_sel != M_CART, a, b);
+    if (mpi && s.machine_sel != M_CART) snprintf(line, sizeof line, " %u: %.28s", k + 1u, a);
+    else snprintf(line, sizeof line, " %.30s", a);
+    if (!mpi) {
+        /* Room for the machine, the choice, and a word on the card. */
+        char m[TEXT_COLS + 1];
+        snprintf(m, sizeof m, " = %.28s", machine_name(s.st_ext, k_rams[s.st_ram]));
+        textpage_line(s_scr, row, m, false);
+        textpage_line(s_scr, row + 2, line, false);
+        if (b[0]) {
+            snprintf(line, sizeof line, " %.30s", b);
+            textpage_line(s_scr, row + 3, line, false);
+        }
+        if (!s.card) textpage_line(s_scr, row + 5, " NO CARD: NO CARTRIDGES", false);
+        return;
+    }
+    textpage_line(s_scr, row, line, false);
+    uint32_t used = 0;
+    for (unsigned j = 0; j < COCO_MPI_SLOTS; j++) used += cart_room(choice_size(s.st_slot[j], j));
+    if (s.machine_sel == M_CART) {
+        snprintf(line, sizeof line, " %.30s", b);
+    } else {
+        unsigned u = (unsigned)(used / 1024u), all = (unsigned)(COCO_CART_POOL / 1024u);
+        snprintf(line, sizeof line, used > COCO_CART_POOL ? " ROMS %uK OF %uK: TOO MANY" : " ROMS %uK OF %uK",
+                 u, all);
+    }
+    textpage_line(s_scr, row + 1, line, false);
+}
+
 static void draw_machine(void) {
     char line[TEXT_COLS + 1];
+    int row = ROW_TOP;
     for (int i = 0; i < M_COUNT; i++) {
+        if (!machine_row_shown(i)) continue;
         char mark = machine_changed(i) ? '*' : ' ';
         switch (i) {
         case M_BASIC:
@@ -410,27 +553,24 @@ static void draw_machine(void) {
             snprintf(line, sizeof line, "%cRAM     < %uK >", mark, k_rams[s.st_ram]);
             break;
         case M_CART:
-            snprintf(line, sizeof line, "%cCART    < %.16s >", mark,
-                     s.st_cart == CART_NONE    ? "NONE"
-                     : s.st_cart == CART_RSDOS ? "RS-DOS"
-                     : s.st_cart == (int)s.n_carts ? base(g_boot.cart_path)
-                                                   : base(s_carts[s.st_cart]));
+            snprintf(line, sizeof line, "%cCART    < %.16s >", mark, choice_label(s.st_cart, 0));
+            break;
+        case M_SLOT1: case M_SLOT2: case M_SLOT3: case M_SLOT4: {
+            unsigned k = (unsigned)(i - M_SLOT1);
+            snprintf(line, sizeof line, "%c SLOT %u < %.16s >", mark, k + 1u,
+                     choice_label(s.st_slot[k], k));
+            break;
+        }
+        case M_SWITCH:
+            snprintf(line, sizeof line, "%c SWITCH < %u >", mark, s.st_switch + 1u);
             break;
         case M_APPLY:
             snprintf(line, sizeof line, " (APPLY AND RESTART)");
             break;
         }
-        textpage_line(s_scr, ROW_TOP + i, line, i == s.machine_sel);
+        textpage_line(s_scr, row++, line, i == s.machine_sel);
     }
-    snprintf(line, sizeof line, " = %.28s", machine_name(s.st_ext, k_rams[s.st_ram]));
-    textpage_line(s_scr, ROW_TOP + M_COUNT + 1, line, false);
-    textpage_line(s_scr, ROW_TOP + M_COUNT + 3, " - THE PROGRAM IN MEMORY IS", false);
-    textpage_line(s_scr, ROW_TOP + M_COUNT + 4, "   LOST ON RESTART.", false);
-    textpage_line(s_scr, ROW_TOP + M_COUNT + 5, " - A CARTRIDGE STARTS ITSELF,", false);
-    textpage_line(s_scr, ROW_TOP + M_COUNT + 6, "   FROM /COCO/CARTS/.", false);
-    textpage_line(s_scr, ROW_TOP + M_COUNT + 7, " - RS-DOS IS DISK BASIC: 16K OR", false);
-    textpage_line(s_scr, ROW_TOP + M_COUNT + 8, "   MORE, EXTENDED, DISK11.ROM.", false);
-    if (!s.card) textpage_line(s_scr, ROW_TOP + M_COUNT + 9, " - NO CARD: NO CARTRIDGES.", false);
+    machine_info(row + 1);
 }
 
 static void about_rom(int row, rom_id_t id) {
@@ -620,9 +760,15 @@ static void open_snaps(void) {
     s.page = P_SNAPS;
     s.snap_sel = N_SAVE;
     unsigned used = 0;
-    for (unsigned i = 0; i < SNAPIO_SLOTS; i++) used += s.used[i];
-    log_core1("  snapshot     : page open, slot %u, %u of %u slots in use\n", s_slot + 1u, used,
-              SNAPIO_SLOTS);
+    char which[2 * SNAPIO_SLOTS + 1] = "";
+    for (unsigned i = 0; i < SNAPIO_SLOTS; i++) {
+        if (!s.used[i]) continue;
+        which[2 * used] = ' ';
+        which[2 * used + 1] = (char)('1' + i);
+        which[2 * ++used] = 0;
+    }
+    log_core1("  snapshot     : page open, slot %u, %u of %u slots in use%s%s\n", s_slot + 1u, used,
+              SNAPIO_SLOTS, used ? ":" : "", which);
 }
 
 static void open_machine(void) {
@@ -630,18 +776,17 @@ static void open_machine(void) {
     s.machine_sel = M_BASIC;
     s.st_ext = g_machine.extended;
     s.st_ram = ram_index(g_machine.ram_k);
-    s.n_carts = s.card ? card_cart_list(s_carts, COCO_CART_LIST_MAX) : 0;
-    /* The running cartridge among the card's; one the card no longer
-     * lists is offered as itself, after them. */
-    s.run_cart = CART_NONE;
-    if (g_machine.rsdos) {
-        s.run_cart = CART_RSDOS;
-    } else if (g_machine.cart) {
-        s.run_cart = (int)s.n_carts;
-        for (unsigned i = 0; i < s.n_carts; i++)
-            if (strcmp(s_carts[i], g_boot.cart_path) == 0) s.run_cart = (int)i;
-    }
+    s.n_carts = s.card ? card_cart_list(s_carts, s_cart_size, COCO_CART_LIST_MAX) : 0;
+    /* The running port among the card's; an image the card no longer
+     * lists is offered as itself, after them (choice_of). */
+    const port_media_t *pm = &g_boot.port;
+    s.run_cart = pm->mpi ? MENU_CART_MPI : choice_of(pm->slot[0].name, 0);
+    for (unsigned k = 0; k < COCO_MPI_SLOTS; k++)
+        s.run_slot[k] = pm->mpi ? choice_of(pm->slot[k].name, k) : MENU_CART_NONE;
+    s.run_switch = pm->mpi ? pm->mpi_switch : COCO_MPI_SLOTS - 1u;
     s.st_cart = s.run_cart;
+    memcpy(s.st_slot, s.run_slot, sizeof s.st_slot);
+    s.st_switch = s.run_switch;
     for (unsigned i = 0; i < s.n_carts; i++)
         log_core1("  carts        : %2u %s\n", i + 1u, s_carts[i]);
 }
@@ -671,7 +816,7 @@ static void save_settings(void) {
      * (EL §10). */
     out.extended = g_machine.extended;
     out.ram_k = g_machine.ram_k;
-    settings_card_name(SETTINGS_CART_DIR, g_machine.cart ? g_boot.cart_path : "", out.cart);
+    carts_to_settings(&g_boot.port, &out);
     out.volume = g_ui.volume;
     out.perf = g_ui.perf_line;
     out.status = g_ui.status;
@@ -681,7 +826,6 @@ static void save_settings(void) {
     out.artefacts = g_ui.artefacts;
     out.artefact_phase = g_ui.artefact_phase;
     out.dark_bg = g_ui.dark_bg;
-    out.smartwatch = g_ui.smartwatch;
     out.disk_sounds = g_ui.disk_sounds;
     /* A layout a loaded file chose is not the user's choice, so the file
      * keeps the one it had (§11.3). */
@@ -705,38 +849,44 @@ static void apply_machine(void) {
     const char *why;
     rom_id_t basic = roms_basic_for(&g_boot.job, k_rams[s.st_ram], &ext, &why);
     if (basic == ROM_UNKNOWN || ext != s.st_ext) { say(" %.30s", why ? why : "NO BASIC"); return; }
-    machine_t mc = { .ram_k = k_rams[s.st_ram], .basic = basic, .extended = ext,
-                     .cart = s.st_cart != CART_NONE, .rsdos = s.st_cart == CART_RSDOS };
-    if (mc.rsdos) {
+    machine_t mc = { .ram_k = k_rams[s.st_ram], .basic = basic, .extended = ext };
+    /* The port as staged (carts.h). */
+    static port_media_t want;
+    if (mpi_staged()) {
+        memset(&want, 0, sizeof want);
+        want.mpi = true;
+        want.mpi_switch = (uint8_t)s.st_switch;
+        for (unsigned k = 0; k < COCO_MPI_SLOTS; k++)
+            snprintf(want.slot[k].name, sizeof want.slot[k].name, "%s", choice_name(s.st_slot[k], k));
+    } else {
+        carts_single(&want, choice_name(s.st_cart, 0));
+    }
+    if (carts_has(&want, CART_RSDOS)) {
         const char *no = roms_rsdos_why(mc.ram_k, mc.extended);
         if (no) { say(" %.30s", no); return; }
     }
-    if (s.st_cart != s.run_cart) {
-        if (s.st_cart == CART_RSDOS) {
-            say(" READING DISK11.ROM...", "");
-            draw();
-            uint32_t len = 0;
-            const char *err = card_disk_rom_load(&g_boot.job, g_boot.cart, &len);
-            if (err) { say(" RS-DOS: %.22s", err); return; }
-            g_boot.cart_len = len;
-            snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s", CARD_RSDOS);
-        } else if (s.st_cart >= 0) {
-            say(" READING %.20s...", base(s_carts[s.st_cart]));
-            draw();
-            uint32_t len = 0;
-            const char *err = card_cart_load(s_carts[s.st_cart], g_boot.cart, &len);
-            if (err) { say(" CARTRIDGE: %.20s", err); return; }
-            g_boot.cart_len = len;
-            snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s", s_carts[s.st_cart]);
-            keymapio_file_loaded(g_boot.cart_path);   /* a layout may name it (§11.3) */
-        } else {
-            g_boot.cart_len = 0;
-            g_boot.cart_path[0] = 0;
+    bool port_changed = want.mpi != g_boot.port.mpi || want.mpi_switch != g_boot.port.mpi_switch;
+    for (unsigned k = 0; k < COCO_MPI_SLOTS; k++)
+        port_changed |= strcmp(want.slot[k].name, g_boot.port.slot[k].name) != 0;
+    if (port_changed) {
+        /* Straight into the machine's pool (carts.h): a slot that will
+         * not load stops the restart, and the running port's ROMs are
+         * read in again, as they were. */
+        say(" READING THE CARTRIDGES...", "");
+        draw();
+        const char *err = carts_load(&want, &g_boot.job);
+        if (err) {
+            (void)carts_load(&g_boot.port, &g_boot.job);
+            say(" %.30s", err);
+            return;
         }
+        g_boot.port = want;
+        for (unsigned k = 0; k < COCO_MPI_SLOTS; k++)   /* a layout may name one (§11.3) */
+            if (carts_kind(want.slot[k].name) == CART_ROM) keymapio_file_loaded(want.slot[k].name);
     }
     log_core1("  machine      : restarting as %s%s%s\n", machine_name(mc.extended, mc.ram_k),
-              mc.rsdos ? ", RS-DOS" : mc.cart ? ", cartridge " : "",
-              mc.rsdos ? "" : mc.cart ? g_boot.cart_path : "");
+              g_boot.port.mpi ? ", Multi-Pak at " : carts_label(&g_boot.port)[0] ? ", " : "",
+              carts_label(&g_boot.port));
     g_ui.restart_cfg = mc;
     g_ui.restart = true;
     s.done = true;
@@ -945,8 +1095,9 @@ static bool snap_switch(const snap_info_t *in) {
         return false;
     }
     log_core1("  snapshot     : slot %u is the %s%s%s's; powering on as it\n", s_slot + 1u,
-              machine_name(mc.extended, mc.ram_k), mc.rsdos ? " with RS-DOS" : mc.cart ? " with " : "",
-              mc.rsdos ? "" : mc.cart ? base(g_boot.cart_path) : "");
+              machine_name(mc.extended, mc.ram_k),
+              mc.mpi ? " with a Multi-Pak" : mc.rsdos ? " with the disk controller" : mc.cart ? " with " : "",
+              mc.mpi || mc.rsdos ? "" : mc.cart ? carts_label(&g_boot.port) : "");
     core0_power_on(s.m, &mc);
     return true;
 }
@@ -1152,27 +1303,50 @@ static void key_setup(uint8_t c) {
         g_ui.disk_sounds = !g_ui.disk_sounds;
         log_core1("  setup        : disk sounds %s\n", g_ui.disk_sounds ? "on" : "off");
         break;
-    case D_CLOCK:
-        g_ui.smartwatch = !g_ui.smartwatch;
-        if (g_ui.smartwatch) {
-            /* Where its time comes from (rtc.h). */
-            char t[24];
-            int off = g_clock.offset_min, a = off < 0 ? -off : off;
-            snprintf(t, sizeof t, "THE SHELL'S, UTC%c%02d:%02d", off < 0 ? '-' : '+', a / 60,
-                     a % 60);
-            say(" TIME: %.24s", g_clock.source == RTC_SHELL    ? t
-                                : g_clock.source == RTC_DS3231 ? "THE DS3231'S, AS UTC"
-                                                               : "NONE, FROM 2000");
-        }
-        break;
     }
+}
+
+/* The next choice for the cartridge row (slot < 0) or slot `slot`'s:
+ * none, RS-DOS, a Multi-Pak or the SmartWatch, the card's images, and
+ * the running image if the card no longer lists it. */
+static int next_choice(int now, int slot, int dir) {
+    static int list[4 + COCO_CART_LIST_MAX];
+    unsigned n = 0, k = slot < 0 ? 0u : (unsigned)slot;
+    list[n++] = MENU_CART_NONE;
+    list[n++] = MENU_CART_RSDOS;
+    list[n++] = slot < 0 ? MENU_CART_MPI : MENU_CART_SMARTWATCH;
+    for (unsigned i = 0; i < s.n_carts; i++) list[n++] = (int)i;
+    int run = slot < 0 ? s.run_cart : s.run_slot[k];
+    if (run >= (int)s.n_carts) list[n++] = run;
+    unsigned at = 0;
+    for (unsigned i = 0; i < n; i++)
+        if (list[i] == now) at = i;
+    return list[(at + n + (unsigned)(dir < 0 ? -1 : 1)) % n];
+}
+
+/* The Machine page's next shown row, up or down. */
+static int next_row(int r, int dir) {
+    do r = (r + M_COUNT + dir) % M_COUNT;
+    while (!machine_row_shown(r));
+    return r;
+}
+
+/* Where a slot's SmartWatch is chosen, a word on it (§12.7). */
+static void smartwatch_note(unsigned k) {
+    if (k != COCO_MPI_SLOTS - 1u) { say(" OS-9'S CLOCK_BB LOOKS IN SLOT 4", ""); return; }
+    char t[24];
+    int off = g_clock.offset_min, a = off < 0 ? -off : off;
+    snprintf(t, sizeof t, "THE SHELL'S, UTC%c%02d:%02d", off < 0 ? '-' : '+', a / 60, a % 60);
+    say(" TIME: %.24s", g_clock.source == RTC_SHELL    ? t
+                        : g_clock.source == RTC_DS3231 ? "THE DS3231'S, AS UTC"
+                                                       : "NONE, FROM 2000");
 }
 
 static void key_machine(uint8_t c) {
     int dir = c == PICOCALC_KEY_RIGHT ? 1 : -1;
     switch (c) {
-    case PICOCALC_KEY_UP:   s.machine_sel = (s.machine_sel + M_COUNT - 1) % M_COUNT; break;
-    case PICOCALC_KEY_DOWN: s.machine_sel = (s.machine_sel + 1) % M_COUNT; break;
+    case PICOCALC_KEY_UP:   s.machine_sel = next_row(s.machine_sel, -1); break;
+    case PICOCALC_KEY_DOWN: s.machine_sel = next_row(s.machine_sel, 1); break;
     case PICOCALC_KEY_LEFT:
     case PICOCALC_KEY_RIGHT:
         switch (s.machine_sel) {
@@ -1185,15 +1359,18 @@ static void key_machine(uint8_t c) {
             s.st_ram = (s.st_ram + 4u + (unsigned)dir) % 4u;
             if (k_rams[s.st_ram] <= 4u) s.st_ext = false;
             break;
-        case M_CART: {
-            /* None, RS-DOS, the card's, and the running one if the card
-             * has it no longer: as places 0, 1, 2 on. */
-            int n = 2 + (int)s.n_carts + (s.run_cart == (int)s.n_carts ? 1 : 0);
-            int at = s.st_cart == CART_NONE ? 0 : s.st_cart == CART_RSDOS ? 1 : s.st_cart + 2;
-            at = ((at + dir) % n + n) % n;
-            s.st_cart = at == 0 ? CART_NONE : at == 1 ? CART_RSDOS : at - 2;
+        case M_CART:
+            s.st_cart = next_choice(s.st_cart, -1, dir);
+            break;
+        case M_SLOT1: case M_SLOT2: case M_SLOT3: case M_SLOT4: {
+            unsigned k = (unsigned)(s.machine_sel - M_SLOT1);
+            s.st_slot[k] = next_choice(s.st_slot[k], (int)k, dir);
+            if (s.st_slot[k] == MENU_CART_SMARTWATCH) { smartwatch_note(k); return; }
             break;
         }
+        case M_SWITCH:
+            s.st_switch = (s.st_switch + COCO_MPI_SLOTS + (unsigned)dir) % COCO_MPI_SLOTS;
+            break;
         case M_APPLY: return;
         }
         say(machine_staged() ? " APPLY RESTARTS: PROGRAM LOST" : "", "");

@@ -2,7 +2,7 @@
 # Fetch the OS-9 disks test_os9 boots (design.md §12.4): Tandy's OS-9
 # Level One 02.00.00 system disk and 02.01.00's two disks from the Color
 # Computer Archive, and NitrOS-9 3.3.0's Level 1 disks for the CoCo 1 from
-# its SourceForge release; then make 2.01's system disk with clock_tc3,
+# its SourceForge release; then make 2.01's system disk with clock_bb,
 # the SmartWatch's clock, by tools/os9-clock.py (§12.7). Not committed:
 # Tandy's are not ours to distribute, and the tests find each by SHA-1,
 # as they find the ROMs.
@@ -62,14 +62,16 @@ sys.exit(1 if bad else 0)
 EOF
 python3 -I "$py" "$dl" "$dir"
 
-# 2.01's system disk with clock_tc3 in OS9Boot, and the serial port's
-# descriptor and driver left out to make room (tools/os9-clock.py).
-rtc="$dir/OS9-L1V201M-RTC.DSK"
-want=76fd68df3fc0527d1ceb49bc6772a7a7311d7636
+# 2.01's system disk with clock_bb in OS9Boot, and the serial port's
+# descriptor and driver left out to make room (tools/os9-clock.py). The
+# clock_tc3 disk this made before 2026-11-24, OS9-L1V201M-RTC.DSK, is no
+# longer used (design.md §12.7).
+rtc="$dir/OS9-L1V201M-BB.DSK"
+want=cabff8e7d111896fd97a4bb0d81815232eba409b
 if [ ! -e "$rtc" ]; then
     python3 -I "$root/tools/os9-clock.py" --drop T1,RS232 \
         "$dir/OS9-L1V201M.DSK" "$dir/OS9-L1V201B.DSK" "$rtc"
 fi
 got="$(shasum "$rtc" | cut -d' ' -f1)"
-[ "$got" = "$want" ] && echo "OS9-L1V201M-RTC.DSK: ok" || {
-    echo "OS9-L1V201M-RTC.DSK: sha1 $got, want $want" >&2; exit 1; }
+[ "$got" = "$want" ] && echo "OS9-L1V201M-BB.DSK: ok" || {
+    echo "OS9-L1V201M-BB.DSK: sha1 $got, want $want" >&2; exit 1; }

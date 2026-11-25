@@ -45,22 +45,19 @@ static const char *base_name(const char *path) {
     return b ? b + 1 : path;
 }
 
-void status_format(const char *tape, bool unsaved, unsigned deck, const char *cart, int drive,
-                   const char *disk, char out[COCO_TEXT_COLS + 1]) {
-    enum { W = COCO_TEXT_COLS, CART_MAX = 14 };
+void status_format(const char *tape, bool unsaved, unsigned deck, int drive, const char *disk,
+                   char out[COCO_TEXT_COLS + 1]) {
+    enum { W = COCO_TEXT_COLS, DISK_MAX = 14 };
     memset(out, ' ', W);
     out[W] = 0;
 
-    /* The cartridge first, its name capped, so the tape has what is left;
-     * or the drive at work. */
+    /* The drive at work first, its disk's name capped, so the tape has
+     * what is left. */
     char right[W + 1] = "";
     int rn = 0;
-    if (drive >= 0) {
-        rn = snprintf(right, sizeof right, "DISK %d: %.*s", drive, CART_MAX,
+    if (drive >= 0)
+        rn = snprintf(right, sizeof right, "DISK %d: %.*s", drive, DISK_MAX,
                       disk && disk[0] ? base_name(disk) : "EMPTY");
-    } else if (cart && cart[0]) {
-        rn = snprintf(right, sizeof right, "CART: %.*s", CART_MAX, base_name(cart));
-    }
     if (rn) {
         if (rn < 0) rn = 0;
         if (rn > W) rn = W;
@@ -69,7 +66,7 @@ void status_format(const char *tape, bool unsaved, unsigned deck, const char *ca
 
     char left[W + 1] = "";
     int ln = 0;
-    if ((tape && tape[0]) || unsaved || deck == STATUS_DECK_RECORDING) {
+    if (deck != STATUS_DECK_IDLE) {
         const char *tail = deck == STATUS_DECK_RECORDING ? ", REC"
                          : deck == STATUS_DECK_PLAYING ? ", PLAY" : unsaved ? ", NEW" : "";
         const char *name = tape && tape[0] ? base_name(tape) : "NEW TAPE";

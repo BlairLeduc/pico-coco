@@ -143,23 +143,27 @@ static uint32_t requests(keymatrix_t *k, coco_t *m) {
 }
 
 void core0_power_on(coco_t *m, const machine_t *mc) {
+    const port_media_t *pm = &g_boot.port;
     coco_config_t cfg;
     coco_config_default(&cfg);
     cfg.ram_k = mc->ram_k;
-    /* The RS-DOS cartridge, never in a 4 KB CoCo (roms.h). */
-    bool rsdos = mc->rsdos && mc->cart && g_boot.cart_len > 0 && mc->ram_k >= 16u;
-    cfg.rsdos = rsdos;
-    coco_init(m, &cfg);
+    /* The port as core 1 loaded it (carts.h); the RS-DOS controller never
+     * in a 4 KB CoCo (roms.h), which main.c and the menu see to first. */
+    carts_config(pm, &cfg);
+    if (mc->ram_k < 16u) {
+        if (cfg.cart == CART_RSDOS) cfg.cart = CART_NONE;
+        for (unsigned s = 0; s < COCO_MPI_SLOTS; s++)
+            if (cfg.slot[s] == CART_RSDOS) cfg.slot[s] = CART_NONE;
+    }
+    coco_init(m, &cfg);   /* leaves the pool, where the ROMs are */
     /* Color BASIC 1.1 kept apart for a 4 KB CoCo (roms.h); otherwise the
      * job's image, 1.3 or 1.1 without it. */
     bool use11 = mc->basic == ROM_COCO_BAS11 && g_boot.job.bas11;
     coco_load_rom(m, 0xA000u, use11 ? g_boot.basic11 : g_boot.basic, COCO_ROM_HALF);
     if (mc->extended) coco_load_rom(m, 0x8000u, g_boot.ext, COCO_ROM_HALF);
-    bool cart = mc->cart && g_boot.cart_len > 0;
-    if (cart) coco_load_rom(m, 0xC000u, g_boot.cart, g_boot.cart_len);
     /* Disk BASIC is started by Color BASIC's look at $C000, not by the
-     * CART line (§12.2). */
-    if (rsdos) coco_cart_autostart(m, false);
+     * CART line (§12.2), and its slot leaves the line off. */
+    (void)carts_place(pm, m);
     coco_power_on(m);
     g_c0.resets++;
     tapeio_attach(m);
@@ -170,8 +174,9 @@ void core0_power_on(coco_t *m, const machine_t *mc) {
     coco_audio_set_rate(m, rate_num, rate_den);
 #endif
     g_machine = *mc;
-    g_machine.cart = cart;
-    g_machine.rsdos = rsdos;
+    g_machine.mpi = m->port.mpi;
+    g_machine.cart = m->port.mpi || m->port.slot[0].rom || m->port.slot[0].kind != CART_NONE;
+    g_machine.rsdos = m->port.rsdos_slot >= 0;
 }
 
 /* While the tape's signal runs the guest runs unpaced: the tape is
@@ -205,7 +210,7 @@ static bool apply_ui(coco_t *m) {
         log_printf("  menu         : powered on, %u KB, %s (%s)%s%s\n", mc.ram_k,
                    mc.extended ? "Extended Color BASIC" : "Color BASIC",
                    romset_images[mc.basic].file,
-                   g_machine.cart ? ", cartridge " : "", g_machine.cart ? g_boot.cart_path : "");
+                   g_machine.cart ? ", cartridge " : "", g_machine.cart ? carts_label(&g_boot.port) : "");
         return true;
     }
     return false;
@@ -417,6 +422,8 @@ void core0_run(coco_t *m, keymatrix_t *k) {
      * with PICO_COCO_TURBO=OFF core 0's share while it plays. */
     bool deck_was = false;
     uint64_t deck_us = 0, deck_ticks = 0, deck_busy = 0;
+    /* The trap's requests as last seen, and the field its tape shows to. */
+    uint32_t trap_requests = m->tape.requests, trap_until = 0;
     /* The disk's parks, a track each (§12.4). */
     uint32_t disk_parks = 0, disk_park_max = 0;
     uint64_t disk_parked_us = 0;
@@ -508,9 +515,8 @@ void core0_run(coco_t *m, keymatrix_t *k) {
             alt = false;
         }
 
-        /* The SmartWatch and the board's time (rtc.h). */
-        m->clock.fitted = g_ui.smartwatch;
-        smartwatch_set_host(&m->clock, g_clock.secs);
+        /* The board's time to any SmartWatch cartridge (rtc.h, cart.h). */
+        cart_clock_host(m, g_clock.secs);
         /* The drives heard, or not; after every power-on too, which
          * leaves them off (rsdos.h). */
         coco_disk_sounds(m, g_ui.disk_sounds);
@@ -589,9 +595,15 @@ void core0_run(coco_t *m, keymatrix_t *k) {
         bool turbo = turbo_now(m);
         if (turbo) turbo_fields++;
         bool deck = coco_cassette_running(m);
-        g_c0.deck = !deck ? STATUS_DECK_IDLE
-                  : m->cas.rec_wrote ? STATUS_DECK_RECORDING
-                  : m->cas.playing ? STATUS_DECK_PLAYING : STATUS_DECK_IDLE;
+        /* The trap at work: a request within the last 3 s, as long as a
+         * drive's head stays loaded after its last command (wd1793.h), so
+         * the status line shows the tape as it shows the disk (§14). */
+        if (m->tape.requests > trap_requests) trap_until = m->fields + 3u * 60u;
+        trap_requests = m->tape.requests;   /* a power-on clears the count */
+        bool trap = (int32_t)(trap_until - m->fields) > 0;
+        g_c0.deck = deck && m->cas.rec_wrote ? STATUS_DECK_RECORDING
+                  : deck && m->cas.playing   ? STATUS_DECK_PLAYING
+                  : trap                     ? STATUS_DECK_TRAP : STATUS_DECK_IDLE;
         if (deck && !deck_was) {
             deck_us = time_us_64();
             deck_ticks = coco_ticks(m);
@@ -734,8 +746,8 @@ void core0_run(coco_t *m, keymatrix_t *k) {
                        (unsigned long)turbo_fields, (unsigned long)cas->edges,
                        (unsigned long)cas->rec_blocks, (unsigned long)cas->rec_errors,
                        (unsigned long)m->tape.requests, (unsigned long)m->split_dropped);
-            if (m->cfg.rsdos) {
-                const wd1793_t *f = &m->dk.fdc;
+            const wd1793_t *f = coco_disk_fdc_c(m);
+            if (f) {
                 log_printf("  disk         : %lu sectors read, %lu written, %lu tracks formatted; "
                            "%lu tracks fetched, %lu put back, %lu lost; %lu parks, %llu us, "
                            "longest %lu us\n",

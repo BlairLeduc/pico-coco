@@ -59,7 +59,11 @@ snap_status_t snapio_save(const coco_t *m, unsigned slot, uint32_t *us) {
     /* The deck and the cartridge as they are, so a load puts them back. */
     memset(&s_media, 0, sizeof s_media);
     tapeio_media(m, &s_media);
-    if (g_machine.cart) snprintf(s_media.cart, sizeof s_media.cart, "%s", g_boot.cart_path);
+    /* Each slot's name as the settings write it (carts.h): the port's
+     * one cartridge, or a Multi-Pak's four (design.md §12.8). */
+    for (unsigned s = 0; s < COCO_MPI_SLOTS; s++)
+        if (m->port.slot[s].kind != CART_NONE)
+            snprintf(s_media.cart[s], sizeof s_media.cart[s], "%s", g_boot.port.slot[s].name);
     if (g_machine.rsdos) dskio_media(&s_media);
 
     snap_status_t st = SNAP_IO;
@@ -128,6 +132,7 @@ static bool have_rom(rom_id_t r) {
 
 const char *snapio_machine(const coco_t *m, const snap_info_t *info, machine_t *mc, snap_status_t *st) {
     static char why[COCO_TEXT_COLS + 1];
+    (void)m;
     *st = SNAP_NO_ROM;
     if (!info->rom_present[1] || (info->rom[1] != ROM_COCO_BAS13 && info->rom[1] != ROM_COCO_BAS11))
         return "ITS COLOR BASIC IS UNKNOWN";
@@ -135,31 +140,50 @@ const char *snapio_machine(const coco_t *m, const snap_info_t *info, machine_t *
     if (!have_rom(info->rom[1]))
         return info->rom[1] == ROM_COCO_BAS13 ? "NEEDS BAS13.ROM" : "NEEDS BAS11.ROM";
     if (info->rom_present[0] && !have_rom(ROM_COCO_EXTBAS11)) return "NEEDS EXTBAS11.ROM";
-    /* The cartridge, by the name the media carry; snapshot_load checks
-     * its bytes by their SHA-1 once the machine is powered on. */
-    if (info->cart) {
-        *st = SNAP_NO_CART;
-        if (!s_media.cart[0]) return "ITS CARTRIDGE IS UNNAMED";
-        /* Straight into g_boot's, which only a power-on reads; on a
-         * failure the running cartridge's image goes back from the
-         * machine's window, where coco_load_rom put it first. */
-        uint32_t len = 0;
-        const char *err = info->rsdos ? card_disk_rom_load(&g_boot.job, g_boot.cart, &len)
-                                      : card_cart_load(s_media.cart, g_boot.cart, &len);
-        if (err) {
-            if (g_machine.cart) memcpy(g_boot.cart, m->cart, g_boot.cart_len);
-            snprintf(why, sizeof why, "NO %.24s", base(s_media.cart));
-            log_core1("  snapshot     : its cartridge %s: %s\n", s_media.cart, err);
+    /* The port, each slot by the kind the state has and a ROM's by the
+     * name the media carry; snapshot_load checks each ROM's bytes by
+     * their SHA-1 once the machine is powered on. */
+    static port_media_t want;
+    memset(&want, 0, sizeof want);
+    want.mpi = info->mpi;
+    want.mpi_switch = info->mpi_switch;
+    for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
+        const char *name = "";
+        switch (info->slot[s]) {
+        case CART_RSDOS:      name = CARD_RSDOS; break;
+        case CART_SMARTWATCH: name = CARTS_SMARTWATCH; break;
+        case CART_ROM:        name = s_media.cart[s]; break;
+        default:              break;
+        }
+        if (info->slot[s] == CART_ROM && carts_kind(name) != CART_ROM) {
+            *st = SNAP_NO_CART;
+            return "ITS CARTRIDGE IS UNNAMED";
+        }
+        snprintf(want.slot[s].name, sizeof want.slot[s].name, "%s", name);
+    }
+    /* Straight into the machine's pool, which the power-on that follows
+     * registers (carts.h); on a failure the running port's ROMs are read
+     * in again, as they were a moment ago. */
+    const char *err = carts_load(&want, &g_boot.job);
+    for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
+        cart_kind_t k = info->slot[s];
+        if ((k == CART_ROM || k == CART_RSDOS) && !want.slot[s].len) {
+            (void)carts_load(&g_boot.port, &g_boot.job);
+            *st = SNAP_NO_CART;
+            if (k == CART_RSDOS) snprintf(why, sizeof why, "NO DISK BASIC ROM");
+            else snprintf(why, sizeof why, "NO %.24s", base(s_media.cart[s]));
+            log_core1("  snapshot     : its slot %u, %s: %s\n", s + 1u, want.slot[s].name[0] ?
+                      want.slot[s].name : s_media.cart[s], err ? err : "?");
             return why;
         }
-        g_boot.cart_len = len;
-        snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s", s_media.cart);
     }
+    g_boot.port = want;
     mc->ram_k = info->ram_k;
     mc->basic = info->rom[1];
     mc->extended = info->rom_present[0];
-    mc->cart = info->cart;
-    mc->rsdos = info->rsdos && info->cart;
+    mc->mpi = info->mpi;
+    mc->cart = info->mpi || info->slot[0] != CART_NONE;
+    mc->rsdos = info->rsdos;
     *st = SNAP_OK;
     return NULL;
 }
@@ -180,7 +204,7 @@ static void restore_media(coco_t *m) {
      * tape does. Every drive that changes is emptied before any is
      * filled: a disk is in one drive at a time (dskio_insert), so two
      * disks swapped since the state would otherwise refuse the first. */
-    if (!m->cfg.rsdos) return;
+    if (!coco_disk_fdc(m)) return;
     bool change[COCO_DISK_DRIVES] = { false };
     for (unsigned d = 0; d < COCO_DISK_DRIVES && d < COCO_SNAP_DRIVES; d++) {
         change[d] = strcmp(s_media.disk[d], dskio_inserted(d)) != 0;

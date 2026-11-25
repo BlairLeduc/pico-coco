@@ -891,7 +891,7 @@ static int test_disk_basic(void) {
     {
         coco_config_t cfg;
         coco_config_default(&cfg);
-        cfg.rsdos = true;
+        cfg.cart = CART_RSDOS;
         coco_init(&g.m, &cfg);
         coco_load_rom(&g.m, 0xA000u, guest_rom_image(ROM_COCO_BAS13), 8192);
         coco_load_rom(&g.m, 0xC000u, guest_rom_image(ROM_COCO_DISK11), 8192);
@@ -1035,7 +1035,7 @@ static int snapshots(const host_disk_t *formatted, bool control) {
     snap_info_t info;
     CHECK(mem_check(&snap, &g2.m, &info, NULL) == SNAP_OK && info.rsdos, "the state's check");
     CHECK(mem_load(&snap, &g2.m) == SNAP_OK, "the state's load");
-    if (control) g2.m.dk.fdc.req.get = false;
+    if (control) coco_disk_fdc(&g2.m)->req.get = false;
     host_disk_serve(&g2.m, s_drives2);
     bool same = snap_same(&g.m, &g2.m, control ? "control, straight after" : "straight after");
     for (int f = 0; f < 150 && same; f++) {
@@ -1047,9 +1047,9 @@ static int snapshots(const host_disk_t *formatted, bool control) {
         CHECK(!same, "control: the track not fetched again, and still the same");
     } else {
         CHECK(same, "the restored machine went its own way");
-        CHECK(g.m.dk.fdc.sectors_read > 20, "it was not reading the disk: %u sectors",
-              (unsigned)g.m.dk.fdc.sectors_read);
-        printf("snapshots: %u sectors read by the end\n", (unsigned)g.m.dk.fdc.sectors_read);
+        CHECK(coco_disk_fdc(&g.m)->sectors_read > 20, "it was not reading the disk: %u sectors",
+              (unsigned)coco_disk_fdc(&g.m)->sectors_read);
+        printf("snapshots: %u sectors read by the end\n", (unsigned)coco_disk_fdc(&g.m)->sectors_read);
     }
     host_disk_free(&a);
     host_disk_free(&b);

@@ -10,7 +10,8 @@
 # as themselves, the shifted ones inside Shift as the PicoCalc sends them;
 # CR and LF are Enter, BS and DEL Backspace, ESC is Esc, the other
 # control characters are Ctrl chords, and \x81-\x85 are F1-F5, \x86-\x89
-# and \x90 F6-F10. M6 logs each event with the cell the map gives it; from
+# and \x90 F6-F10, \xB4-\xB7 the arrows left, up, down and right (run it
+# with LC_ALL=C so the shell keeps each byte whole). M6 logs each event with the cell the map gives it; from
 # M7 they go through keymatrix to the guest, as the keyboard's do.
 #
 # One character every 0.25 s: the replay takes 6 fields a key, 0.1 s

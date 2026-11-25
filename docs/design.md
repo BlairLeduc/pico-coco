@@ -1698,6 +1698,38 @@ RAM, BASIC or cartridge loads into a machine powered on as it (EL
 §8.5), its ROMs from the boot's job and its cartridge from the card by
 name. A Dragon 32's state, which M3 to M11 could write on the host, is
 refused as not a snapshot (D6).
+**Version 2** (M17, 2026-11-24) adds a 160-byte port section after the
+state, the cartridge port as `cart.h` has it (§12.8): whether a
+Multi-Pak is fitted, its switch, $FF7F as it stands and whether the
+switch still counts, and for each slot its kind, whether it has a ROM
+and a CART line on Q, its window's SHA-1, and a SmartWatch's set
+(§12.7); and to the media, slots 2 to 4's names after version 1's.
+The Multi-Pak, its switch and each slot's kind, ROM and CART line are
+what a power-on chooses, so a state for another port loads into a
+machine powered on as it; $FF7F and the set are put back by the load.
+A save always writes version 2. Version 1 still loads: its port is the
+one cartridge its state section names, with no Multi-Pak. The state
+section is laid out as before, with `M_AUTOSTART` now slot 1's own
+line rather than the CTS slot's, and `M_RSDOS` the controller in any
+slot, which with no Multi-Pak are the same thing. `test_snapshot`
+holds it on its own ROM: a Multi-Pak machine with $FF7F moved off its
+switch and its SmartWatch set meets the original 150 fields on, straight
+after a load into one with both otherwise; another switch, slot kind or
+slot ROM, or no Multi-Pak, is another machine and the info names the
+port; twelve port fields no machine keeps are refused; the four slots'
+names come back; and version 1 files, made from version 2 ones by
+taking out what version 2 added, load with no cartridge, with one and
+with the controller. Eleven planted bugs each failed it (the load
+forgetting CTS, the set or the key, the switch or a slot's hash not
+compared, version 1's CART line or controller lost, the slots' names
+not read, slot 1's CART line taken from CTS, a set on a ROM's slot or
+CTS without a Multi-Pak let through). On the owner's Plus 2 W
+(2026-11-24, `out/m17/snap1.log`): Disk BASIC from a Multi-Pak with
+Doodle Bug in slot 1, the controller in slot 3 and the SmartWatch in
+slot 4, $FF7F written $23 and a variable set, saved in 256 ms; the
+machine then made the plain port's controller, and the state loaded in
+226 ms by powering on as the Multi-Pak, the variable and $FF7F as saved;
+SCS moved back to slot 3, DIR read the disk the state named.
 `snapio.c` keeps four slots in `/coco/snaps/` through `.NEW` and a
 rename; the Snapshots page (§14) saves, loads and deletes them. Tested
 by `test_snapshot` on a ROM of its own, and `test_snapshot_rom` over
@@ -1815,6 +1847,324 @@ back; with no SmartWatch the same disk reads nonsense. On the board (the
 owner): `DATE T` right from the shell's time, 2026-11-17, and from the
 DS3231's after the loader's menu, as UTC, 2026-11-22. No DS1216 or
 DS3231 read here was compared with a real one.
+
+**A cartridge, for `clock_bb` alone** (the owner, 2026-11-24, for
+M17). The SmartWatch becomes a kind of cartridge (§12.8), fitted by
+putting it in a Multi-Pak slot; the `smartwatch` setting, its Setup
+row and the chip at $FF78–$FF7F go, and with them `clock_tc3` and
+`tools/os9-clock.py`'s disk built on it. `clock_bb` is the one module
+supported.
+
+`clock_bb`, read off the module (the 488-byte Clock at offset $3700 of
+`OS9-L1V201B.DSK`, 2026-11-24): with interrupts masked, it saves $FF7F,
+writes `($FF7F & $F0) | $53` there, reads $FF5C to start the key again,
+sends the key a bit a read, $FF58 for a 0 and $FF59 for a 1, then reads
+or writes the eight registers a bit at a time at $FF5C or through
+$FF58/$FF59, and puts $FF7F back. The protocol, the register order and
+the year's sum are `clock_tc3`'s, eight addresses lower: a DS1216 on a
+slot's SCS at $FF58–$FF5F, A2 low a bit written, A2 high a bit read.
+SETIME writes the chip through the same path. The base, $FF5C, is a
+word of the module's data at offset $0B.
+
+**What it is** (2026-11-24): most likely the clock of Burke & Burke's
+CoCo XT-RTC, the CoCo XT hard disk interface with a battery-backed
+clock and OS-9 software (CoCopedia; The Rainbow, January 1991): "bb",
+and the same disk's CCHDisk at $FF50–$FF5F, the clock's window. That
+its clock is a DS1216 rests on `clock_bb`'s protocol alone (§18). Only
+the clock is modelled, not the hard disk interface. The pages call it
+XT-RTC CLOCK (the owner, 2026-11-24); the settings keep `smartwatch`.
+
+**It selects slot 4.** The $53's low bits make SCS slot 4, whatever the
+switch says; its bit 4 also turns on the CTS field's low bit while the
+clock is read, which OS-9 Level One, running all from RAM, does not
+see. So the SmartWatch goes in slot 4, and the RS-DOS controller in
+another slot with the switch at it: Tandy's CCDisk and NitrOS-9's
+rb1773 never write $FF7F (read off the modules, 2026-11-24), so they
+reach the controller through the SCS slot the switch chose. What card
+"bb" was is not known; the same disk's CCHDisk, a hard disk driver at
+$FF50–$FF5F, suggests a hard disk interface that carried a clock.
+
+**As built** (2026-11-24, host): `CART_SMARTWATCH` answers on its
+slot's SCS at $FF58–$FF5F through `smartwatch.c`, unchanged but for its
+address and the `fitted` flag, which the cartridge replaces; the rest
+of SCS reads the bus. `coco_t.clock` and the decode at $FF78 are gone.
+The port gives the time to every SmartWatch fitted before each field
+(`cart_clock_host`). The `smartwatch` key is retired: taken with its
+old values and ignored, so an old file still loads, and a save keeps
+its line as it is; the Setup row is gone. `tools/os9-clock.py` puts
+`clock_bb` in OS9Boot, which fits with the serial port's modules left
+out as before (13,700 bytes of 14,049); `fetch-os9.sh` makes it as
+`OS9-L1V201M-BB.DSK`, leaving the `clock_tc3` disk, now unused, where
+it was. `test_os9` boots it from a Multi-Pak, the controller in slot 3
+with the switch at it: with the SmartWatch in slot 4, `DATE T` gives
+the host's date and SETIME sets the chip; with none, and with one in
+slot 2, there is no date. Planted, each failed: the host's time not
+given, and the SmartWatch answering SCS from any slot. Not yet on the
+device, where the Multi-Pak waits for its settings and page.
+
+### 12.8 The cartridge port and the Multi-Pak
+
+**Planned for M17** (the owner, 2026-11-24). Nothing here is built yet.
+
+**What there is now.** The port is two things, neither of them a
+cartridge in the code. A ROM cartridge is `coco_t.cart[]` with
+`cart_present` and `cart_autostart` (§12.2). The RS-DOS controller is a
+`cfg.rsdos` flag and an `rsdos_t` inside `coco_t`, tested by name in
+`io_read`, `io_write`, `coco_reset`, the run loop's events and
+`coco_restored`; Disk BASIC's ROM is put in the same `cart[]` with its
+CART line turned off, and the port's settings name it by the reserved
+cartridge name `RS-DOS` (`card_is_rsdos`). Each new kind of cartridge
+would be another set of tests in `coco.c`, and the Multi-Pak, which
+routes the port's lines among four cartridges, cannot be built on that.
+
+**The interface** (`cart.h`, `cart.c`). One type for what plugs into the
+port, and the machine sees only it:
+
+- the lines a cartridge sees: **CTS**, the ROM select, for
+  $C000–$FEFF; **SCS**, the I/O select, for $FF40–$FF5F; and the rest
+  of the I/O page from $FF60, which a cartridge decodes for itself, as
+  the Speech/Sound Cartridge does (§12.9);
+- a read, which is given the bus as it was and returns it changed or
+  not, and a write;
+- RESET; the chip's events run up to a tick, and the tick of the next,
+  for the run loop's stops (§6), as `rsdos_run` and `wd_t.due` are now;
+- the lines a cartridge drives: **CART** (FIRQ through PIA1 CB1,
+  §12.2, the Q-clock tie included), **NMI** and **HALT**;
+- its sound, into the multiplexer's cartridge input, `SOURCE_CART`,
+  which is wired and silent now (§10);
+- its part of a save state (§12.5).
+
+The kinds are an enumeration and their states a union, dispatched by a
+`switch`, with no function pointers: a machine is copied by `coco_copy`
+and written whole into a snapshot, and an enumeration survives both
+where a pointer would not. No kind allocates; every capacity is in
+`config.h`. The first kinds are the empty port, a **ROM**, **RS-DOS**
+(its ROM and `rsdos_t`, moved out of `coco_t`) and the **Multi-Pak**;
+the Speech/Sound Cartridge follows in M18.
+
+**Step one is the move alone.** The ROM cartridge and RS-DOS go behind
+the interface with nothing else changed, in a commit of their own, and
+`test_cart`, `test_disk`, `test_os9`, `test_snapshot_rom`, the trace
+diff and the 150-field log give what they gave before it. The settings
+keep `cart = RS-DOS`, and a version 1 save state still loads.
+
+**Step one as built** (2026-11-24, host and firmware): `cart.h` and
+`cart.c`, with `coco_t.port` a `cart_t` of kind `CART_NONE`, `CART_ROM`
+or `CART_RSDOS`; `coco_config_t.cart` names the controller, and a ROM
+loaded at $C000 into an empty port makes it a `CART_ROM`. The ROM's
+bytes stay in `coco_t.cart`, the room the Multi-Pak's slots will share.
+`rsdos.c` acts on its `cart_t`, sets the NMI and HALT it drives, and
+`cart_lines` puts the port's onto the CPU, where the Multi-Pak will OR
+its slots'. `coco_load_rom` leaves the RS-DOS controller's CART line
+off itself. The port and the tests reach the WD1793 by
+`coco_disk_fdc`, not `coco_t.dk`. The save state's format is unchanged.
+Checked: the 36 host tests pass; a per-field hash of RAM, the CPU's
+registers, the cycle count and the clock, over 8,253 fields of Disk
+BASIC with `DIR`, NitrOS-9 and Tandy OS-9 2.01 with its SmartWatch
+booting to their shells, and a ROM cartridge starting, is identical
+before and after, and so are the disks written and the 150-field log;
+the default, release and UART0 firmware build, the hot functions in
+SRAM at tier 2. Not checked on the device.
+
+**The Multi-Pak** (Tandy 26-3024): four slots and a register at $FF7F.
+As XRoar's `mpi.c` has it (§18: medium):
+
+| | |
+|---|---|
+| $FF7F write | bits 5–4 the CTS slot, bits 1–0 the SCS slot; the front switch no longer counts |
+| $FF7F read | the register, as written |
+| CTS ($C000–$FEFF) | to the CTS slot only |
+| SCS ($FF40–$FF5F) | to the SCS slot only |
+| the rest of the I/O page | to every slot, each decoding for itself |
+| CART | from the CTS slot only |
+| NMI, HALT | from any slot |
+| RESET | to every slot; both fields set to the front switch's slot |
+
+A Multi-Pak in a Multi-Pak is refused. The usual arrangement, Disk
+BASIC in slot 4 with the switch at 4, starts Disk BASIC as the port
+alone does, and a program that wants a ROM cartridge in another slot
+selects it through $FF7F; the ROMs in the slots are held at once, so
+their room is a pool sized in `config.h`, measured against what each
+SRAM tier has left (HW §9.8) before its size is a constant.
+
+**The Multi-Pak in the core, as built** (2026-11-24, host): `cart.h`'s
+port is four `cart_t` slots, slot 0 alone without a Multi-Pak, with
+`cts`, `scs` and the switch; `coco_config_t` gains `CART_MPI`, `slot[4]`
+and `mpi_switch`, its default slot 4. One RS-DOS controller at most:
+its chips, 6.6 KB of them the WD1793's track, are the port's `dk`, not
+each slot's, and a second is fitted empty. The ROMs share a pool of
+32 KB, `COCO_CART_POOL`, each in a power of two of room mirrored by the
+page table, any other size in a whole window; the tier 2 UART0 build's
+BSS rose by 16,616 bytes, to leave about 38 KB of its 55 KB, until the port's own copy went (below). A write
+to $FF7F that moves CTS builds the page table again and gives the CART
+line its edge. A save state holds the port in version 2 of the state
+(§12.5); M17's first build refused one with a Multi-Pak. `test_mpi`, with no ROM, holds each line of the
+table above, the pool and the one controller, each shown to bite by a
+planted bug (in its header); `test_cart` starts its own cartridge from
+slot 1 at field 145, as from the port alone, and not with the switch
+at an empty slot, and boots Disk BASIC from slot 4, and from slot 3
+with a SmartWatch in slot 4, there formatting a disk and reading 68
+granules free. Without a Multi-Pak, the 8,253 fields' hashes and the
+150-field log are what they were before.
+
+**The SmartWatch** is a cartridge kind, `CART_SMARTWATCH`, fitted in a
+Multi-Pak slot (the owner, 2026-11-24): a DS1216 on its slot's SCS at
+$FF58–$FF5F, as `clock_bb` drives it, and nothing else on SCS. Slot 4
+is the one `clock_bb` selects (§12.7). Nothing answers at $FF78–$FF7F
+any more, which leaves the Multi-Pak's register and the sound
+cartridges' ports clear.
+
+**Settings and the menu.** `cart = mpi`, `slot1` to `slot4`, each a
+cartridge file, `RS-DOS`, `SMARTWATCH` or, from M18 and M19, `SSC`,
+`ORCH90` and `RS232`, and `mpi_switch = 1` to
+`4`. The Machine page's cartridge row gains Multi-Pak, which opens a
+page of four slots and the switch.
+
+**On the device, as built** (2026-11-24, built, not yet run on the
+board): `carts.c` keeps one description of the port, `port_media_t`, in
+the boot report, for the boot, the Machine page and snapshots; core 1
+reads each slot's ROM off the card straight into the machine's pool
+(`carts_load`), with the guest parked, and core 0's power-on, after
+`coco_init`, which now leaves the pool, registers each where it lies
+(`coco_slot_rom_placed`): no second copy (the owner, 2026-11-24). The
+boot report's own 16 KB cartridge buffer went with it, so the UART0
+build's BSS is 407,600 bytes, 3,580 more than before M17, about 51 KB
+left. A load that fails reads the running port's ROMs in again before
+it says why. The settings take `cart = mpi`, `slot1` to `slot4` and
+`mpi_switch` (1 to 4, default 4), held by `test_settings` through a
+save and a read back. The Machine page's CART row gains MULTI-PAK,
+which shows four SLOT rows (none, RS-DOS, SMARTWATCH or the card's
+images) and the SWITCH; choosing the SmartWatch for a slot other than
+4 says `clock_bb` looks in 4, and for 4 says where the time comes from,
+as the Setup row did. What the settings call `rsdos` the pages call
+DISK CONTROLLER (the owner, 2026-11-24): the board is the WD1793's of
+Tandy's 26-3022 and the FD-500, the FD-501's chip is not confirmed and
+the FD-502's is a WD1773 (§18), so no one model's name is given; the
+settings keep `rsdos`. The page's help text gave way (the owner,
+2026-11-24) to what the selected row's choice is: an image's name and
+ROM size, and whether it takes more room than its size, Disk BASIC's
+8K, the SmartWatch's clock and no ROM, the Multi-Pak's "32K AVAILABLE FOR ROMS"; with a Multi-Pak, the room the
+staged ROMs take of the 32K, and "TOO MANY" before Apply is pressed. A
+slot that will not load says which, "SLOT 3: NO ROOM: 32K FOR ALL", as
+the owner's test of four games found it did not. The status line no
+longer names the cartridge
+at all (the owner, 2026-11-24): the tape on the left, and the drive at
+work on the right.
+
+**On the board** (2026-11-24, the owner's Plus 2 W, the UART0 build,
+driven over the UART, `out/m17/board1.log`): the plain RS-DOS
+cartridge boots Disk BASIC at field 77 as before; the Machine page set
+to a Multi-Pak with RS-DOS in slot 3, the SmartWatch in slot 4 and the
+switch at 3 restarts into Disk BASIC from slot 3; `DOS` with
+`OS9-L1V201M-BB.DSK` in drive 0 boots Tandy OS-9 2.01 to its shell
+with no `TIME ?`, `DATE T` gives the DS3231's date and time, and
+`SETIME 1999/12/31 23:59:00` then `DATE T` reads back the time set.
+Real time throughout (rt 1.000, no late fields). To drive the menu,
+the UART passes the PicoCalc's arrow codes, $B4–$B7, through
+`keymap_picocalc_text` (`tools/uart-type.sh`). Not checked: a ROM
+cartridge in a slot, and the settings file saved with a Multi-Pak.
+
+**The trace diff** (2026-11-24): `coco-trace` takes XRoar's own
+`-cart rsdos`, `-cart mpi`, `-mpi-slot N` and `-mpi-load-cart N=rsdos`,
+and `trace-coco.sh` gives them to both. Through 300 fields of boot,
+every instruction agrees: Disk BASIC in the port alone (1,080,240),
+in Multi-Pak slot 3 and in slot 4 with the switch at it (1,080,240
+each), and the switch at an empty slot, where Extended boots
+(1,078,633). The control, our switch at slot 4 against XRoar's at an
+empty slot, parts at Extended's `CMPX $C000`, its look for Disk BASIC
+on CTS. Typing `DIR` with no disk, slot 3 and the port alone part at
+the same instruction, 529,899: the first read of the WD1793's status in
+the command, `$05` under XRoar (busy, TR00) and `$21` here (busy, head
+loaded). Both end in `?IO ERROR`. The Multi-Pak adds nothing to it;
+it is M13's controller, whose archive was held to XRoar by screen
+(§12.4), and is a row of §18.
+
+**Tested by** `test_mpi`: each line routed, the register read back, a
+CART edge from a slot that is not the CTS slot not seen, NMI and HALT
+from any slot, RESET to the switch; each shown to bite by a planted
+bug. The trace diff runs XRoar with its Multi-Pak and Disk BASIC in
+slot 4 through boot and `DIR`; `test_os9` boots with the controller in
+a Multi-Pak.
+
+### 12.9 The Speech/Sound Cartridge
+
+**Planned for M18** (the owner, 2026-11-24). Nothing here is built, and
+what is written of the hardware is from memory (§18: low): Tandy's
+Speech/Sound Cartridge, 26-3144, holds a General Instrument SP0256-AL2
+speech processor and an AY-3-8913 sound generator, at $FF7D and $FF7E.
+How the AY's address and data reach it, the status bits, the chips'
+clocks and whether the cartridge carries a ROM are not known here. They
+are read off the cartridge's manual and from what The Interbank
+Incident, which asks for the cartridge (§12.4), does with it on the
+host, before any is a constant.
+
+The cartridge decodes its own addresses outside SCS, so it works in any
+Multi-Pak slot beside the RS-DOS controller; The Interbank Incident
+needs both, and so needs M17's Multi-Pak.
+
+- **The AY-3-8913** is the AY-3-8912 without its I/O port. pico-oric's
+  `ay8912.c` is adapted, under §5's rules: its tests brought and passing
+  here, its `THIRD-PARTY.md` entry with it.
+- **The SP0256-AL2** is new: the chip's filter and its microsequencer,
+  driven by the AL2's 2 KB mask ROM of allophones. The ROM is the
+  chip's maker's: it comes from `/coco/roms/` by SHA-1, as every ROM
+  does (D10), and without it the cartridge is refused by name, as a
+  missing ROM is (§12.1). XRoar 1.13 has no Speech/Sound Cartridge;
+  MAME has the cartridge and the chip, and **MAME and MESS may be used
+  to verify this project's work** (the owner, 2026-11-24), as XRoar is:
+  a tool, run or linked into a test, never source in the tree (D2, D8).
+  What the chip is held to is settled at M18's start, before its code
+  is written. **The chip is modelled from its
+  mask ROM** (the owner, 2026-11-24), not imitated: Pico-Logo's formant
+  synthesiser (MIT, the same author) speaks a different alphabet by a
+  different filter, and lends only its shape, an engine that fills one
+  refill block at a time and an offline render for tests. Mapping the
+  allophones onto it may follow as a fallback for a card without the
+  AL2's ROM, if the owner asks for one.
+- **The sound** goes into the multiplexer's cartridge input (§10), the
+  bus's level built from the two chips' outputs at the sample rate;
+  the guest hears it only with the multiplexer set to the cartridge.
+  Its cost on core 0 is an estimate until M18 measures it against a
+  control build.
+
+### 12.10 The Orchestra-90 CC
+
+**Planned for M18** (the owner, 2026-11-24). As XRoar 1.13's
+`orch90.c` has it (§18: medium): two 8-bit DACs, written at $FF7A
+(left) and $FF7B (right), outside SCS, and an 8 KB ROM, the
+cartridge's music program, at $C000, which autostarts. XRoar adds the
+two DACs to the machine's output beside the sound bus, not through the
+multiplexer; whether the real cartridge's audio reaches the set through
+the port's sound pin, and so through the multiplexer, is read off its
+schematic before either is built. The PicoCalc's two channels may carry
+it in stereo; the board's audio path decides (HW §5). The ROM is Tandy's,
+from `/coco/roms/` or `/coco/carts/` by SHA-1 (D10). Held to XRoar by
+the trace diff and the audio test, as the sound bus is (§10).
+
+The DACs sit inside the SmartWatch's $FF78–$FF7F (§12.7), as the
+Multi-Pak's register and the Speech/Sound Cartridge's ports do: M17's
+answer on where the SmartWatch goes covers them all.
+
+### 12.11 The Deluxe RS-232 Program Pak
+
+**Planned for M19** (the owner, 2026-11-24). From memory (§18: low): Tandy
+26-2226, a 6551 ACIA at $FF68–$FF6B, outside SCS, its IRQ on the
+port's CART line or not at all, and a ROM, the pak's terminal program.
+XRoar 1.13 has a 6551 (`mos6551.c`) and no cartridge that uses it;
+MAME, which may be used to verify (§12.9), has the pak. The 6551 is
+written from its datasheet and held by its own tests, with a planted
+bug each, and by MAME where it can run the same software. Disk BASIC beside it in the
+Multi-Pak and OS-9's driver for it are the software that tells.
+
+**Its bytes go to the PicoCalc's USB-C connector** (the owner,
+2026-11-24): GP0 and GP1, UART0's TX and RX, through the carrier's
+CH340C (HW §1). The release build has no debug UART, so UART0 is the
+pak's alone there. The owner's development build puts its log on
+GP2/GP3, which on the RP2350 is UART0 too (HW §1), so one of the two
+moves to a PIO UART in that build; which, is settled in M19 by what each
+costs core 1. Its baud rate is the guest's, up to the 6551's 19,200;
+bytes are paced to it in oscillator ticks, as the tape's edges are
+(§12.3).
 
 ---
 
@@ -1935,7 +2285,13 @@ power-on and the Machine page take it from; the card job keeps 1.1's
 image apart from 1.3's for it. Setting RAM to 4K on the page sets BASIC
 to Color 1.1; `ram = 4` with no `bas11.rom` on the card boots 16 KB
 and says why. There is no machine or television choice (D6). The status line
-shows the deck and the cartridge (`status_format`, `test_status`).
+shows the deck and the cartridge (`status_format`, `test_status`); the
+cartridge went from it on 2026-11-24 (§12.8). From the same day the
+tape shows only while the deck is at work, as a drive shows only while
+its head is loaded: its signal playing or recording, or the trap
+serving a block within the last 3 s, a head's unload time
+(`STATUS_DECK_TRAP`); a tape that sits in the deck shows nothing (the
+owner, 2026-11-24).
 F6's screenshot is not yet in.
 
 **As built in M10** (2026-11-15): the Snapshots page, F3, pico-oric's
@@ -2102,8 +2458,12 @@ forward (EL §14.3). One branch and pull request each (D14).
    └──────────┴─────────────────► M7 GUEST BOOTS ON DEVICE ◄┘
  M8 audio → M9 card, menu, cartridges, tape trap → M10 snapshots
  M11 perf pass, archive run, soak → M12 tape signal and recording
- M13 RS-DOS → M15 HD6309 → M16 release  (M14, the Dragons, withdrawn: D6)
+ M13 RS-DOS → M17 cartridge port, Multi-Pak → M18 sound cartridges
+ → M19 RS-232 Pak → M16 release  (M14 withdrawn: D6; M15 deferred)
 ```
+
+M17, M18 and M19 were added by the owner on 2026-11-24, to run before
+M16, the release.
 
 The CoCo is the machine of every milestone. The Dragon 32 was booted on
 the host from M3 as a cheap check that the wiring was data and not
@@ -2130,6 +2490,9 @@ the milestones after it are kept, since documents and commits cite them.
 | ~~M14~~ | **Withdrawn** (D6, the owner, 2026-11-16): the Dragon 32 and 64, DragonDOS and VDK images | — |
 | **M15** | HD6309: **deferred** by the owner, 2026-11-22 (§20) | Its oracle passes in both modes; a 6309 program runs on the device |
 | **M16** | Finish: README, the release build on a second board, attribution | A fresh card and board set up from the README alone |
+| **M17** | The cartridge port as one interface, the ROM cartridge and RS-DOS moved behind it; the Multi-Pak; the SmartWatch as a cartridge for `clock_bb`, its setting and `clock_tc3` dropped; save states with a Multi-Pak, the state's version 2 (§12.5, §12.7, §12.8; the owner, 2026-11-24) | The move changes nothing the tests and the trace diff see; `test_mpi` with its planted bugs; Disk BASIC in a Multi-Pak held to XRoar's by the trace diff; OS-9 booted with the controller in a Multi-Pak, and Tandy OS-9 2.01 reading and setting the date through `clock_bb` with the SmartWatch in slot 4, on the host and the device |
+| **M18** | The sound cartridges: the Speech/Sound Cartridge, its AY-3-8913 and SP0256-AL2, and the Orchestra-90 CC (§12.9, §12.10; the owner, 2026-11-24) | Their registers settled from a primary source; the AY's tests from pico-oric passing; the Orchestra-90 held to XRoar's by the trace diff and the audio test; the speech held to whatever M18 settles first; The Interbank Incident speaking on the device, with Disk BASIC beside it in the Multi-Pak |
+| **M19** | The Deluxe RS-232 Program Pak: its 6551 ACIA and its ROM (§12.11; the owner, 2026-11-24) | Its registers settled from a primary source; the pak's terminal program and an OS-9 serial port exchanging bytes with the host, on the host and the device |
 
 ---
 
@@ -2164,6 +2527,8 @@ configuration; once settled, it is a constant.
 | A PIA1 write's delay to the picture, for a change of mode along a line (§9.4) | **2026-11-22**: 1 µs, 14 ticks, from two pictures of Dragonfire: a low-resolution photograph of a real CoCo, whose wall edges match with about a cycle's delay and not without, and a sharper picture of a later build, whose every edge falls on a byte's boundary at 14 ticks and a pixel late at 16. Dark Star's and Rommel's Revenge's bars come out centred. The MC6821's tPDW, up to 1 µs, is that size. Where the second picture was taken, and whether the delay is the PIA's, the VDG's, or both, is not known | Medium | MC6821 and MC6847 datasheets; a sharper photograph of Dragonfire, or a scope on PB3 and the video |
 | ROM file names, sizes and SHA-1s (§12.1) | **Settled** 2026-11-14 (M3) for `bas13.rom`, `extbas11.rom`, `disk11.rom` and `bas11.rom`, the owner's images, each matching XRoar 1.13's CRC-32 (`roms/README.md`); `d32.rom` was in the table until the Dragon was removed (D6, 2026-11-16); other CoCo versions to come | High | The owner's images; XRoar's ROM list |
 | Disc controller registers, latch bits, interrupt and HALT wiring (§12.4) | As the table, from XRoar's decodes | Medium | Each DOS ROM read; controller schematics |
+| The WD1793's status in a Type I command with no disk: TR00 and the head-loaded bit (§12.8) | Here head loaded, no TR00; XRoar TR00, no head loaded (the trace diff, 2026-11-24). A real drive's TR00 sensor reads without a disk, which favours XRoar's TR00 | Low | The WD1793 datasheet's HLD/HLT rules; a real drive |
+| Which Tandy controller carries which chip: WD1793 on the 26-3022, the MB8877A (a 5 V WD1793) on early 26-3029s, the FD-500 as the 26-3029, the WD1773 on later ones and the FD-502; the FD-501 unknown (§12.8) | CoCopedia, read 2026-11-24; a classiccmp post orders the WD1773 and WD1793 the other way round | Low | The boards themselves; Tandy's service manuals |
 | WD2797 against WD1793: which differences each DOS sees | Side select, some status bits | Low | Datasheets |
 | VDK and JVC header rules | Community descriptions | Low | A corpus of real files (EL §8.8) |
 | Seeds and flags in RAM at power-on (§13.3) | **M3, the CoCo**: none taken from RAM; the warm-start flag `$71`/`$55` fails on zeros (§13.3) | High | Both ROMs read |
@@ -2173,8 +2538,14 @@ configuration; once settled, it is a constant.
 | The colours a CoCo's VDG and MC1372 show (§9.5) | Modelled 2026-11-23 from figure 10's typical levels, the MC1372's 100° and equal gains (its datasheet), the saturation from the burst and NTSC's decode; held at 90° to MAME's capture of a PAL Dragon. White's place depended on the set. **2026-11-24**: not drawn; the owner kept the idealised primaries, and the settings file's `color_` keys give any other | Medium: no capture of an NTSC CoCo; the MC1372's angle is 85–115° from chip to chip | A capture of an NTSC CoCo's composite output |
 | The owner's panel's tone response (§9.5, HW §4.12) | Three points per channel by eye, 2026-11-23: half of full code gives about 4% of the light; corrected through `mc6847_curve_t` | Medium: by eye, with line patterns that may be biased; nothing below a quarter of the light | A colorimeter; the panel's own gamma table from the ST7365P's register format |
 | The VDG's mode pins while PIA1 port B is an input (§9.3) | **M4**: low, as XRoar's PIA has an undriven pin; seen only before BASIC sets the port's direction | Low | Schematics |
-| The DS1216 SmartWatch's protocol at $FF78–$FF7F, and its year as the years since 1900 (§12.7) | **M13** (2026-11-17): as Tandy's `clock_tc3` drives it, read off the module, and the datasheet's key and register order as remembered; held by `test_os9` booting it. The address and what "tc3" was are the module's alone | Medium | The DS1216 datasheet; the card `clock_tc3` was written for |
+| The DS1216 SmartWatch's protocol, and its year as the years since 1900 (§12.7) | **M13** (2026-11-17): as Tandy's `clock_tc3` drives it at $FF78–$FF7F, read off the module, and the datasheet's key and register order as remembered; held by `test_os9` booting it. **2026-11-24**: `clock_bb` drives the same protocol at $FF58–$FF5F; `clock_tc3` dropped by the owner | Medium | The DS1216 datasheet; the card `clock_tc3` was written for |
 | The MC6847T1: its glyphs, and GM0 as lower case, GM1 as inverse, GM2 as the border, no SG6, orange for bright orange (§9.2) | **M13** (2026-11-17): XRoar 1.13's model and its ROM, held pixel for pixel by `test_vdg_oracle t1`; OS-9's use of GM0 executed on the host. No CoCo 2B compared, and no T1 datasheet read | Medium | The MC6847T1 datasheet; a photograph of a CoCo 2B's lower case |
+| The Multi-Pak's register at $FF7F, its routing of CTS, SCS, CART, NMI and HALT, and RESET to the front switch (§12.8) | As XRoar 1.13's `mpi.c`, read 2026-11-24 | Medium | The Multi-Pak's service manual and schematic; Disk BASIC and OS-9 executed through it |
+| The card `clock_bb` was written for: Burke & Burke's CoCo XT-RTC, and its clock a DS1216 (§12.7) | By the name "bb", the hard disk driver beside it at $FF50–$FF5F, and the module's DS1216 protocol; no manual or schematic read | Low | The XT-RTC's manual or board |
+| Where a DS1216 answers behind a Multi-Pak, for `clock_bb` (§12.7, §12.8) | **Read off the module** (2026-11-24): $FF58–$FF5F on SCS, slot 4, which `clock_bb` selects through $FF7F. The card it was written for is not known | Medium | `clock_bb` read off the module; the card it was written for |
+| The Speech/Sound Cartridge: its chips, its ports at $FF7D and $FF7E, how the AY is reached, its status bits, its clocks, whether it carries a ROM (§12.9) | From memory | Low | The cartridge's manual and schematic; The Interbank Incident executed on the host |
+| The Orchestra-90's DACs at $FF7A and $FF7B, and its audio beside the multiplexer rather than through it (§12.10) | As XRoar 1.13's `orch90.c`, read 2026-11-24 | Medium | The cartridge's schematic; its ROM executed |
+| The Deluxe RS-232 Program Pak: its 6551 at $FF68–$FF6B, its interrupt, its ROM (§12.11) | From memory | Low | The pak's manual and schematic; its ROM and OS-9's driver read |
 
 **Settled in M1**, 2026-11-14:
 
@@ -2259,9 +2630,13 @@ configuration; once settled, it is a constant.
   M13 for OS-9 (§9.2).
 - **DMK disc images; double-sided and 80-track drive types** beyond what
   the first DOS tests need.
-- **Sound and other active cartridges** (Orchestra 90, the Games Master
-  Cartridge), the multi-pak: the Oric's AY-3-8912 is there to take.
-- **Printer output to a file; the serial ports**.
+- **Other active cartridges** (the Games Master Cartridge). ~~The
+  multi-pak, the Speech/Sound Cartridge, the Orchestra-90 and the
+  Deluxe RS-232 Program Pak~~ were brought back by the owner on
+  2026-11-24 as M17, M18 and M19 (§12.8–§12.11); others can follow as
+  kinds of M17's cartridge.
+- **Printer output to a file; the serial ports** (the Deluxe RS-232
+  Program Pak is M19, §12.11).
 - **WAV tapes**; **importing XRoar snapshots** (EL §8.8).
 - **Split-field rendering** (§9.4): decided by the archive run, and
   built in M12 (the owner, 2026-11-16).

@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
 """An OS-9 boot disk whose clock reads the SmartWatch (design.md §12.7):
-a copy of BOOT with OS9Boot's Clock module replaced by clock_tc3 from
+a copy of BOOT with OS9Boot's Clock module replaced by clock_bb from
 the /MODULES directory of Tandy OS-9 Level One 2.01's second disk.
 
-clock_tc3 reads the date from a DS1216 SmartWatch at $FF7C, which this
-emulator fits with `smartwatch = on` (or the Setup page), set from the
-board's DS3231. test_os9 boots a disk made so.
+clock_bb reads the date from a DS1216 SmartWatch at $FF5C behind
+Multi-Pak slot 4, which it selects through $FF7F itself; this emulator
+fits one as the SMARTWATCH cartridge in slot 4, set from the board's
+DS3231, with the RS-DOS controller in another slot and the switch at
+it. test_os9 boots a disk made so.
 
     python3 -I tools/os9-clock.py [--drop NAME,...] BOOT.DSK MODULES.DSK OUT.DSK
 
   BOOT     a Tandy OS-9 Level One 2.01 boot disk (OS9-L1V201M.DSK, or a
            copy tools/os9-lowercase.py made of it)
-  MODULES  the second 2.01 disk, OS9-L1V201B.DSK, for /MODULES/clock_tc3
+  MODULES  the second 2.01 disk, OS9-L1V201B.DSK, for /MODULES/clock_bb
   OUT      the new disk; it must not exist, and BOOT is never changed
   --drop   modules left out of OS9Boot, by name, to make room
 
 OS9Boot must be one run of sectors, as the boot track's loader reads it
-by LSN0's DD.BT and DD.BSZ. clock_tc3 is 85 bytes longer than Clock, so
+by LSN0's DD.BT and DD.BSZ. clock_bb is 104 bytes longer than Clock, so
 when the file's sectors cannot hold it, it is moved to the first free run
 long enough, by the allocation map, and its old sectors freed. The 2.01
-system disk has neither: its OS9Boot is 54 bytes short and only 49
+system disk has neither: its OS9Boot is 73 bytes short and only 49
 sectors are free. `--drop T1,RS232` leaves out the bit-banger serial
 port's descriptor and driver, which this emulator has no port for
 (design.md §20), and OS9Boot then fits where it is. The
@@ -129,15 +131,15 @@ def main():
     if os.path.exists(out):
         raise SystemExit(f"{out}: exists; not written")
 
-    # clock_tc3: one module, named Clock, whole.
+    # clock_bb: one module, named Clock, whole.
     mods = Disk(mods_path)
-    lsn = mods.find("/MODULES/clock_tc3")
+    lsn = mods.find("/MODULES/clock_bb")
     if lsn is None:
-        raise SystemExit(f"{mods_path}: no /MODULES/clock_tc3")
-    _, tc3 = mods.read(lsn)
-    if not module_ok(tc3) or (tc3[2] << 8 | tc3[3]) != len(tc3) or \
-            name_at(tc3, tc3[4] << 8 | tc3[5]) != "Clock":
-        raise SystemExit(f"{mods_path}: /MODULES/clock_tc3 is not one whole Clock module")
+        raise SystemExit(f"{mods_path}: no /MODULES/clock_bb")
+    _, clk = mods.read(lsn)
+    if not module_ok(clk) or (clk[2] << 8 | clk[3]) != len(clk) or \
+            name_at(clk, clk[4] << 8 | clk[5]) != "Clock":
+        raise SystemExit(f"{mods_path}: /MODULES/clock_bb is not one whole Clock module")
 
     d = Disk(boot_path)
     bt, bsz, bit = d.word(0x15, 3), d.word(0x18, 2), d.word(6, 2)
@@ -161,7 +163,7 @@ def main():
             dropped.add(name.upper())
             print(f"OS9Boot: {name} left out, {n} bytes")
         elif name == "Clock" and m[6] == 0xC1:
-            new += tc3
+            new += clk
             swapped += 1
         else:
             new += m
@@ -170,7 +172,7 @@ def main():
         raise SystemExit(f"{boot_path}: OS9Boot has no {', '.join(sorted(drop - dropped))}")
     if swapped != 1:
         raise SystemExit(f"{boot_path}: {swapped} Clock modules in OS9Boot, not one")
-    print(f"OS9Boot: Clock, {len(boot)} bytes, now with clock_tc3: {len(new)} bytes")
+    print(f"OS9Boot: Clock, {len(boot)} bytes, now with clock_bb: {len(new)} bytes")
 
     # Room: the run it has, or the first free run long enough.
     need = (len(new) + 255) // 256

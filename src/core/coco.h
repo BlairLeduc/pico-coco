@@ -27,6 +27,7 @@
 #include "mc6821.h"
 #include "mc6847.h"
 #include "pcm.h"
+#include "cart.h"
 #include "rsdos.h"
 #include "sam6883.h"
 #include "smartwatch.h"
@@ -44,8 +45,13 @@ typedef struct {
 typedef struct {
     unsigned       ram_k;      /* 4, 16, 32 or 64                          */
     bool           tape_trap;  /* serve Color BASIC's tape routines (tape.h) */
-    bool           rsdos;      /* the RS-DOS controller in the cartridge port
-                                  (rsdos.h); its ROM is loaded at $C000   */
+    cart_kind_t    cart;       /* what is in the cartridge port (cart.h):
+                                  CART_RSDOS for the RS-DOS controller, its
+                                  ROM loaded at $C000 next; a ROM loaded at
+                                  $C000 into an empty port is a CART_ROM;
+                                  CART_MPI for a Multi-Pak, with:         */
+    cart_kind_t    slot[COCO_MPI_SLOTS];   /* its slots' kinds (§12.8)     */
+    uint8_t        mpi_switch; /* its front switch, slot 0 to 3          */
 } coco_config_t;
 
 /* A change of the video bits while the picture was being drawn (§9.4):
@@ -110,9 +116,6 @@ typedef struct coco_s {
 
     coco_config_t cfg;
     sam6883_t sam;
-    /* A DS1216 SmartWatch at $FF78-$FF7F, when fitted (smartwatch.h):
-     * the port sets fitted and the host's time before each field. */
-    smartwatch_t clock;
     mc6821_t  pia0, pia1;
 
     /* Pressed keys: per column, a bit per row. */
@@ -197,16 +200,14 @@ typedef struct coco_s {
     uint8_t  ram_banks;        /* banks fitted                          */
 
     bool     rom_present[2];   /* the $8000 and $A000 halves            */
-    bool     cart_present;     /* a ROM at $C000 (§12.2)                */
-    bool     cart_autostart;   /* its CART line on the Q clock (coco.c) */
 
     /* The tape deck and the trap's request (tape.h), and its signal
      * (cassette.h). */
     coco_tape_t tape;
     cassette_t  cas;
 
-    /* The RS-DOS cartridge, when cfg.rsdos (rsdos.h). */
-    rsdos_t  dk;
+    /* The cartridge port (cart.h, §12.8). */
+    cart_port_t port;
 
     /* The trace driver's hook (tools/trace/coco-trace.c): when set, each
      * run slice is one step, an instruction, an interrupt's entry or a
@@ -217,7 +218,7 @@ typedef struct coco_s {
 
     uint8_t  ram[COCO_ADDR_SPACE];
     uint8_t  rom[COCO_ROM_SIZE];      /* $8000-$BFFF                    */
-    uint8_t  cart[COCO_CART_SIZE];    /* $C000-$FEFF                    */
+    uint8_t  cart[COCO_CART_POOL];    /* the slots' ROMs (cart.h)       */
 } coco_t;
 
 /* A CoCo with 64 KB (D6). */
@@ -228,15 +229,26 @@ void     coco_config_default(coco_config_t *cfg);
 void     coco_init(coco_t *m, const coco_config_t *cfg);
 
 /* A ROM image at `base`: $8000 or $A000 for 8 KB, $C000 for a cartridge of up to
- * 16 KB, which autostarts (coco_cart_autostart). False for any other
- * placement. */
+ * 16 KB, which autostarts unless it is the RS-DOS controller's
+ * (coco_cart_autostart); into an empty port it is a CART_ROM. False for
+ * any other placement. */
 bool     coco_load_rom(coco_t *m, uint16_t base, const uint8_t *data, size_t len);
+
+/* A ROM image into slot s of a Multi-Pak, or the port's slot 0 without
+ * one, as coco_load_rom's at $C000 (cart_load_rom). */
+bool     coco_load_slot_rom(coco_t *m, unsigned s, const uint8_t *data, size_t len);
+
+/* Slot s's ROM, of len bytes, already in the pool at `at`, as the port
+ * put it there with cart_pool_finish before this power-on: coco_init
+ * leaves the pool as it was (cart_rom_placed). */
+bool     coco_slot_rom_placed(coco_t *m, unsigned s, uint32_t at, size_t len);
 
 /* The cartridge taken out: $C000 reads as an empty slot. Power on after. */
 void     coco_cart_remove(coco_t *m);
 
 /* Whether the cartridge's CART line is tied to the Q clock, as a game's
- * is, so that BASIC starts it (§12.2); the RS-DOS cartridge's is not. */
+ * is, so that BASIC starts it (§12.2). Set by coco_load_rom: on for a
+ * CART_ROM, off for the RS-DOS controller's. */
 void     coco_cart_autostart(coco_t *m, bool on);
 
 /* RAM cleared (§13.3), then RESET. */

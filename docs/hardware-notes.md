@@ -85,11 +85,14 @@ compete for them:
 
 | GP | Functions | Typical use |
 |---:|---|---|
-| 0 / 1 | UART0 TX/RX, `i2c0` SDA/SCL | The PicoCalc's USB-C serial is the Pico's default serial port (ClockworkPi wiki), so leave these to it |
+| 0 / 1 | UART0 TX/RX, `i2c0` SDA/SCL | The PicoCalc's USB-C serial is the Pico's default serial port (ClockworkPi wiki), so leave these to it: the carrier takes GP0 (TX) and GP1 (RX) through a CH340C to the USB-C connector |
 | 2 / 3 | UART0 CTS/RTS; on RP2350, UART0 TX/RX through the `UART_AUX` function | Debug UART when GP4/GP5 are taken |
 | 4 / 5 | UART1 TX/RX, `i2c0` SDA/SCL | Debug UART, **or** an add-on I²C device |
 
 UART0 cannot be routed to GP4/GP5; those pins carry only UART1 or `i2c0`.
+GP0/GP1 and GP2/GP3 are both UART0: a firmware that wants the USB-C
+serial and a debug UART on GP2/GP3 at once has one hardware UART for
+the two, and needs a PIO UART for one of them.
 A DS3231 real-time clock (which the carrier lacks, §1.2) fitted on `i2c0`
 at GP4 (SDA) and GP5 (SCL), 100 kHz, alone on the bus, takes those pins.
 The debug UART then moves to UART0 on GP2 (TX) and GP3 (RX): set

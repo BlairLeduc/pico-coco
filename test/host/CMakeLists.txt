@@ -20,6 +20,7 @@ set(PICO_COCO_HOST_TESTS
     test_snapshot
     test_recorder
     test_smartwatch
+    test_mpi
 )
 
 foreach(t ${PICO_COCO_HOST_TESTS})

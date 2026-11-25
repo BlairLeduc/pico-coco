@@ -4,6 +4,107 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M17: the cartridge port, the Multi-Pak and the SmartWatch as a cartridge
+
+On branch `m17`, 2026-11-24 (`design.md` §12.5, §12.7, §12.8, §17,
+§18). On the owner's Plus 2 W, the UART0 build. **Built, and checked
+on the host, over the UART and by the owner on the panel; done** by
+§17's row: the move changed nothing the tests and the trace diff see,
+`test_mpi` bites, Disk BASIC in a Multi-Pak agrees with XRoar's
+instruction for instruction, and Tandy OS-9 2.01 boots with the
+controller in a Multi-Pak and reads and sets the date through
+`clock_bb` with the SmartWatch in slot 4, on the host and the device.
+Save states with a Multi-Pak were added to the milestone and checked
+over the UART, not by the owner on the panel.
+
+**Built.** In the core: `cart.h` and `cart.c`, the port as one
+interface, an enumeration of kinds and a union of their states with no
+function pointers, so that `coco_copy` and a save state still take a
+machine whole; the ROM cartridge and the RS-DOS controller moved behind
+it (`rsdos.c` acts on its slot, and the port reaches the WD1793 by
+`coco_disk_fdc`); the Multi-Pak, Tandy's 26-3024 as XRoar's `mpi.c`
+has it, four slots and $FF7F, CTS and SCS to the slot selected, the
+rest of the I/O page to all, CART from the CTS slot, NMI and HALT from
+any, RESET to the switch; one RS-DOS controller at most, its chips the
+port's; and a 32 KB pool for the slots' ROMs, `COCO_CART_POOL`, each in
+a power-of-two room mirrored by the page table. The SmartWatch became
+a kind, `CART_SMARTWATCH`, on its slot's SCS at $FF58–$FF5F, for
+`clock_bb` alone; the `smartwatch` setting (now retired: read and
+ignored), its Setup row, the chip at $FF78 and `clock_tc3` went (the
+owner). In the port: `carts.c`, one description of the port for the
+boot, the Machine page and snapshots, core 1 reading each slot's ROM
+straight into the machine's pool, which `coco_init` now leaves alone
+(no second copy, the owner's choice); `cart = mpi`, `slot1` to `slot4`
+and `mpi_switch` in the settings; the Machine page's MULTI-PAK with
+four SLOT rows and the SWITCH, and in place of its help text what the
+selected choice is (an image's ROM size, "32K AVAILABLE FOR ROMS", the
+room the slots take, "SLOT 3: NO ROOM: 32K FOR ALL"). The pages call
+the controller DISK CONTROLLER and the SmartWatch XT-RTC CLOCK (the
+owner; §12.7 and §18 say why). The status line no longer names the
+cartridge, and shows the tape only while it works. Save states are
+version 2, with a port section; version 1 still loads. Tools:
+`os9-clock.py` puts `clock_bb` in OS9Boot, `fetch-os9.sh` makes
+`OS9-L1V201M-BB.DSK`, and `coco-trace` and `trace-coco.sh` take
+XRoar's Multi-Pak options. The UART passes the arrows, $B4–$B7, so a
+board run can drive the menu.
+
+**The move** (host). A per-field hash of RAM, the CPU, the cycle count
+and the clock over 8,253 fields (Disk BASIC with `DIR`, NitrOS-9 and
+Tandy OS-9 2.01 booting, a ROM cartridge starting) was identical before
+and after, and so were the disks written and the 150-field log.
+
+**The Multi-Pak** (host). `test_mpi`, with no ROM, holds each line of
+the routing table, the register read back, RESET, the pool and the one
+controller; six planted bugs each failed it, one only after a test was
+added (the lines worked out again from one slot alone passed until a
+disk was put in while another slot held SCS). `test_cart` starts a
+cartridge from slot 1 at field 145, not with the switch at an empty
+slot, and boots Disk BASIC from slot 4 and from slot 3, there
+formatting a disk and reading 68 granules free. `test_os9` boots the
+`clock_bb` disk with the controller in slot 3: with the SmartWatch in
+slot 4 `DATE T` gives the host's date and SETIME sets it; with none, or
+with it in slot 2, there is no date.
+
+**The trace diff** (host, XRoar 1.13). Through 300 fields of boot,
+every instruction agrees: Disk BASIC in the port alone and in
+Multi-Pak slots 3 and 4 (1,080,240 each), and the switch at an empty
+slot (1,078,633). The control, the switch at slot 4 against XRoar's at
+an empty slot, parts at Extended's `CMPX $C000`. `DIR` with no disk
+parts in the port alone and in slot 3 at the same instruction, 529,899,
+the WD1793's status ($05 under XRoar, $21 here): M13's controller, not
+the Multi-Pak, and a row of §18. Both end in `?IO ERROR`.
+
+**Save states** (host). Version 2 adds a 160-byte port section (the
+Multi-Pak, its switch, $FF7F, and each slot's kind, ROM hash, CART line
+and SmartWatch set) and slots 2 to 4's names. `test_snapshot` meets a
+Multi-Pak machine with $FF7F moved and its SmartWatch set, 150 fields
+on, after a load into one with both otherwise; another switch, kind or
+slot ROM is another machine, and the info names the port; twelve port
+fields no machine keeps are refused; version 1 files, made by taking
+version 2's additions out, load with no cartridge, with one and with
+the controller. Eleven planted bugs each failed it.
+
+**On the board** (2026-11-24, `out/m17/board1.log`, `snap1.log`).
+Driven over the UART: Disk BASIC from Multi-Pak slot 3 with the
+SmartWatch in slot 4; OS-9 2.01 from the `clock_bb` disk with no
+`TIME ?`, `DATE T` giving the DS3231's time and SETIME read back; real
+time throughout. A state saved with Doodle Bug in slot 1, the
+controller in slot 3, the SmartWatch in slot 4 and $FF7F written $23
+(256 ms), loaded from the plain port's machine (226 ms), powered on as
+the Multi-Pak, with the variable set and $FF7F as saved, and `DIR` read
+the disk once SCS was back at slot 3. That state is in the card's
+snapshot slot 2, which was empty. **By the owner on the panel**:
+without a Multi-Pak the controller, a game and none; with one, four
+games (whose refusal message was then mended), the controller and a
+game switched between, the switch at an empty slot giving Extended
+BASIC, and the controller in any slot.
+
+**Not checked.** A cartridge in a slot other than the switch's started
+by a program writing $FF7F; the settings file saved with a Multi-Pak on
+the board (`test_settings` holds it on the host); a state saved and
+loaded by the owner on the panel. No Multi-Pak, DS1216 or XT-RTC was
+compared with a real one.
+
 ## The VDG's colours, the panel's curve and the dark backgrounds
 
 On branch `vdg-colours`, from #22, 2026-11-23 to 2026-11-24

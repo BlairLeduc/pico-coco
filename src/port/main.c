@@ -37,6 +37,7 @@
 /* The guest lives in .bss, not the heap: src/core/ has no allocator, and
  * keeping it static is what makes the §16 budget a link-time fact. */
 static coco_t      g_coco;
+uint8_t *const     g_cart_pool = g_coco.cart;   /* carts.h */
 static keymatrix_t g_keys;   /* core 0's, like g_coco */
 
 /* Whether ENTER came, from the keyboard or the UART. Every event is
@@ -150,7 +151,6 @@ int main(void) {
     machine_t mc = {
         .ram_k = g_boot.settings.ram_k,
         .extended = basic == BOOT_EXTENDED && g_boot.settings.extended,
-        .cart = g_boot.cart_len > 0,
     };
     /* The BASIC that RAM runs (roms.h): 4 KB is Color BASIC 1.1 alone. A
      * 4 KB machine the card cannot start boots with 16 KB instead. */
@@ -163,16 +163,12 @@ int main(void) {
         mc.basic = roms_basic_for(&g_boot.job, mc.ram_k, &mc.extended, &why);
     }
     if (why) log_printf("  guest        : %s\n", why);
-    /* The RS-DOS cartridge, where Disk BASIC can run (roms.h). */
-    if (mc.cart && card_is_rsdos(g_boot.cart_path)) {
+    /* The RS-DOS controller, where Disk BASIC can run (roms.h). */
+    if (carts_has(&g_boot.port, CART_RSDOS)) {
         const char *no = roms_rsdos_why(mc.ram_k, mc.extended);
         if (no) {
-            log_printf("  guest        : cart = rsdos: %s; no cartridge\n", no);
-            mc.cart = false;
-            g_boot.cart_len = 0;
-            g_boot.cart_path[0] = 0;
-        } else {
-            mc.rsdos = true;
+            log_printf("  guest        : rsdos: %s; taken out\n", no);
+            (void)carts_drop_rsdos(&g_boot.port);
         }
     }
     core0_power_on(&g_coco, &mc);
@@ -182,7 +178,7 @@ int main(void) {
                cfg.ram_k, roms_basic_name(mc.extended ? BOOT_EXTENDED
                                           : mc.basic == ROM_COCO_BAS11 ? BOOT_COLOR11 : BOOT_COLOR13),
                romset_images[mc.basic].file,
-               mc.extended ? ", extbas11.rom" : "", cfg.rsdos ? ", RS-DOS with disk11.rom" : "",
+               mc.extended ? ", extbas11.rom" : "", g_machine.rsdos ? ", the disk controller with disk11.rom" : "",
                (unsigned long)COCO_FIELD_TICKS,
                (unsigned)PICO_COCO_RAM_TIER,
                PICO_COCO_FIELD_LOG ? ", logging the first fields" : "");

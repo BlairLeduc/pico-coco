@@ -10,6 +10,7 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 
 #include "core1.h"
 
@@ -77,8 +78,7 @@ static void draw_status(void) {
     char text[COCO_TEXT_COLS + 1] = "";
     if (g_ui.status) {
         int drive = g_machine.rsdos ? (int)g_c0.disk : -1;
-        status_format(tapeio_inserted(), g_c0.tape_unsaved != 0, g_c0.deck,
-                      g_machine.rsdos ? "RS-DOS" : g_machine.cart ? g_boot.cart_path : "", drive,
+        status_format(tapeio_inserted(), g_c0.tape_unsaved != 0, g_c0.deck, drive,
                       drive >= 0 ? dskio_inserted((unsigned)drive) : "", text);
     }
     display_status(text);
@@ -114,7 +114,6 @@ static void apply_settings(const settings_t *st) {
     g_ui.artefact_red = st->artefact_phase == SETTINGS_PHASE_RED;
     g_ui.dark_bg = st->dark_bg;
     display_set_colours(st->colour);
-    g_ui.smartwatch = st->smartwatch;
     g_ui.disk_sounds = st->disk_sounds;
     uint8_t r[2];
     if (st->backlight) {
@@ -130,8 +129,7 @@ static void apply_settings(const settings_t *st) {
  * cartridge and the tape they name; then the page, if Extended Color
  * BASIC cannot start. */
 static void boot_rom(void) {
-    g_boot.cart_len = 0;
-    g_boot.cart_path[0] = 0;
+    memset(&g_boot.port, 0, sizeof g_boot.port);
     if (sd_present()) {
         uint32_t t0 = time_us_32();
         int fr = storage_mount();
@@ -151,30 +149,15 @@ static void boot_rom(void) {
                 if (li >= 0) keymapio_choose(keymapio_get((unsigned)li));
                 else settingsio_fail("layout", "no such layout");
             }
-            if (st->cart[0] && card_is_rsdos(st->cart)) {
-                /* The RS-DOS cartridge: Disk BASIC's ROM by its SHA-1
-                 * (rsdos.h); main.c refuses it where it cannot run. */
-                uint32_t len = 0;
-                const char *err = card_disk_rom_load(&g_boot.job, g_boot.cart, &len);
-                if (err) settingsio_fail(st->cart, err);
-                else {
-                    g_boot.cart_len = len;
-                    snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s", CARD_RSDOS);
-                }
-            } else if (st->cart[0]) {
-                uint32_t len = 0;
-                const char *err = card_cart_load(st->cart, g_boot.cart, &len);
-                if (err) settingsio_fail(st->cart, err);
-                else {
-                    g_boot.cart_len = len;
-                    int n = st->cart[0] == '/'
-                        ? snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s", st->cart)
-                        : snprintf(g_boot.cart_path, sizeof g_boot.cart_path, "%s/%s",
-                                   COCO_CART_DIR, st->cart);
-                    if (n >= (int)sizeof g_boot.cart_path) g_boot.cart_path[0] = 0;
-                    keymapio_file_loaded(g_boot.cart_path);
-                }
-            }
+            /* The port: a cartridge, or a Multi-Pak and its slots, their
+             * ROMs straight into the machine's pool (carts.h); main.c
+             * takes out an RS-DOS controller where it cannot run. */
+            carts_from_settings(&g_boot.port, st);
+            const char *err = carts_load(&g_boot.port, &g_boot.job);
+            if (err) settingsio_fail(st->cart, err);
+            for (unsigned k = 0; k < COCO_MPI_SLOTS; k++)
+                if (carts_kind(g_boot.port.slot[k].name) == CART_ROM && g_boot.port.slot[k].len)
+                    keymapio_file_loaded(g_boot.port.slot[k].name);
             if (st->boot_tape[0]) {
                 const char *err = tapeio_boot(st->boot_tape);
                 if (err) settingsio_fail(st->boot_tape, err);

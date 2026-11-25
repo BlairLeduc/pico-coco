@@ -53,6 +53,14 @@ void guest_build_as(guest_t *g, unsigned ram_k, rom_id_t basic, bool extended);
  * (disk_util.h), from after_field. */
 void guest_build_disk(guest_t *g, unsigned ram_k);
 
+/* A Multi-Pak with Color BASIC 1.3 and Extended 1.1: slot s of kind
+ * kinds[s], Disk BASIC 1.1 loaded into the RS-DOS controller's, and
+ * imgs[s] of lens[s] into any other slot that has one (imgs may be
+ * NULL); the front switch at slot sw, 0 to 3. */
+void guest_build_mpi(guest_t *g, unsigned ram_k, const cart_kind_t kinds[COCO_MPI_SLOTS],
+                     unsigned sw, const uint8_t *const imgs[COCO_MPI_SLOTS],
+                     const size_t lens[COCO_MPI_SLOTS]);
+
 /* Run fields until "OK" shows at the start of a screen row, or for ten
  * guest seconds. True if it showed. */
 bool guest_boot(guest_t *g);

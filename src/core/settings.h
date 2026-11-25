@@ -8,9 +8,15 @@
  *   basic     = extended | color   Extended over Color BASIC 1.3, or a
  *                                  Color BASIC alone (1.3, else 1.1)
  *   ram       = 4 | 16 | 32 | 64   KB
- *   cart      = <file> | rsdos     a ROM cartridge in /coco/carts/, the
+ *   cart      = <file> | rsdos | mpi
+ *                                  a ROM cartridge in /coco/carts/, the
  *                                  RS-DOS controller with Disk BASIC
- *                                  (rsdos.h), or none
+ *                                  (rsdos.h), a Multi-Pak, or none
+ *   slot1 .. slot4 = <file> | rsdos | smartwatch
+ *                                  the Multi-Pak's slots (§12.8): a ROM
+ *                                  cartridge, the RS-DOS controller, the
+ *                                  SmartWatch (§12.7), or empty
+ *   mpi_switch = 1-4               its front switch: the slot it starts
  *   volume    = 0-8
  *   perf      = on | off           the perf line above the picture (§9.6)
  *   status    = on | off           the status line below it
@@ -21,8 +27,8 @@
  *   fast_tape = on | off           the trap, or the tape's signal (§12.3)
  *   vdg       = 6847 | 6847t1      the CoCo 1 and 2's VDG, or the CoCo
  *                                  2B's, with lower case (§9.2)
- *   smartwatch = on | off          a DS1216 at $FF78-$FF7F, set from the
- *                                  board's clock (§12.7)
+ *   smartwatch = on | off          retired, taken and ignored: the
+ *                                  SmartWatch is a cartridge (§12.7)
  *   disk_sounds = on | off         the drives' steps and motor heard (§10)
  *   boot_tape = <file>             a tape in /coco/tapes/ put in the deck
  *   artifacts = off | simple | full    the artefact colours (§9.5)
@@ -81,7 +87,6 @@ typedef struct {
 
     bool       fast_tape;   /* blocks served by the trap (§12.3)         */
     bool       vdg_t1;      /* the MC6847T1 drawn, not the MC6847 (§9.2) */
-    bool       smartwatch;  /* a DS1216 at $FF78-$FF7F (§12.7)           */
     bool       disk_sounds; /* the drives' steps and motor (§10)         */
     /* The artefact colours (§9.5): how they are drawn, and their phase,
      * which "random" chooses afresh at each reset, as a real CoCo's VDG
@@ -100,6 +105,10 @@ typedef struct {
     char       cart[COCO_PATH_MAX];
     char       boot_tape[COCO_PATH_MAX];
     char       boot_disk[COCO_DISK_DRIVES][COCO_PATH_MAX];   /* by drive */
+    /* The Multi-Pak's slots, as cart is written, and its switch, 1-4,
+     * when cart is "mpi" (§12.8). */
+    char       slot[COCO_MPI_SLOTS][COCO_PATH_MAX];
+    unsigned   mpi_switch;
 } settings_t;
 
 void settings_default(settings_t *s);

@@ -8,9 +8,7 @@
 static const uint8_t k_key[8] = { 0xC5u, 0x3Au, 0xA3u, 0x5Cu, 0xC5u, 0x3Au, 0xA3u, 0x5Cu };
 
 void smartwatch_init(smartwatch_t *w) {
-    bool fitted = w->fitted;
     memset(w, 0, sizeof *w);
-    w->fitted = fitted;
 }
 
 void smartwatch_set_host(smartwatch_t *w, uint32_t seconds_since_2000) {

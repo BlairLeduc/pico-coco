@@ -175,6 +175,10 @@ int main(void) {
               "F6 is Shift+F1's code inside Shift");
         CHECK(keymap_picocalc_text(0x8Au, ev) == 0 && keymap_picocalc_text(0x80u, ev) == 0,
               "no key sends 0x8A or 0x80");
+        CHECK(keymap_picocalc_text(PICOCALC_KEY_UP, ev) == 2 && ev[0].code == PICOCALC_KEY_UP &&
+                  keymap_picocalc_text(PICOCALC_KEY_RIGHT, ev) == 2 &&
+                  keymap_picocalc_text(0xB3u, ev) == 0 && keymap_picocalc_text(0xB8u, ev) == 0,
+              "the arrows are themselves, and only they");
         CHECK(keymap_picocalc_text('!', ev) == 4 && ev[0].code == PICOCALC_KEY_SHIFT_L &&
                   ev[1].code == '!' && ev[2].code == '!' && ev[2].state == KEY_EV_RELEASED &&
                   ev[3].code == PICOCALC_KEY_SHIFT_L && ev[3].state == KEY_EV_RELEASED,

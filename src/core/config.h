@@ -32,6 +32,14 @@
 #define COCO_ROM_HALF      0x2000u
 /* $C000-$FEFF is the cartridge's window, up to 16 KB (M9: mirrors). */
 #define COCO_CART_SIZE     0x4000u
+/* The Multi-Pak's slots (design.md §12.8); without one, the port is
+ * slot 0. */
+#define COCO_MPI_SLOTS     4u
+/* The room the slots' ROMs share, each image in a power of two of it,
+ * or the whole window for any other size (§12.8): Disk BASIC's 8 KB, a
+ * 16 KB game and 8 KB more. 16 KB more than one window, measured
+ * against the tier 2 UART0 build's 55 KB free (2026-11-24). */
+#define COCO_CART_POOL     0x8000u
 /* The largest image the ROM table knows (romset.h). */
 #define COCO_ROM_IMAGE_MAX 0x2000u
 

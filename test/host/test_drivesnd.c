@@ -377,7 +377,7 @@ static int16_t s_pcm[2][COCO_AUDIO_BUF_LEN];
 static void machine_on(coco_t *m) {
     coco_config_t cfg;
     coco_config_default(&cfg);
-    cfg.rsdos = true;
+    cfg.cart = CART_RSDOS;
     coco_init(m, &cfg);
     coco_power_on(m);
 }
@@ -445,7 +445,7 @@ static int test_machine(void) {
         bus_write(&s_m[i], 0xFF48u, 0x10u);    /* Seek, r1 r0 = 0: 6 ms */
     }
     for (int f = 0; f < 10; f++) field_pair(&loud);
-    CHECK(s_m[1].dk.fdc.drv[0].cyl == 20, "the head at 20: %u", s_m[1].dk.fdc.drv[0].cyl);
+    CHECK(coco_disk_fdc(&s_m[1])->drv[0].cyl == 20, "the head at 20: %u", coco_disk_fdc(&s_m[1])->drv[0].cyl);
     CHECK(s_m[1].pcm.drive.clicks - c0 == 20, "20 steps struck: %u",
           (unsigned)(s_m[1].pcm.drive.clicks - c0));
     CHECK(s_m[0].pcm.drive.clicks == 0, "and none with the sounds off");
@@ -453,7 +453,7 @@ static int test_machine(void) {
     /* A Step-out at track 0 pulses nothing: TR00 stops it (wd1793.c). */
     for (int i = 0; i < 2; i++) bus_write(&s_m[i], 0xFF48u, 0x00u);   /* Restore */
     for (int f = 0; f < 15; f++) field_pair(&loud);
-    CHECK(s_m[1].dk.fdc.drv[0].cyl == 0, "restored to 0");
+    CHECK(coco_disk_fdc(&s_m[1])->drv[0].cyl == 0, "restored to 0");
     CHECK(s_m[1].pcm.drive.clicks - c0 == 40, "the Restore's 20 struck: %u",
           (unsigned)(s_m[1].pcm.drive.clicks - c0));
     for (int i = 0; i < 2; i++) bus_write(&s_m[i], 0xFF48u, 0x60u);   /* Step-out */
@@ -486,7 +486,7 @@ static int test_machine(void) {
     bus_write(&s_m[1], 0xFF48u, 0xD0u);                  /* Force Interrupt */
     /* From the head, a step ahead of the track register: Step-in without
      * its update flag moved it and not the register. */
-    unsigned head = s_m[1].dk.fdc.drv[0].cyl;
+    unsigned head = coco_disk_fdc(&s_m[1])->drv[0].cyl;
     bus_write(&s_m[1], 0xFF48u, 0x03u);                  /* Restore */
     CHECK(head == 31 && s_m[1].pcm.drive.left == head, "the Restore's %u to come: %u", head,
           (unsigned)s_m[1].pcm.drive.left);
@@ -615,8 +615,8 @@ static int test_disk_basic(const char *wav, const char *sounds) {
     CHECK(ok, "Disk BASIC booted");
     fields(30);
     CHECK(!s_diff_idle, "booted and idle: the samples of the machine without the sounds");
-    CHECK(s_g[1].m.dk.fdc.drv[0].cyl == 0 && s_g[1].m.pcm.drive.clicks == 0,
-          "no step yet: the head at %u, %u struck", s_g[1].m.dk.fdc.drv[0].cyl,
+    CHECK(coco_disk_fdc(&s_g[1].m)->drv[0].cyl == 0 && s_g[1].m.pcm.drive.clicks == 0,
+          "no step yet: the head at %u, %u struck", coco_disk_fdc(&s_g[1].m)->drv[0].cyl,
           (unsigned)s_g[1].m.pcm.drive.clicks);
 
     s_phase = 1;
@@ -628,7 +628,7 @@ static int test_disk_basic(const char *wav, const char *sounds) {
         motor_seen |= s_g[1].m.pcm.drive.motor;
         if (rows_have(&s_g[1], "OK") && !coco_disk_busy(&s_g[1].m)) break;
     }
-    unsigned cyl = s_g[1].m.dk.fdc.drv[0].cyl;
+    unsigned cyl = coco_disk_fdc(&s_g[1].m)->drv[0].cyl;
     CHECK(cyl == 17, "DIR's head on the directory's track: %u", cyl);
     CHECK(s_g[1].m.pcm.drive.clicks == 17, "every step of the way struck, 0 to 17: %u",
           (unsigned)s_g[1].m.pcm.drive.clicks);

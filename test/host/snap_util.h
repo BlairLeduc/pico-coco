@@ -167,11 +167,29 @@ static inline bool snap_same(const coco_t *a, const coco_t *b, const char *what)
     SNAP_DIFF(a->tape.hot != b->tape.hot || a->tape.op != b->tape.op || a->tape.rom_ok != b->tape.rom_ok,
               "tape trap hot %04X/%04X", a->tape.hot, b->tape.hot);
 
-    /* The RS-DOS cartridge, and the chip's track in hand, which is not
+    /* The port (cart.h): the Multi-Pak, $FF7F, and each slot. */
+    const cart_port_t *pa = &a->port, *pb = &b->port;
+    SNAP_DIFF(pa->mpi != pb->mpi || pa->switch_slot != pb->switch_slot ||
+              pa->rsdos_slot != pb->rsdos_slot || pa->pool_used != pb->pool_used, "the port");
+    SNAP_DIFF(pa->cts != pb->cts || pa->scs != pb->scs || pa->switch_on != pb->switch_on,
+              "$FF7F: CTS %u/%u SCS %u/%u, switch %d/%d", pa->cts, pb->cts, pa->scs, pb->scs,
+              pa->switch_on, pb->switch_on);
+    for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
+        const cart_t *p = &pa->slot[s], *q = &pb->slot[s];
+        SNAP_DIFF(p->kind != q->kind || p->rom != q->rom || p->autostart != q->autostart ||
+                  p->rom_at != q->rom_at || p->rom_room != q->rom_room,
+                  "slot %u: kind %d/%d", s + 1u, (int)p->kind, (int)q->kind);
+        SNAP_DIFF(p->nmi != q->nmi || p->halt != q->halt, "slot %u's lines", s + 1u);
+        SNAP_DIFF(p->kind == CART_SMARTWATCH && (p->u.clock.offset != q->u.clock.offset ||
+                  p->u.clock.open != q->u.clock.open || p->u.clock.key != q->u.clock.key),
+                  "slot %u's SmartWatch: set %lld/%lld", s + 1u, (long long)p->u.clock.offset,
+                  (long long)q->u.clock.offset);
+    }
+
+    /* The RS-DOS controller, and the chip's track in hand, which is not
      * state but is fetched again (wd_restored) and must be the same. */
-    SNAP_DIFF(a->cfg.rsdos != b->cfg.rsdos, "the cartridge");
-    if (a->cfg.rsdos) {
-        const rsdos_t *p = &a->dk, *q = &b->dk;
+    if (a->port.rsdos_slot >= 0) {
+        const rsdos_t *p = &a->port.dk, *q = &b->port.dk;
         const wd1793_t *f = &p->fdc, *h = &q->fdc;
         SNAP_DIFF(p->latch != q->latch || p->halt_enable != q->halt_enable || p->intrq != q->intrq ||
                   p->nmi != q->nmi, "the latch %02X/%02X", p->latch, q->latch);

@@ -40,6 +40,7 @@
 #include "wd1793.h"
 
 struct coco_s;
+struct cart_s;
 
 #define DK_DS0    0x01u
 #define DK_DS1    0x02u
@@ -49,7 +50,7 @@ struct coco_s;
 #define DK_DS3    0x40u
 #define DK_HALT   0x80u
 
-/* The cartridge's state in the machine (coco.h). */
+/* The controller's chips, the port's `dk`: one in the port (cart.h). */
 typedef struct {
     wd1793_t fdc;
     uint8_t  latch;
@@ -61,21 +62,37 @@ typedef struct {
 /* Whether the cartridge answers this address of the I/O page. */
 static inline bool rsdos_decodes(unsigned off) { return off - 0x40u < 0x20u; }
 
+/* The cartridge's side of cart.h, for the cartridge `c` in machine `m`.
+ * Each sets the lines `c` drives and puts the port's onto the CPU
+ * (cart_lines). */
+
 /* An access at tick now; `bus` is what an address nothing drives reads. */
-uint8_t rsdos_read(struct coco_s *m, uint16_t a, uint8_t bus, uint64_t now);
-void    rsdos_write(struct coco_s *m, uint16_t a, uint8_t v, uint64_t now);
+uint8_t rsdos_read(struct coco_s *m, struct cart_s *c, uint16_t a, uint8_t bus, uint64_t now);
+void    rsdos_write(struct coco_s *m, struct cart_s *c, uint16_t a, uint8_t v, uint64_t now);
 
 /* The RESET line: the latch cleared, the chip's command dropped. */
-void rsdos_reset(struct coco_s *m);
+void rsdos_reset(struct coco_s *m, struct cart_s *c);
 
 /* The chip's events up to tick now, and the lines they move. */
-void rsdos_run(struct coco_s *m, uint64_t now);
+void rsdos_run(struct coco_s *m, struct cart_s *c, uint64_t now);
 
 /* NMI and HALT worked out again from the chip and the latch, after a
- * state is restored (coco_restored). */
-void rsdos_lines(struct coco_s *m);
+ * state is restored (cart_restored). */
+void rsdos_lines(struct coco_s *m, struct cart_s *c);
+
+/* The drives' motor heard as the controller's latch has it, after a
+ * state is restored (coco_restored); off with no controller. */
+void coco_disk_restored(struct coco_s *m);
 
 /* ---- the port's -------------------------------------------------------- */
+
+/* Each of these acts on the RS-DOS controller in the port (cart_rsdos),
+ * and does nothing, or answers as an idle controller would, without one. */
+
+/* The controller's WD1793, or NULL with none: the port reads and fills
+ * its track buffer, and the tests look at its drives. */
+wd1793_t       *coco_disk_fdc(struct coco_s *m);
+const wd1793_t *coco_disk_fdc_c(const struct coco_s *m);
 
 /* The track the controller is waiting on, or NULL; served at a field
  * boundary with the guest parked (§12.4). */

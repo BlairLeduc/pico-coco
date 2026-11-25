@@ -16,6 +16,7 @@
 
 #include "board.h"
 #include "card.h"
+#include "carts.h"
 #include "config.h"
 #include "settings.h"
 #include "snappool.h"
@@ -76,12 +77,11 @@ typedef struct {
     uint8_t    basic[COCO_ROM_HALF];   /* job.basic's bytes, for $A000    */
     uint8_t    basic11[COCO_ROM_HALF]; /* Color BASIC 1.1's, for 4 KB     */
     uint8_t    ext[COCO_ROM_HALF];     /* Extended's, for $8000           */
-    /* The settings file at boot (settings.h), and the cartridge it or
-     * the Machine page names, read off the card: cart_len 0 for none. */
+    /* The settings file at boot (settings.h), and the cartridge port it
+     * or the Machine page names, its ROMs read off the card into the
+     * machine's pool (carts.h): no second copy (design.md §12.8). */
     settings_t settings;
-    uint8_t    cart[COCO_CART_SIZE];
-    uint32_t   cart_len;
-    char       cart_path[COCO_PATH_MAX];
+    port_media_t port;
     uint32_t   ready_us;     /* core 1's bring-up done, since boot        */
     volatile bool     busy;        /* core 1: a job is running          */
     volatile bool     claimed;     /* core 0: job and images are mine   */
@@ -100,7 +100,7 @@ typedef struct {
     uint32_t underruns;      /* underrun samples since boot (§10)        */
     uint32_t late_refills;   /* late DMA refills since boot              */
     uint32_t tape_unsaved;   /* the deck holds a recording not on the card */
-    uint32_t deck;           /* the signal: a STATUS_DECK_ state (status.h) */
+    uint32_t deck;           /* the deck at work: a STATUS_DECK_ state (status.h) */
     int32_t  disk;           /* the drive whose head is loaded, -1 none (rsdos.h) */
     uint32_t resets;         /* RESETs and power-ons since boot: core 1
                               * chooses a random artefact phase on each (§9.5) */
@@ -142,14 +142,15 @@ typedef struct {
 extern volatile swd_counters_t g_swd;
 
 /* The machine as it powers on (design.md §14's Machine page): what
- * core0_power_on builds, with the ROMs and the cartridge from g_boot. */
+ * core0_power_on builds, with the ROMs and the port from g_boot. */
 typedef struct {
     unsigned ram_k;            /* 4, 16, 32 or 64                       */
     rom_id_t basic;            /* the Color BASIC at $A000 (roms.h)     */
     bool     extended;         /* Extended Color BASIC at $8000         */
-    bool     cart;             /* g_boot.cart at $C000                  */
-    bool     rsdos;            /* it is Disk BASIC, the RS-DOS cartridge's
-                                  ROM (rsdos.h), and the controller is in */
+    bool     cart;             /* something in the port (g_boot.port)   */
+    bool     rsdos;            /* the RS-DOS controller among it, with
+                                  Disk BASIC (rsdos.h)                  */
+    bool     mpi;              /* in a Multi-Pak (cart.h)               */
 } machine_t;
 
 /* The running machine's, written by core 0 at each power-on and read by
@@ -178,8 +179,6 @@ typedef struct {
     volatile bool     artefact_red;
     /* Text on dark green or orange, or black (§9.5). Core 1's alone. */
     volatile bool     dark_bg;
-    /* A SmartWatch fitted (smartwatch.h): core 0 takes it each field. */
-    volatile bool     smartwatch;
     /* The drives' steps and motor heard (drivesnd.h): core 0 takes it
      * each field. */
     volatile bool     disk_sounds;

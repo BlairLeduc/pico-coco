@@ -12,16 +12,22 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M13 is built and checked on the host, over the UART and by
-the owner on the panel, and M12 is done; after M13, each active line is
-fetched as the field runs, for titles that draw in step with the beam,
-checked on the panel with Dragonfire's room** (`docs/design.md` §9.3,
+**Status: M17 is built and checked on the host, over the UART and by
+the owner on the panel; M13 and M12 are done** (`docs/design.md` §12.8,
 §17, `docs/milestones.md`).
+M17: the cartridge port as one interface (`cart.h`), the ROM cartridge
+and the RS-DOS controller behind it; the Multi-Pak, four slots and
+$FF7F (`test_mpi`, `cart = mpi`, `slot1`-`slot4`, `mpi_switch`); the
+SmartWatch as a cartridge for `clock_bb` alone, `clock_tc3` dropped;
+the trace diff through the Multi-Pak; and save states at version 2,
+with a port section, version 1 still loading. After M13, each active
+line is fetched as the field runs, for titles that draw in step with
+the beam, checked on the panel with Dragonfire's room (§9.3).
 M13: disks, the WD1793 behind the RS-DOS cartridge with its HALT
 pacing, JVC/DSK images from `/coco/disks/` (`wd1793.h`, `jvc.h`,
 `rsdos.h`, `dskio.h`, `test_disk`); Tandy OS-9 Level One and NitrOS-9
 Level 1 booting from them (`test_os9`, `tools/fetch-os9.sh`); the
-DS1216 SmartWatch for OS-9's clock (`smartwatch.h`, `rtc.h`); the
+DS1216 SmartWatch for OS-9's clock (`smartwatch.h`, `rtc.h`; a Multi-Pak cartridge since M17); the
 MC6847T1's lower case as a setting (`vdg`); Ctrl as CLEAR; and the
 disk archive held to XRoar by screen (`tools/archive-disks.sh`), which
 found Tandy OS-9's homing Seek running 255 steps; and from pictures of
@@ -165,6 +171,7 @@ build/host/test/host/page-ppm out/pages        # the missing-ROM pages, to look 
 # tools/trace/build-xroar.sh, the host build's coco-trace, ROMs in roms/
 tools/trace/trace-coco.sh -ram 64 -ext -fields 600 -type "$(printf 'PRINT 2+3\r')"
 tools/trace/trace-coco.sh -bas bas11 -ram 4 -fields 600   # a 4 KB CoCo
+tools/trace/trace-coco.sh -ram 64 -ext -cart mpi -mpi-slot 2 -mpi-load-cart 2=rsdos   # Multi-Pak
 
 # the archive run (design.md §15.4): the Color Computer Archive, fetched
 # politely into out/corpus, then run on the host and reported
@@ -221,6 +228,11 @@ one: the core building clean without the SDK is what keeps SDK headers out of
   the caller carries the debt. Never add a "run exactly N" variant.
 - **Copy a machine with `coco_copy`, never `=`.** The page table points into
   the struct.
+- **The cartridge port is `cart.h`** (`design.md` §12.8): `coco.c` calls
+  `cart_*` and never a kind's own functions, and the port reaches the
+  disk controller through `coco_disk_fdc`. A new cartridge is a kind in
+  its enumeration and union, with no function pointers, so a machine
+  still copies and saves whole.
 - **A frame's lines have modes of their own** (`coco_frame_t.how`, §9.4):
   draw one with `present_render_line`, and call `coco_frame_plain` on a
   frame you fill by hand.

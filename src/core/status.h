@@ -10,8 +10,9 @@
  * the underrun samples and the late refills since boot; its field rate
  * is not, the CoCo's 40 cells having no room for both, and on the
  * audio's pacing a guest behind real time shows as underruns (§9.6,
- * M8). The status line's own text is the tape and the cartridge from
- * M9, and the drive at work from M13. It is drawn in the VDG's character set, which has no lower
+ * M8). The status line's own text is the tape from M9 and the drive at
+ * work from M13; the cartridge it showed from M9 went on 2026-11-24, at
+ * the owner's request. It is drawn in the VDG's character set, which has no lower
  * case (§9.6), so the line reads in capitals on the panel.
  */
 #ifndef PICO_COCO_STATUS_H
@@ -39,20 +40,22 @@ typedef struct {
  * when every figure is near its widest. */
 void status_perf_format(const perf_line_t *p, char out[COCO_TEXT_COLS + 1]);
 
-/* What the deck's signal is doing (cassette.h). */
-enum { STATUS_DECK_IDLE = 0, STATUS_DECK_PLAYING, STATUS_DECK_RECORDING };
+/* What the deck is doing: its signal playing or recording (cassette.h),
+ * or the trap serving blocks (tape.h), or nothing. */
+enum { STATUS_DECK_IDLE = 0, STATUS_DECK_PLAYING, STATUS_DECK_RECORDING, STATUS_DECK_TRAP };
 
 /* The status line's text (§9.6, §14), COCO_TEXT_COLS characters
- * space-padded and a NUL: the deck on the left, `TAPE: NAME.CAS`, with
- * `, NEW` while it holds a recording not yet on the card, or `, PLAY`
- * or `, REC` while its signal runs (`deck`), and the
- * cartridge on the right, `CART: NAME.CCC`, or while a drive's head is
- * loaded, the drive and its disk, `DISK 0: NAME.DSK`, `drive` 0 to 3 or
- * -1 for none (rsdos.h). `tape`, `cart` and `disk` are paths, "" for
- * none, each shown without its folder; the cartridge's or disk's name is
- * capped and the tape's shortened to fit what is left. */
-void status_format(const char *tape, bool unsaved, unsigned deck, const char *cart, int drive,
-                   const char *disk, char out[COCO_TEXT_COLS + 1]);
+ * space-padded and a NUL: on the left, while the deck is at work
+ * (`deck` not idle), as a drive is shown only while its head is loaded,
+ * `TAPE: NAME.CAS`, with `, PLAY` or `, REC` while its signal runs, or
+ * `, NEW` while the trap serves a tape that holds a recording not yet
+ * on the card; and on the right, while a
+ * drive's head is loaded, the drive and its disk, `DISK 0: NAME.DSK`,
+ * `drive` 0 to 3 or -1 for none (rsdos.h). `tape` and `disk` are paths,
+ * "" for none, each shown without its folder; the disk's name is capped
+ * and the tape's shortened to fit what is left. */
+void status_format(const char *tape, bool unsaved, unsigned deck, int drive, const char *disk,
+                   char out[COCO_TEXT_COLS + 1]);
 
 /* The status line while the guest is paused, whether or not the line
  * is on (§14). */

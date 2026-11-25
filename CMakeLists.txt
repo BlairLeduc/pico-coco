@@ -14,6 +14,7 @@ option(PICO_COCO_HOST "Build the portable core and its host tests, with no Pico 
 # Every fixed capacity lives in src/core/config.h; nothing here duplicates one.
 set(PICO_COCO_CORE_SOURCES
     src/core/bus.c
+    src/core/cart.c
     src/core/cas.c
     src/core/cassette.c
     src/core/coco.c
@@ -303,6 +304,7 @@ else()
         src/port/audio.c
         src/port/board.c
         src/port/card.c
+        src/port/carts.c
         src/port/core0.c
         src/port/core1.c
         src/port/diskio.c
