@@ -139,10 +139,11 @@ fitted; no late fields or underruns. Static memory 6.5 KB more (the
 ears' buffers).
 
 The owner listened to the stereo build on the board and judged that it
-sounds great (2026-11-25).
+sounds great, and with STEREO off that it sounds as the mono did
+before (2026-11-25).
 
-**Not checked.** The stereo with the setting off; headphones apart from
-the speakers (not said); The Interbank Incident played to its end. The status
+**Not checked.** Headphones apart from the speakers (not said); The
+Interbank Incident played to its end. The status
 bit for a sound in progress is a stand-in for an analogue detector; the
 mix of the AY and the SP0256 is an estimate (§18).
 
