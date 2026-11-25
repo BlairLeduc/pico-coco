@@ -12,9 +12,15 @@ It is a member of the pico-atom family: pico-atom's architecture and MC6847,
 pico-oric's later port layer and parts, and a **new 6809 core** in their
 style (`docs/design.md` §1, §5).
 
-**Status: M17 is built and checked on the host, over the UART and by
-the owner on the panel; M13 and M12 are done** (`docs/design.md` §12.8,
-§17, `docs/milestones.md`).
+**Status: M18 is built and checked on the host, not yet on the device;
+M17, M13 and M12 are done** (`docs/design.md` §12.9, §12.10, §17,
+`docs/milestones.md`).
+M18: the Orchestra-90 (`CART_ORCH90`, known by its ROM's SHA-1); the
+Speech/Sound Cartridge (`CART_SSC`, `ssc.h`): a TMS7040 (`tms7000.h`,
+held to MAME's by `test_tms7000`), pico-oric's AY (`ay8912.h`) and an
+SP0256-AL2 modelled from its mask ROM (`sp0256.h`, held to MAME's by
+`test_sp0256`); save states at version 3. MAME, like XRoar, is a tool
+(`tools/mame/`), never source.
 M17: the cartridge port as one interface (`cart.h`), the ROM cartridge
 and the RS-DOS controller behind it; the Multi-Pak, four slots and
 $FF7F (`test_mpi`, `cart = mpi`, `slot1`-`slot4`, `mpi_switch`); the

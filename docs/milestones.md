@@ -4,6 +4,91 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M18: the sound cartridges
+
+On branch `m18`, 2026-11-24 to 2026-11-25 (`design.md` §12.5,
+§12.9, §12.10, §17, §18). **Built, and checked on the host; not yet
+on the device.** Of §17's row: the registers settled from a primary
+source (the cartridge's manual), the TMS7000 core held to MAME's, the
+AY's tests from pico-oric passing, the Orchestra-90 held to XRoar's by
+the trace diff and the audio test, and the speech held to MAME's; The
+Interbank Incident speaking on the device is the owner's to check.
+
+**Settled first.** The Speech/Sound Cartridge is a TMS7040 with its
+own 4 KB mask ROM, 2 KB of RAM, an AY-3-8913 and an SP0256-AL2, reached
+through $FF7D and $FF7E alone (the manual, as toolshed's `casm` help
+carries it; MAME 0.289's `coco_ssc.cpp`). Its firmware does the text to
+speech, so the owner chose to model the TMS7040 (2026-11-24), and gave
+the two ROMs, which match MAME's SHA-1s.
+
+**Built.** The Orchestra-90 as `CART_ORCH90`, known by its ROM's SHA-1,
+its DACs at $FF7A and $FF7B beside the multiplexer. `tms7000.c`, from
+TI's data manual (SPND001C): every opcode, Timer 1, the interrupts.
+`ay8912.c` from pico-oric, its output to a sink the board defines.
+`sp0256.c`, the microsequencer, Zbiciak's field table and the 12-pole
+filter, from the AL2's mask ROM. `ssc.c`, the board: the 7040's ports,
+the RAM, BUSY, the reset, LRQ on INT1, the two chips mixed into the
+multiplexer's cartridge input. `CART_SSC`, one in the port, its ROMs in
+the pool; on the device a slot choice, SPEECH/SOUND, its ROMs found on
+the card by SHA-1 (`romset.c`, `roms/README.md`). Save states version
+3, with the cartridge's section; 1 and 2 still load. Tools:
+`tools/mame/trace-ssc.sh` and `ssc-trace.lua` (MAME driven and traced),
+`tools/mame/fetch-mame.sh` (MAME's files at a pinned commit, for the
+SP0256's oracle).
+
+**Checked** (host, 2026-11-24/25):
+
+- The Orchestra-90: the trace diff with `-cart orch90` agrees with
+  XRoar for all 1,990,930 of our instructions through 600 fields;
+  `test_audio` holds every sample with its DACs to the model; with the
+  ROM, S, ENTER, P, ENTER plays the William Tell Overture, its pitches
+  against MAME's recording 412/414, 276/276, 138/138 Hz.
+- The TMS7040 (`test_tms7000`): 191 opcodes' cycles as Table 6-3; the
+  firmware replayed against MAME's trace given the same 43 bytes,
+  961,982 instructions agree, and the registers and register file at
+  the end. Two differences from MAME taken from the manual: NOP 4
+  cycles, BTJOP and BTJZP one more than ANDP.
+- The AY (`test_ay8912`): 5.1 million samples equal to the cycle model;
+  averaged tones (below period 7 at 1.79 MHz) within 374 of 32,767
+  through a 64-sample average.
+- The SP0256 (`test_sp0256`): all 64 allophones, alone and run on, and
+  COLOR COMPUTER, 798,000 samples equal to MAME's `sp0256.cpp` built in
+  as a tool, LRQ and SBY with them. MAME 0.289 itself runs the chip at
+  9.29 kHz (divider 336); MAME's source corrected it to the datasheet's
+  10 kHz in August 2026. Against MAME 0.289's recording the manual's
+  COLOR COMPUTER starts within 1.3 ms of MAME's, at its pitch times
+  312/336 (108.7 Hz against 101.0).
+- The cartridge in a CoCo (`test_ssc`): the manual's own BASIC program
+  speaks I CAN TALK, heard only with the multiplexer on the cartridge;
+  $FF7D's reset; beside Disk BASIC in a Multi-Pak; a save state taken
+  mid-sentence restored into a machine saying something else runs on
+  alike; skipping and stepping end alike.
+- The Interbank Incident (IBANK0 to 2, Disk BASIC in slot 4, the
+  cartridge in slot 2) boots OS-9, asks whether the cartridge is
+  fitted, resets it, and plays its sound effects through the AY
+  (commands $9F and $DF) once a joystick has answered its questions and
+  chosen characters; its speech comes later in play than was reached.
+- Cost on the host (3,000 fields of BASIC): +13% with the cartridge
+  idle, +58% while it speaks, after the skipping (+86% and +87%
+  before). Not measured on the board.
+
+**Planted**, each failed: in `test_tms7000`, ten (the subtraction's C,
+SWAP's C, RRC, the prescaler, DECD's Z, BTJZ, IOCNT0's flags, an
+interrupt's status, RETS, and JP ignoring N, which only the oracle
+saw); in `test_sp0256`, a delta not sign-extended, the noise's taps,
+LRQ, the pitch interpolation and JSR's return (one coefficient off by
+one passed: the AL2 never uses it); in `test_ssc`, a lost noise
+register and a lost RAM in the save state, a skip 8 cycles long, a
+settled pulse a sample long, and a pass with an interrupt taken for a
+cycle; in `test_audio` and `test_cart`, the Orchestra-90's right DAC,
+its bus update and another kind taking its writes.
+
+**Not checked.** Anything on the device: the Machine page's
+SPEECH/SOUND, the ROMs from the card, the sound through the PicoCalc,
+the cost on core 0, and The Interbank Incident speaking. The status
+bit for a sound in progress is a stand-in for an analogue detector; the
+mix of the AY and the SP0256 is an estimate (§18).
+
 ## M17: the cartridge port, the Multi-Pak and the SmartWatch as a cartridge
 
 On branch `m17`, 2026-11-24 (`design.md` §12.5, §12.7, §12.8, §17,

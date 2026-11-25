@@ -2147,6 +2147,22 @@ missing ROM is (§12.1).
   6809's rate and two sound chips, is an estimate until M18 measures it
   against a control build.
 
+**As built** (2026-11-24/25, host; docs/milestones.md, M18):
+`tms7000.c`, `ay8912.c`, `sp0256.c`, `ssc.c` and `CART_SSC`, one in
+the port, its two ROMs 6 KB of the pool, a Machine page choice
+SPEECH/SOUND. The 7040, its RAM and the two chips are in a save state's
+version 3. The SP0256's samples are interleaved with the 7040's
+instructions only where they must be: LRQ, the 7040's INT1, changes
+only as the 7040 loads an allophone or the sequencer takes one, so with
+LRQ high the 7040 runs free, and with it low the SP0256 runs up to 64
+samples ahead and the 7040 follows to the moment LRQ rises. The idle
+7040 repeats one pass of its firmware exactly, 1,621 cycles, and such
+passes are skipped whole up to the timer's next interrupt; a machine
+doing so ends where one stepping every pass does (`test_ssc`). AY
+changes made while the SP0256 runs ahead reach the bus up to 6.4 ms
+late against the speech. Measured on the host: +13% idle, +58%
+speaking, against the same machine without the cartridge.
+
 ### 12.10 The Orchestra-90 CC
 
 **Planned for M18** (the owner, 2026-11-24). As XRoar 1.13's
@@ -2597,6 +2613,11 @@ configuration; once settled, it is a constant.
 | Where a DS1216 answers behind a Multi-Pak, for `clock_bb` (§12.7, §12.8) | **Read off the module** (2026-11-24): $FF58–$FF5F on SCS, slot 4, which `clock_bb` selects through $FF7F. The card it was written for is not known | Medium | `clock_bb` read off the module; the card it was written for |
 | The Speech/Sound Cartridge: its ports at $FF7D and $FF7E and its status bits (§12.9) | The cartridge's manual, and MAME 0.289's `coco_ssc.cpp`, read and run, 2026-11-24 | High | Settled from the manual: the guest's side |
 | The Speech/Sound Cartridge's inside: the TMS7040's ports, its INT1 and INT3, the clocks (1.79 MHz for the 7040 and the AY, 3.12 MHz for the SP0256), the sound activity detector (§12.9) | MAME 0.289's `coco_ssc.cpp`, read 2026-11-24 | Medium | The cartridge's schematic; the firmware executed |
+| The 7040's clock when the SAM runs the 6809 fast: the cartridge's is taken as twice the slow E always (§12.9) | MAME's DERIVED_CLOCK of a fixed cartridge clock | Low | The cartridge's schematic |
+| The SP0256's sample rate: 3.12 MHz / 312, 10 kHz (§12.9) | The datasheet's 10 kHz; MAME's source of August 2026 (MAME 0.289 had 336) | High | Settled by the datasheet |
+| The SP0256's output resolution: the filter's sum limited to 14 bits, as MAME's (§12.9) | MAME's HIGH_QUALITY | Low | The chip's DAC, measured |
+| The cartridge's mix: the AY to 0.35 of the cartridge input, the SP0256 at twice its scale about 0.5, clipped (§12.9) | Estimated from MAME's gains, 2026-11-25 | Low | A cartridge's output measured |
+| The status bit for a sound in progress: an AY generator the level depends on, for an analogue detector (§12.9) | MAME's filter-and-threshold model, read | Low | The schematic |
 | The Orchestra-90's DACs at $FF7A and $FF7B, and its audio beside the multiplexer rather than through it (§12.10) | As XRoar 1.13's `orch90.c`, read 2026-11-24; its ROM executed under MAME 0.289 and here, 2026-11-24, the overture heard only beside the multiplexer | Medium | The cartridge's schematic |
 | The Deluxe RS-232 Program Pak: its 6551 at $FF68–$FF6B, its interrupt, its ROM (§12.11) | From memory | Low | The pak's manual and schematic; its ROM and OS-9's driver read |
 
