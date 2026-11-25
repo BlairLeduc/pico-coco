@@ -2225,7 +2225,7 @@ alone not stamped, the side set without the pcm brought up to it, and
 the ears' DC blockers not taken up from the mono's (a thump at the
 first difference). On the owner's board, the overture (S, ENTER, P,
 ENTER) took core 0 to 57.5% busy against 52.9% for the build without
-stereo in the same sitting, no late fields or underruns in either.
+stereo in the same sitting, no late fields or underruns in either. The owner heard it on the board and judged it great (2026-11-25).
 Checked: the trace diff with `-cart orch90` agrees with XRoar for every
 one of our 1,990,930 instructions through 600 fields of its start;
 XRoar's typing reaches only BASIC's keyboard routine and not the
