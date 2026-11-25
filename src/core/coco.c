@@ -746,6 +746,10 @@ bool coco_load_ssc_roms(coco_t *m, const uint8_t *rom, const uint8_t *al2) {
     return cart_load_ssc(m, rom, al2);
 }
 
+bool coco_ssc_roms_placed(coco_t *m, uint32_t rom_at, uint32_t al2_at) {
+    return cart_ssc_placed(m, rom_at, al2_at);
+}
+
 void coco_cart_remove(coco_t *m) {
     cart_remove_rom(m, 0);
     map(m);

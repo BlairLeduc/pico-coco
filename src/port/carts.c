@@ -17,6 +17,7 @@ cart_kind_t carts_kind(const char *name) {
     if (!name[0]) return CART_NONE;
     if (card_is_rsdos(name)) return CART_RSDOS;
     if (strcasecmp(name, CARTS_SMARTWATCH) == 0) return CART_SMARTWATCH;
+    if (strcasecmp(name, CARTS_SSC) == 0) return CART_SSC;
     if (strcasecmp(name, CARTS_MPI) == 0) return CART_MPI;
     return CART_ROM;
 }
@@ -50,15 +51,22 @@ const char *carts_load(port_media_t *pm, const card_job_t *job) {
     static char why[COCO_TEXT_COLS + 1];
     const char *first = NULL;
     uint32_t at = 0;
-    bool rsdos = false;
+    bool rsdos = false, ssc = false;
     for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
         slot_media_t *sm = &pm->slot[s];
         sm->at = sm->len = 0;
         cart_kind_t k = carts_kind(sm->name);
-        if (k != CART_ROM && k != CART_RSDOS) continue;
+        if (k != CART_ROM && k != CART_RSDOS && k != CART_SSC) continue;
         const char *err = NULL;
         uint32_t len = 0;
-        if (k == CART_RSDOS && rsdos) {
+        if (k == CART_SSC && ssc) {
+            err = "ONE SPEECH/SOUND";   /* cart.h */
+        } else if (k == CART_SSC) {
+            if (COCO_CART_POOL - at < CARTS_SSC_BYTES) err = CARTS_NO_ROOM;
+            else err = card_ssc_roms_load(job, g_cart_pool + at);
+            ssc = err == NULL;
+            len = CARTS_SSC_BYTES;
+        } else if (k == CART_RSDOS && rsdos) {
             err = "ONE DISK CONTROLLER";   /* cart.h */
         } else if (k == CART_RSDOS) {
             if (COCO_CART_POOL - at < romset_images[ROM_COCO_DISK11].size) err = CARTS_NO_ROOM;
@@ -67,7 +75,8 @@ const char *carts_load(port_media_t *pm, const card_job_t *job) {
         } else {
             err = card_cart_load(sm->name, g_cart_pool + at, COCO_CART_POOL - at, &len);
         }
-        uint32_t room = err ? 0 : cart_room(len);
+        /* The SSC's ROMs are not on CTS: their bytes, not a window. */
+        uint32_t room = err ? 0 : k == CART_SSC ? CARTS_SSC_BYTES : cart_room(len);
         if (!err && (!room || room > COCO_CART_POOL - at)) err = CARTS_NO_ROOM;
         if (err) {
             log_core1("  cart         : %s%u %s: %s; empty\n", pm->mpi ? "slot " : "",
@@ -81,7 +90,7 @@ const char *carts_load(port_media_t *pm, const card_job_t *job) {
             name_slot(sm, "");
             continue;
         }
-        cart_pool_finish(g_cart_pool + at, len);
+        if (k != CART_SSC) cart_pool_finish(g_cart_pool + at, len);
         sm->at = at;
         sm->len = len;
         at += room;
@@ -112,11 +121,11 @@ void carts_config(const port_media_t *pm, coco_config_t *cfg) {
         for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
             cart_kind_t k = carts_kind(pm->slot[s].name);
             /* A ROM that did not load leaves its slot empty. */
-            cfg->slot[s] = k == CART_ROM && !pm->slot[s].len ? CART_NONE : k;
+            cfg->slot[s] = (k == CART_ROM || k == CART_SSC) && !pm->slot[s].len ? CART_NONE : k;
         }
     } else {
         cart_kind_t k = carts_kind(pm->slot[0].name);
-        cfg->cart = k == CART_RSDOS && pm->slot[0].len ? CART_RSDOS : CART_NONE;
+        cfg->cart = (k == CART_RSDOS || k == CART_SSC) && pm->slot[0].len ? k : CART_NONE;
     }
 }
 
@@ -124,7 +133,11 @@ bool carts_place(const port_media_t *pm, coco_t *m) {
     bool ok = true;
     for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
         const slot_media_t *sm = &pm->slot[s];
-        if (sm->len) ok &= coco_slot_rom_placed(m, s, sm->at, sm->len);
+        if (!sm->len) continue;
+        if (carts_kind(sm->name) == CART_SSC)
+            ok &= coco_ssc_roms_placed(m, sm->at, sm->at + TMS7000_ROM_SIZE);
+        else
+            ok &= coco_slot_rom_placed(m, s, sm->at, sm->len);
     }
     return ok;
 }
@@ -140,6 +153,7 @@ const char *carts_label(const port_media_t *pm) {
     case CART_NONE:       return pm->mpi ? "MULTI-PAK" : "";
     case CART_RSDOS:      return "DISK CONTROLLER";
     case CART_SMARTWATCH: return "XT-RTC CLOCK";
+    case CART_SSC:        return "SPEECH/SOUND";
     default:              return base_of(sm->name);
     }
 }

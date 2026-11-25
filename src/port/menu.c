@@ -119,6 +119,7 @@ static const unsigned k_rams[4] = { 4u, 16u, 32u, 64u };
 #define MENU_CART_RSDOS      (-2)
 #define MENU_CART_MPI        (-3)
 #define MENU_CART_SMARTWATCH (-4)
+#define MENU_CART_SSC        (-5)
 static unsigned       s_slot;      /* the Snapshots page's, kept between openings */
 
 static struct {
@@ -415,6 +416,7 @@ static const char *choice_name(int c, unsigned slot) {
     case MENU_CART_RSDOS:      return CARD_RSDOS;
     case MENU_CART_MPI:        return CARTS_MPI;
     case MENU_CART_SMARTWATCH: return CARTS_SMARTWATCH;
+    case MENU_CART_SSC:        return CARTS_SSC;
     }
     if (c >= (int)s.n_carts) return g_boot.port.slot[slot].name;
     return s_carts[c];
@@ -427,6 +429,7 @@ static const char *choice_label(int c, unsigned slot) {
     case MENU_CART_RSDOS:      return "DISK CONTROLLER";
     case MENU_CART_MPI:        return "MULTI-PAK";
     case MENU_CART_SMARTWATCH: return "XT-RTC CLOCK";
+    case MENU_CART_SSC:        return "SPEECH/SOUND";
     }
     return base(choice_name(c, slot));
 }
@@ -437,6 +440,7 @@ static int choice_of(const char *name, unsigned slot) {
     case CART_NONE:       return MENU_CART_NONE;
     case CART_RSDOS:      return MENU_CART_RSDOS;
     case CART_SMARTWATCH: return MENU_CART_SMARTWATCH;
+    case CART_SSC:        return MENU_CART_SSC;
     case CART_MPI:        return MENU_CART_MPI;
     default:              break;
     }
@@ -455,6 +459,7 @@ static bool machine_staged(void) {
  * or the running one's; 0 for none. */
 static uint32_t choice_size(int c, unsigned slot) {
     if (c == MENU_CART_RSDOS) return romset_images[ROM_COCO_DISK11].size;
+    if (c == MENU_CART_SSC) return CARTS_SSC_BYTES;
     if (c < 0) return 0;
     if (c >= (int)s.n_carts) return g_boot.port.slot[slot].len;
     return s_cart_size[c];
@@ -471,6 +476,10 @@ static void choice_info(int c, unsigned slot, bool in_mpi, char a[TEXT_COLS], ch
     case MENU_CART_RSDOS:
         snprintf(a, TEXT_COLS, "DISK BASIC 1.1, 8K ROM");
         snprintf(b, TEXT_COLS, "NEEDS 16K OR MORE AND EXTENDED");
+        return;
+    case MENU_CART_SSC:
+        snprintf(a, TEXT_COLS, "SPEECH/SOUND CARTRIDGE, 6K");
+        snprintf(b, TEXT_COLS, "NEEDS PIC-7040-510 AND THE AL2");
         return;
     case MENU_CART_SMARTWATCH:
         snprintf(a, TEXT_COLS, "A CLOCK, NO ROM");
@@ -527,7 +536,11 @@ static void machine_info(int row) {
     }
     textpage_line(s_scr, row, line, false);
     uint32_t used = 0;
-    for (unsigned j = 0; j < COCO_MPI_SLOTS; j++) used += cart_room(choice_size(s.st_slot[j], j));
+    for (unsigned j = 0; j < COCO_MPI_SLOTS; j++) {
+        int c = s.st_slot[j];
+        /* The Speech/Sound Cartridge's ROMs take their bytes, not a window. */
+        used += c == MENU_CART_SSC ? CARTS_SSC_BYTES : cart_room(choice_size(c, j));
+    }
     if (s.machine_sel == M_CART) {
         snprintf(line, sizeof line, " %.30s", b);
     } else {
@@ -1307,13 +1320,15 @@ static void key_setup(uint8_t c) {
 }
 
 /* The next choice for the cartridge row (slot < 0) or slot `slot`'s:
- * none, RS-DOS, a Multi-Pak or the SmartWatch, the card's images, and
- * the running image if the card no longer lists it. */
+ * none, RS-DOS, the Speech/Sound Cartridge, a Multi-Pak or the
+ * SmartWatch, the card's images, and the running image if the card no
+ * longer lists it. */
 static int next_choice(int now, int slot, int dir) {
-    static int list[4 + COCO_CART_LIST_MAX];
+    static int list[5 + COCO_CART_LIST_MAX];
     unsigned n = 0, k = slot < 0 ? 0u : (unsigned)slot;
     list[n++] = MENU_CART_NONE;
     list[n++] = MENU_CART_RSDOS;
+    list[n++] = MENU_CART_SSC;
     list[n++] = slot < 0 ? MENU_CART_MPI : MENU_CART_SMARTWATCH;
     for (unsigned i = 0; i < s.n_carts; i++) list[n++] = (int)i;
     int run = slot < 0 ? s.run_cart : s.run_slot[k];

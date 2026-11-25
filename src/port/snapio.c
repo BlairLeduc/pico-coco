@@ -152,6 +152,7 @@ const char *snapio_machine(const coco_t *m, const snap_info_t *info, machine_t *
         switch (info->slot[s]) {
         case CART_RSDOS:      name = CARD_RSDOS; break;
         case CART_SMARTWATCH: name = CARTS_SMARTWATCH; break;
+        case CART_SSC:        name = CARTS_SSC; break;
         case CART_ROM:        name = s_media.cart[s]; break;
         default:              break;
         }
@@ -167,10 +168,11 @@ const char *snapio_machine(const coco_t *m, const snap_info_t *info, machine_t *
     const char *err = carts_load(&want, &g_boot.job);
     for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
         cart_kind_t k = info->slot[s];
-        if ((k == CART_ROM || k == CART_RSDOS) && !want.slot[s].len) {
+        if ((k == CART_ROM || k == CART_RSDOS || k == CART_SSC) && !want.slot[s].len) {
             (void)carts_load(&g_boot.port, &g_boot.job);
             *st = SNAP_NO_CART;
             if (k == CART_RSDOS) snprintf(why, sizeof why, "NO DISK BASIC ROM");
+            else if (k == CART_SSC) snprintf(why, sizeof why, "NO SPEECH/SOUND ROMS");
             else snprintf(why, sizeof why, "NO %.24s", base(s_media.cart[s]));
             log_core1("  snapshot     : its slot %u, %s: %s\n", s + 1u, want.slot[s].name[0] ?
                       want.slot[s].name : s_media.cart[s], err ? err : "?");

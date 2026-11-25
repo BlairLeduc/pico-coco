@@ -22,6 +22,8 @@
 
 #define CARTS_MPI        "mpi"
 #define CARTS_SMARTWATCH "smartwatch"
+#define CARTS_SSC        "ssc"        /* the Speech/Sound Cartridge (§12.9) */
+#define CARTS_SSC_BYTES  6144u        /* its two ROMs in the pool          */
 /* Why a ROM that fits the window does not fit what the pool has left. */
 #define CARTS_NO_ROOM    "NO ROOM: 32K FOR ALL"
 

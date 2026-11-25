@@ -131,6 +131,8 @@ static void one_rom(card_job_t *j, const FILINFO *fi, uint8_t *basic, uint8_t *b
         what = romset_images[id].file;
     }
     if (id == ROM_COCO_DISK11) snprintf(j->disk_path, sizeof j->disk_path, "%s", path);
+    if (id == ROM_SSC_PIC7040) snprintf(j->ssc_pic_path, sizeof j->ssc_pic_path, "%s", path);
+    if (id == ROM_SSC_AL2) snprintf(j->ssc_al2_path, sizeof j->ssc_al2_path, "%s", path);
     log_core1("  rom          : %s, %lu bytes, sha1 %s, %s%s, %lu us\n", fi->fname,
               (unsigned long)len, hex, id == ROM_UNKNOWN ? "" : "recognised as ", what,
               (unsigned long)us);
@@ -272,6 +274,20 @@ const char *card_disk_rom_load(const card_job_t *job, uint8_t *dst, uint32_t *le
     if (romset_identify(dst, r->size) != ROM_COCO_DISK11) return "DISK11.ROM HAS CHANGED";
     *len = r->size;
     log_core1("  cart         : RS-DOS, %s, %lu bytes\n", job->disk_path, (unsigned long)r->size);
+    return NULL;
+}
+
+const char *card_ssc_roms_load(const card_job_t *job, uint8_t *dst) {
+    const rom_info_t *p = &romset_images[ROM_SSC_PIC7040], *a = &romset_images[ROM_SSC_AL2];
+    if (!job->ssc_pic_path[0]) return "NEEDS PIC-7040-510.BIN";
+    if (!job->ssc_al2_path[0]) return "NEEDS SP0256-AL2.BIN";
+    if (!load_file(job->ssc_pic_path, dst, p->size) ||
+        romset_identify(dst, p->size) != ROM_SSC_PIC7040)
+        return "PIC-7040-510.BIN UNREADABLE";
+    if (!load_file(job->ssc_al2_path, dst + p->size, a->size) ||
+        romset_identify(dst + p->size, a->size) != ROM_SSC_AL2)
+        return "SP0256-AL2.BIN UNREADABLE";
+    log_core1("  cart         : speech/sound, %s and %s\n", job->ssc_pic_path, job->ssc_al2_path);
     return NULL;
 }
 

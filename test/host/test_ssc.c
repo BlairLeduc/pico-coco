@@ -13,7 +13,12 @@
  *   - $FF7D, 1 then 0, resets the cartridge mid-sentence: silence;
  *   - in a Multi-Pak beside Disk BASIC, the cartridge in slot 2 and the
  *     disk controller in slot 4 with the switch at it, as The Interbank
- *     Incident wants them: Disk BASIC starts, and the cartridge speaks.
+ *     Incident wants them: Disk BASIC starts, and the cartridge speaks;
+ *   - a save state taken mid-sentence (snapshot.h, version 3), loaded
+ *     into a machine doing something else: the two run on alike, the
+ *     cartridge's every register and sample; a state with the
+ *     cartridge's clock moved is refused, and one from a machine without
+ *     the cartridge will not load into one with it.
  */
 
 #include <stdio.h>
@@ -22,6 +27,7 @@
 
 #include "bus.h"
 #include "guest.h"
+#include "snap_util.h"
 #include "test_util.h"
 
 static guest_t g;
@@ -170,6 +176,95 @@ static int test_mpi(void) {
     return 0;
 }
 
+static guest_t h;
+static mem_t snap;
+static int16_t pcm_a[200000], pcm_b[200000];
+
+static size_t drain_all(coco_t *m, int16_t *dst, size_t max) {
+    size_t n = 0, k;
+    while ((k = coco_audio_drain(m, dst + n, max - n)) > 0) n += k;
+    return n;
+}
+
+static int test_snapshot(void) {
+    build_ssc();
+    CHECK(guest_boot(&g), "BASIC did not boot");
+    guest_type(&g, "POKE &HFF01,52:POKE &HFF03,63:POKE &HFF23,60\r");
+    for (const char *p = "I CAN TALK "; *p; p++) {
+        while (!(bus_read(&g.m, 0xFF7E) & 0x80)) guest_fields(&g, 1);
+        bus_write(&g.m, 0xFF7E, (uint8_t)*p);
+        guest_fields(&g, 1);
+    }
+    while (!(bus_read(&g.m, 0xFF7E) & 0x80)) guest_fields(&g, 1);
+    bus_write(&g.m, 0xFF7E, 13);
+    guest_fields(&g, 40);   /* mid-sentence */
+    CHECK(!g.m.port.ssc.sp.sby, "not speaking when the state was taken");
+    CHECK(mem_save(&snap, &g.m, NULL) == SNAP_OK, "the save with the cartridge speaking");
+
+    /* The second machine, the same port, a different sentence under way. */
+    h = g;
+    coco_copy(&h.m, &g.m);
+    bus_write(&h.m, 0xFF7D, 1);
+    bus_write(&h.m, 0xFF7D, 0);
+    for (int f = 0; f < 5; f++) coco_run_field(&h.m);
+    for (const char *p = "HELLO THERE, WORLD.\r"; *p; p++) {
+        while (!(bus_read(&h.m, 0xFF7E) & 0x80)) coco_run_field(&h.m);
+        bus_write(&h.m, 0xFF7E, (uint8_t)*p);
+        coco_run_field(&h.m);
+    }
+    for (int f = 0; f < 20; f++) coco_run_field(&h.m);
+    CHECK(memcmp(h.m.port.ssc.ram, g.m.port.ssc.ram, SSC_RAM_SIZE) != 0,
+          "the second machine's cartridge RAM is the first's: the load proves nothing of it");
+    CHECK(mem_check(&snap, &h.m, NULL, NULL) == SNAP_OK, "check refused the state");
+    CHECK(mem_load(&snap, &h.m) == SNAP_OK, "load refused the state");
+    /* A load starts the sound's sample grid again at its tick (snapshot.h):
+     * the first machine takes its own state back too, so the two grids
+     * stand alike. */
+    CHECK(mem_load(&snap, &g.m) == SNAP_OK, "the first machine refused its own state");
+    /* The DC blocker's memory is not state either: off, for the sum. */
+    g.m.pcm.dc_block = h.m.pcm.dc_block = false;
+    (void)drain_all(&g.m, pcm_a, 200000);
+    (void)drain_all(&h.m, pcm_b, 200000);
+    size_t na = 0, nb = 0;
+    for (int f = 0; f < 120; f++) {
+        coco_run_field(&g.m);
+        coco_run_field(&h.m);
+        na += drain_all(&g.m, pcm_a + na, 200000 - na);
+        nb += drain_all(&h.m, pcm_b + nb, 200000 - nb);
+    }
+    const ssc_t *a = &g.m.port.ssc, *b = &h.m.port.ssc;
+    CHECK(a->cpu.pc == b->cpu.pc && a->cpu.cycles == b->cpu.cycles && a->cpu.st == b->cpu.st &&
+          memcmp(a->cpu.rf, b->cpu.rf, sizeof a->cpu.rf) == 0, "the TMS7040s parted after the load");
+    CHECK(memcmp(a->ram, b->ram, sizeof a->ram) == 0, "the cartridges' RAMs parted");
+    CHECK(a->sp.samples == b->sp.samples && a->sp.out == b->sp.out && a->allophones == b->allophones,
+          "the SP0256s parted: %u/%u samples", a->sp.samples, b->sp.samples);
+    CHECK(na == nb && na > 1000u && memcmp(pcm_a, pcm_b, na * sizeof pcm_a[0]) == 0,
+          "the sound parted after the load (%zu and %zu samples)", na, nb);
+    printf("snapshot: restored mid-sentence, the same 120 fields on: %u allophones, %zu samples\n",
+           a->allophones, na);
+
+    /* The control: the cartridge's clock moved a long way is refused. */
+    CHECK(mem_save(&snap, &g.m, NULL) == SNAP_OK, "save");
+    unsigned off = SNAP_HEADER_LEN + SNAP_STATE_LEN + SNAP_PORT_LEN;
+    snap.buf[off + 1] ^= 0x01u;           /* the PC: any value will do */
+    mem_recrc(&snap);
+    CHECK(mem_check(&snap, &h.m, NULL, NULL) == SNAP_OK, "a changed PC was refused");
+    CHECK(mem_save(&snap, &g.m, NULL) == SNAP_OK, "save");
+    /* cycle0, after the CPU's 256 + 30 bytes and the board's 2 KB + 6. */
+    unsigned c0 = off + 1 + 2 + 1 + 1 + 256 + 7 + 4 + 4 + 3 + 1 + 8 + 8 + 4 + SSC_RAM_SIZE + 4 + 1 + 1;
+    snap.buf[c0 + 3] ^= 0x10u;
+    mem_recrc(&snap);
+    CHECK(mem_check(&snap, &h.m, NULL, NULL) == SNAP_NOT_SNAPSHOT, "a cartridge's clock far off was taken");
+
+    /* A machine without the cartridge: its state will not load here. */
+    guest_build(&h, 64, true);
+    for (int f = 0; f < 30; f++) coco_run_field(&h.m);
+    CHECK(mem_save(&snap, &h.m, NULL) == SNAP_OK, "save without the cartridge");
+    CHECK(mem_check(&snap, &g.m, NULL, NULL) == SNAP_OTHER_MACHINE,
+          "a state without the cartridge would load into a machine with one");
+    return 0;
+}
+
 int main(void) {
     const char *dir;
     if (!guest_find_roms(&dir) || !guest_have_rom(ROM_COCO_EXTBAS11)) {
@@ -181,6 +276,7 @@ int main(void) {
         return TEST_SKIP_CODE;
     }
     if (test_basic()) return 1;
+    if (test_snapshot()) return 1;
     if (guest_have_rom(ROM_COCO_DISK11) && test_mpi()) return 1;
     TEST_DONE();
 }

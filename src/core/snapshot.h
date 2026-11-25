@@ -9,10 +9,13 @@
  *
  *   header  20 bytes: "COCOSNAP" (8), version (2), header length (2),
  *           payload length (4), CRC-32 of the payload (4)
- *   payload the state (SNAP_STATE_LEN), the port (SNAP_PORT_LEN), all
- *           64 KB of coco_t's RAM, then the media (SNAP_MEDIA_LEN)
+ *   payload the state (SNAP_STATE_LEN), the port (SNAP_PORT_LEN), the
+ *           Speech/Sound Cartridge (SNAP_SSC_LEN), all 64 KB of coco_t's
+ *           RAM, then the media (SNAP_MEDIA_LEN)
  *
- * Version 2 (M17) added the port section, the cartridge port as cart.h
+ * Version 3 (M18) added the Speech/Sound Cartridge's section after the
+ * port's (SNAP_SSC_LEN): its TMS7040, its RAM, its AY and its SP0256,
+ * zero without one. Version 2 (M17) added the port section, the cartridge port as cart.h
  * has it: whether a Multi-Pak is fitted, its switch and $FF7F, and for
  * each slot its kind, its ROM's hash and a SmartWatch's set; and to the
  * media, slots 2 to 4's names. Version 1, which has neither, still
@@ -59,10 +62,11 @@
 #include "coco.h"
 #include "romset.h"
 
-#define SNAP_VERSION     2u
+#define SNAP_VERSION     3u
 #define SNAP_HEADER_LEN  20u
 #define SNAP_STATE_LEN   256u
 #define SNAP_PORT_LEN    160u   /* version 2's                          */
+#define SNAP_SSC_LEN     3072u  /* version 3's                          */
 /* The deck's path, slot 1's (the cartridge's without a Multi-Pak),
  * COCO_SNAP_DRIVES drives', each COCO_PATH_MAX bytes NUL-padded; then
  * the deck's place, its rewind mark and flags (4 bytes each), and 4
@@ -72,7 +76,8 @@
 #define SNAP_MEDIA_V1_LEN ((2u + COCO_SNAP_DRIVES) * COCO_PATH_MAX + 16u)
 #define SNAP_MEDIA_LEN   (SNAP_MEDIA_V1_LEN + (COCO_MPI_SLOTS - 1u) * COCO_PATH_MAX)
 #define SNAP_PAYLOAD_V1_LEN (SNAP_STATE_LEN + COCO_ADDR_SPACE + SNAP_MEDIA_V1_LEN)
-#define SNAP_PAYLOAD_LEN (SNAP_STATE_LEN + SNAP_PORT_LEN + COCO_ADDR_SPACE + SNAP_MEDIA_LEN)
+#define SNAP_PAYLOAD_V2_LEN (SNAP_STATE_LEN + SNAP_PORT_LEN + COCO_ADDR_SPACE + SNAP_MEDIA_LEN)
+#define SNAP_PAYLOAD_LEN (SNAP_PAYLOAD_V2_LEN + SNAP_SSC_LEN)
 #define SNAP_FILE_LEN    (SNAP_HEADER_LEN + SNAP_PAYLOAD_LEN)
 
 typedef enum {

@@ -18,6 +18,7 @@ static uint8_t s_st[SNAP_STATE_LEN];
 static uint8_t s_port[SNAP_PORT_LEN];
 static uint8_t s_piece[256];
 static uint8_t s_media[SNAP_MEDIA_LEN];
+static uint8_t s_ssc[SNAP_SSC_LEN];
 
 /* ---- CRC-32 ---------------------------------------------------------- */
 
@@ -263,7 +264,7 @@ static bool port_plausible(const uint8_t st[SNAP_STATE_LEN], const uint8_t pt[SN
     if ((pt[P_SWITCH] | pt[P_CTS] | pt[P_SCS]) >= COCO_MPI_SLOTS) return false;
     if (!mpi && (pt[P_SWITCH] | pt[P_CTS] | pt[P_SCS])) return false;
     if (!zero(pt + 4, P_SLOT - 4) || !zero(pt + P_END, SNAP_PORT_LEN - P_END)) return false;
-    unsigned rsdos = 0;
+    unsigned rsdos = 0, ssc = 0;
     for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
         const uint8_t *q = pt + P_SLOT + s * P_SLOT_LEN;
         uint8_t k = q[PS_KIND], fl = q[PS_FLAGS];
@@ -272,6 +273,8 @@ static bool port_plausible(const uint8_t st[SNAP_STATE_LEN], const uint8_t pt[SN
             continue;
         }
         if (k == CART_MPI || k >= CART_KINDS || (fl & ~(PSF_ROM | PSF_AUTOSTART))) return false;
+        if (k == CART_SSC && fl) return false;   /* nothing on CTS */
+        ssc += k == CART_SSC;
         if (k != CART_ORCH90 && (q[PS_ORCH_L] | q[PS_ORCH_R])) return false;
         if ((fl & PSF_AUTOSTART) && !(fl & PSF_ROM)) return false;
         if (k == CART_NONE && fl) return false;
@@ -284,7 +287,7 @@ static bool port_plausible(const uint8_t st[SNAP_STATE_LEN], const uint8_t pt[SN
     }
     /* One controller, which the state section says is there; and slot 1
      * as the state section has it. */
-    if (rsdos > 1u || (rsdos == 1u) != ((f & M_RSDOS) != 0)) return false;
+    if (rsdos > 1u || (rsdos == 1u) != ((f & M_RSDOS) != 0) || ssc > 1u) return false;
     const uint8_t *q = pt + P_SLOT;
     if (((q[PS_FLAGS] & PSF_ROM) != 0) != ((f & M_CART) != 0) ||
         ((q[PS_FLAGS] & PSF_AUTOSTART) != 0) != ((f & M_AUTOSTART) != 0) ||
@@ -439,6 +442,145 @@ static void media_decode(const uint8_t in[SNAP_MEDIA_LEN], size_t len, snap_medi
         memcpy(md->cart[s], in + MD_SLOTS + (s - 1u) * COCO_PATH_MAX, COCO_PATH_MAX);
 }
 
+static int64_t dist(uint64_t a, uint64_t b);
+
+/* ---- the Speech/Sound Cartridge (version 3) ---------------------------- */
+
+/* Its section, field by field: one walk that writes or reads, so the two
+ * cannot part. Byte 0 is 1 with a cartridge live, its ROMs present. */
+typedef struct {
+    uint8_t *b;
+    unsigned at;
+    bool     out;
+} walk_t;
+
+static void w_bytes(walk_t *w, void *p, unsigned n) {
+    if (w->at + n > SNAP_SSC_LEN) return;
+    if (w->out) memcpy(w->b + w->at, p, n);
+    else memcpy(p, w->b + w->at, n);
+    w->at += n;
+}
+static void w_u8(walk_t *w, uint8_t *v) { w_bytes(w, v, 1); }
+static void w_bool(walk_t *w, bool *v) {
+    uint8_t x = *v ? 1u : 0u;
+    w_u8(w, &x);
+    if (!w->out) *v = x != 0;
+}
+static void w_u16(walk_t *w, uint16_t *v) {
+    uint8_t x[2] = { 0, 0 };
+    if (w->out) put16(x, *v);
+    w_bytes(w, x, 2);
+    if (!w->out) *v = get16(x);
+}
+static void w_i16(walk_t *w, int16_t *v) {
+    uint16_t x = (uint16_t)*v;
+    w_u16(w, &x);
+    if (!w->out) *v = (int16_t)x;
+}
+static void w_u32(walk_t *w, uint32_t *v) {
+    uint8_t x[4] = { 0, 0, 0, 0 };
+    if (w->out) put32(x, *v);
+    w_bytes(w, x, 4);
+    if (!w->out) *v = get32(x);
+}
+static void w_u64(walk_t *w, uint64_t *v) {
+    uint8_t x[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    if (w->out) put64(x, *v);
+    w_bytes(w, x, 8);
+    if (!w->out) *v = get64(x);
+}
+static void w_i64(walk_t *w, int64_t *v) {
+    uint64_t x = (uint64_t)*v;
+    w_u64(w, &x);
+    if (!w->out) *v = (int64_t)x;
+}
+static void w_i8(walk_t *w, int8_t *v) {
+    uint8_t x = (uint8_t)*v;
+    w_u8(w, &x);
+    if (!w->out) *v = (int8_t)x;
+}
+
+static void ssc_walk(walk_t *w, ssc_t *s) {
+    tms7000_t *c = &s->cpu;
+    w_u16(w, &c->pc); w_u8(w, &c->sp); w_u8(w, &c->st);
+    w_bytes(w, c->rf, sizeof c->rf);
+    w_u8(w, &c->iocnt0); w_u8(w, &c->t1_reload); w_u8(w, &c->t1_ctl); w_u8(w, &c->t1_dec);
+    w_u8(w, &c->t1_pre); w_u8(w, &c->t1_capture); w_u8(w, &c->t1_phase);
+    w_bytes(w, c->latch, sizeof c->latch);
+    w_bytes(w, c->ddr, sizeof c->ddr);
+    for (unsigned i = 0; i < 3u; i++) w_bool(w, &c->line[i]);
+    w_bool(w, &c->idle);
+    w_u64(w, &c->cycles); w_u64(w, &c->instructions); w_u32(w, &c->illegal);
+
+    w_bytes(w, s->ram, sizeof s->ram);
+    w_u8(w, &s->porta); w_u8(w, &s->portb); w_u8(w, &s->portc); w_u8(w, &s->portd);
+    w_bool(w, &s->busy); w_u8(w, &s->reset_line);
+    w_u64(w, &s->cycle0); w_u64(w, &s->sp_next); w_u32(w, &s->sp_frac);
+    w_u32(w, &s->ay_level); w_u32(w, &s->level); w_u32(w, &s->allophones);
+
+    ay8912_t *a = &s->ay;
+    w_bytes(w, a->reg, sizeof a->reg);
+    w_u8(w, &a->addr); w_bool(w, &a->selected); w_u8(w, &a->mode); w_bool(w, &a->driving);
+    w_u8(w, &a->bus_out); w_u8(w, &a->port_a_in); w_u32(w, &a->writes); w_u32(w, &a->env_starts);
+    w_u64(w, &a->t);
+    for (unsigned g = 0; g < AY_GEN_COUNT; g++) { w_i64(w, &a->next[g]); w_u32(w, &a->per[g]); }
+    w_u8(w, &a->tone_out); w_u8(w, &a->noise_pre); w_u32(w, &a->rng);
+    w_i8(w, &a->env_step); w_u8(w, &a->env_attack);
+    w_bool(w, &a->env_hold); w_bool(w, &a->env_alt); w_bool(w, &a->env_holding);
+    w_u8(w, &a->stepped); w_u8(w, &a->averaged); w_u16(w, &a->avg_tp); w_bool(w, &a->avg_off);
+    w_u32(w, &a->events);
+
+    sp0256_t *p = &s->sp;
+    w_u32(w, &p->pc); w_u32(w, &p->stack); w_u32(w, &p->page); w_u8(w, &p->mode);
+    w_bool(w, &p->halted); w_bool(w, &p->lrq); w_bool(w, &p->sby); w_u16(w, &p->ald);
+    w_bool(w, &p->silent);
+    w_i16(w, &p->rpt); w_i16(w, &p->cnt); w_u16(w, &p->per); w_u16(w, &p->rng);
+    w_i16(w, &p->amp); w_bool(w, &p->interp);
+    for (unsigned i = 0; i < 6u; i++) {
+        w_i16(w, &p->b_coef[i]); w_i16(w, &p->f_coef[i]);
+        w_i16(w, &p->z[i][0]); w_i16(w, &p->z[i][1]);
+    }
+    w_bytes(w, p->r, sizeof p->r);
+    w_i16(w, &p->out); w_u32(w, &p->samples); w_u32(w, &p->allophones);
+}
+
+static void ssc_encode(const coco_t *m, uint8_t b[SNAP_SSC_LEN]) {
+    memset(b, 0, SNAP_SSC_LEN);
+    if (!cart_ssc_live(&m->port)) return;
+    b[0] = 1;
+    walk_t w = { b, 1, true };
+    ssc_walk(&w, (ssc_t *)&m->port.ssc);
+}
+
+/* Could a running cartridge have had this, at tick `now`? Its clocks
+ * near now, as ssc_run leaves them; the counts it indexes and divides by
+ * in range. The rest, a CPU's registers and RAM, any value will do. */
+static bool ssc_plausible(const uint8_t b[SNAP_SSC_LEN], uint64_t now) {
+    if (b[0] > 1u) return false;
+    if (!b[0]) {
+        for (unsigned i = 1; i < SNAP_SSC_LEN; i++)
+            if (b[i]) return false;
+        return true;
+    }
+    static ssc_t t;
+    memset(&t, 0, sizeof t);
+    walk_t w = { (uint8_t *)b, 1, false };
+    ssc_walk(&w, &t);
+    for (unsigned i = w.at; i < SNAP_SSC_LEN; i++)
+        if (b[i]) return false;
+    if (t.cpu.t1_phase >= 8u || t.sp_frac >= SSC_SP_TICKS_DEN) return false;
+    if (t.cycle0 > now) return false;
+    uint64_t cpu_at = t.cycle0 + t.cpu.cycles * SSC_TICKS_PER_CYCLE;
+    if (dist(cpu_at, now) > 1024 || dist(now, cpu_at) > 1024) return false;
+    if (dist(t.sp_next, now) > (int64_t)(2u * SSC_SP_TICKS_NUM / SSC_SP_TICKS_DEN) ||
+        dist(now, t.sp_next) > 0)
+        return false;
+    if (dist(t.cycle0 + t.ay.t * SSC_TICKS_PER_AY, now) > 64) return false;
+    for (unsigned g = 0; g < AY_GEN_COUNT; g++) if (!t.ay.per[g]) return false;
+    if (t.sp.rpt < -1 || t.sp.cnt < -1) return false;
+    return true;
+}
+
 /* ---- the stream -------------------------------------------------------- */
 
 snap_status_t snapshot_save(const coco_t *m, const snap_media_t *media, snap_write_fn write,
@@ -453,12 +595,14 @@ snap_status_t snapshot_save(const coco_t *m, const snap_media_t *media, snap_wri
     uint8_t *st = s_st;
     state_encode(m, st);
     port_encode(m, s_port);
+    ssc_encode(m, s_ssc);
     media_encode(media, s_media);
 
     /* The CRC goes in the header, ahead of what it covers; the machine is
      * the buffer, and nothing changes it in between. */
     uint32_t crc = snapshot_crc32(0, st, SNAP_STATE_LEN);
     crc = snapshot_crc32(crc, s_port, SNAP_PORT_LEN);
+    crc = snapshot_crc32(crc, s_ssc, SNAP_SSC_LEN);
     crc = snapshot_crc32(crc, m->ram, sizeof m->ram);
     crc = snapshot_crc32(crc, s_media, SNAP_MEDIA_LEN);
 
@@ -472,20 +616,21 @@ snap_status_t snapshot_save(const coco_t *m, const snap_media_t *media, snap_wri
     if (!write(ctx, hdr, sizeof hdr)) return SNAP_IO;
     if (!write(ctx, st, SNAP_STATE_LEN)) return SNAP_IO;
     if (!write(ctx, s_port, SNAP_PORT_LEN)) return SNAP_IO;
+    if (!write(ctx, s_ssc, SNAP_SSC_LEN)) return SNAP_IO;
     for (uint32_t off = 0; off < sizeof m->ram; off += 4096u)
         if (!write(ctx, m->ram + off, 4096u)) return SNAP_IO;
     if (!write(ctx, s_media, SNAP_MEDIA_LEN)) return SNAP_IO;
     return SNAP_OK;
 }
 
-/* The header, and the file's version, 1 or 2. */
+/* The header, and the file's version, 1 to 3. */
 static snap_status_t read_header(snap_read_fn read, void *ctx, uint32_t *crc, unsigned *version) {
     uint8_t hdr[SNAP_HEADER_LEN];
     if (!read(ctx, hdr, sizeof hdr)) return SNAP_IO;
     if (memcmp(hdr, magic, sizeof magic) != 0) return SNAP_NOT_SNAPSHOT;
     unsigned v = get16(hdr + 8);
     if (v > SNAP_VERSION) return SNAP_NEWER;
-    uint32_t want = v == 1u ? SNAP_PAYLOAD_V1_LEN : SNAP_PAYLOAD_LEN;
+    uint32_t want = v == 1u ? SNAP_PAYLOAD_V1_LEN : v == 2u ? SNAP_PAYLOAD_V2_LEN : SNAP_PAYLOAD_LEN;
     if (v == 0 || get16(hdr + 10) != SNAP_HEADER_LEN || get32(hdr + 12) != want)
         return SNAP_NOT_SNAPSHOT;
     *crc = get32(hdr + 16);
@@ -493,9 +638,11 @@ static snap_status_t read_header(snap_read_fn read, void *ctx, uint32_t *crc, un
     return SNAP_OK;
 }
 
-/* The state section, and the port section, version 1's made from it;
- * *crc runs over what was read. */
+/* The state section, the port section, version 1's made from it, and
+ * the Speech/Sound Cartridge's, zero before version 3; *crc runs over
+ * what was read. */
 static bool read_sections(snap_read_fn read, void *ctx, unsigned version, uint32_t *crc) {
+    memset(s_ssc, 0, SNAP_SSC_LEN);
     if (!read(ctx, s_st, SNAP_STATE_LEN)) return false;
     *crc = snapshot_crc32(0, s_st, SNAP_STATE_LEN);
     if (version == 1u) {
@@ -504,6 +651,10 @@ static bool read_sections(snap_read_fn read, void *ctx, unsigned version, uint32
     }
     if (!read(ctx, s_port, SNAP_PORT_LEN)) return false;
     *crc = snapshot_crc32(*crc, s_port, SNAP_PORT_LEN);
+    if (version >= 3u) {
+        if (!read(ctx, s_ssc, SNAP_SSC_LEN)) return false;
+        *crc = snapshot_crc32(*crc, s_ssc, SNAP_SSC_LEN);
+    }
     return true;
 }
 
@@ -524,7 +675,8 @@ static void info_of(const uint8_t st[SNAP_STATE_LEN], const uint8_t pt[SNAP_PORT
     for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
         uint8_t k = pt[P_SLOT + s * P_SLOT_LEN + PS_KIND];
         /* An Orchestra-90 is a ROM image to the port (cart.h). */
-        info->slot[s] = k == CART_ORCH90 ? CART_ROM : k < CART_MPI ? (cart_kind_t)k : CART_NONE;
+        info->slot[s] = k == CART_ORCH90 ? CART_ROM : k == CART_SSC ? CART_SSC
+                      : k < CART_MPI ? (cart_kind_t)k : CART_NONE;
     }
 }
 
@@ -629,6 +781,11 @@ static snap_status_t compatible(const coco_t *m, const uint8_t st[SNAP_STATE_LEN
     if (st[S_RAM_K] != (uint8_t)m->cfg.ram_k) return SNAP_OTHER_RAM;
     port_encode(m, mine_port);
     if (st[S_FITTED] != fitted || !same_port(pt, mine_port)) return SNAP_OTHER_MACHINE;
+    /* The Speech/Sound Cartridge: live in both, or in neither; and its
+     * clocks near the state's time. A version 2 state has none. */
+    if ((s_ssc[0] != 0) != cart_ssc_live(&m->port)) return SNAP_OTHER_MACHINE;
+    uint64_t now = get64(st + S_TICK0) + (get64(st + S_CYCLES) - get64(st + S_CYC0)) * st[S_TPC];
+    if (!ssc_plausible(s_ssc, now)) return SNAP_NOT_SNAPSHOT;
     return SNAP_OK;
 }
 
@@ -774,6 +931,11 @@ snap_status_t snapshot_load(coco_t *m, snap_read_fn read, void *ctx) {
         w->open = w->wrote = false;
         w->key = w->bit = 0;
         w->offset = (int64_t)get64(pt + P_SLOT + s * P_SLOT_LEN + PS_OFFSET);
+    }
+    if (s_ssc[0]) {
+        walk_t w = { s_ssc, 1, false };
+        ssc_walk(&w, &p->ssc);
+        p->ssc.attached = true;
     }
 
     coco_restored(m);
