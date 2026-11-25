@@ -110,6 +110,15 @@ settled pulse a sample long, and a pass with an interrupt taken for a
 cycle; in `test_audio` and `test_cart`, the Orchestra-90's right DAC,
 its bus update and another kind taking its writes.
 
+The Orchestra-90 made a Machine page choice at the owner's word, the
+same day: ORCHESTRA-90 and `cart = orch90`, its ROM `orch90.rom` from
+`/coco/roms/` by SHA-1, as the Speech/Sound Cartridge's are, where it
+had been a cartridge image in `/coco/carts/` (still known there). The
+About page's ROM rows, which had shown five of the six images, now
+show BASIC's four and a row for the two cartridges. Host tests and the
+three firmware builds pass; the board scans `/coco/roms/` and names
+`orch90.rom` missing until it is copied there.
+
 **Not checked.** The Orchestra-90 on the device; The Interbank
 Incident played to its end. The status
 bit for a sound in progress is a stand-in for an analogue detector; the

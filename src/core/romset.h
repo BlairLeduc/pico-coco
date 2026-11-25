@@ -23,6 +23,7 @@ typedef enum {
     ROM_COCO_BAS11,     /* Color BASIC 1.1, $A000: the 4 KB CoCo's     */
     ROM_SSC_PIC7040,    /* the Speech/Sound Cartridge's TMS7040 (M18)  */
     ROM_SSC_AL2,        /* its SP0256-AL2's allophones (M18)           */
+    ROM_ORCH90,         /* the Orchestra-90 CC's, $C000 (M18)          */
     ROM_IMAGE_COUNT,
     ROM_UNKNOWN = -1,
 } rom_id_t;

@@ -18,6 +18,7 @@ cart_kind_t carts_kind(const char *name) {
     if (card_is_rsdos(name)) return CART_RSDOS;
     if (strcasecmp(name, CARTS_SMARTWATCH) == 0) return CART_SMARTWATCH;
     if (strcasecmp(name, CARTS_SSC) == 0) return CART_SSC;
+    if (strcasecmp(name, CARTS_ORCH90) == 0) return CART_ORCH90;
     if (strcasecmp(name, CARTS_MPI) == 0) return CART_MPI;
     return CART_ROM;
 }
@@ -56,7 +57,7 @@ const char *carts_load(port_media_t *pm, const card_job_t *job) {
         slot_media_t *sm = &pm->slot[s];
         sm->at = sm->len = 0;
         cart_kind_t k = carts_kind(sm->name);
-        if (k != CART_ROM && k != CART_RSDOS && k != CART_SSC) continue;
+        if (k != CART_ROM && k != CART_RSDOS && k != CART_SSC && k != CART_ORCH90) continue;
         const char *err = NULL;
         uint32_t len = 0;
         if (k == CART_SSC && ssc) {
@@ -72,6 +73,9 @@ const char *carts_load(port_media_t *pm, const card_job_t *job) {
             if (COCO_CART_POOL - at < romset_images[ROM_COCO_DISK11].size) err = CARTS_NO_ROOM;
             else err = card_disk_rom_load(job, g_cart_pool + at, &len);
             rsdos = err == NULL;
+        } else if (k == CART_ORCH90) {
+            if (COCO_CART_POOL - at < romset_images[ROM_ORCH90].size) err = CARTS_NO_ROOM;
+            else err = card_orch90_load(job, g_cart_pool + at, &len);
         } else {
             err = card_cart_load(sm->name, g_cart_pool + at, COCO_CART_POOL - at, &len);
         }
@@ -121,11 +125,11 @@ void carts_config(const port_media_t *pm, coco_config_t *cfg) {
         for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
             cart_kind_t k = carts_kind(pm->slot[s].name);
             /* A ROM that did not load leaves its slot empty. */
-            cfg->slot[s] = (k == CART_ROM || k == CART_SSC) && !pm->slot[s].len ? CART_NONE : k;
+            cfg->slot[s] = (k == CART_ROM || k == CART_SSC || k == CART_ORCH90) && !pm->slot[s].len ? CART_NONE : k;
         }
     } else {
         cart_kind_t k = carts_kind(pm->slot[0].name);
-        cfg->cart = (k == CART_RSDOS || k == CART_SSC) && pm->slot[0].len ? k : CART_NONE;
+        cfg->cart = (k == CART_RSDOS || k == CART_SSC || k == CART_ORCH90) && pm->slot[0].len ? k : CART_NONE;
     }
 }
 
@@ -154,6 +158,7 @@ const char *carts_label(const port_media_t *pm) {
     case CART_RSDOS:      return "DISK CONTROLLER";
     case CART_SMARTWATCH: return "XT-RTC CLOCK";
     case CART_SSC:        return "SPEECH/SOUND";
+    case CART_ORCH90:     return "ORCHESTRA-90";
     default:              return base_of(sm->name);
     }
 }

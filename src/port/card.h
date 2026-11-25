@@ -49,6 +49,8 @@ typedef struct {
      * (card_ssc_roms_load); "" for either the card lacks. */
     char         ssc_pic_path[COCO_PATH_MAX];
     char         ssc_al2_path[COCO_PATH_MAX];
+    /* The Orchestra-90's, likewise (card_orch90_load). */
+    char         orch90_path[COCO_PATH_MAX];
 } card_job_t;
 
 /* The ROMs on the card (design.md §12.1): list COCO_ROM_DIR, read each
@@ -88,6 +90,9 @@ const char *card_disk_rom_load(const card_job_t *job, uint8_t *dst, uint32_t *le
 /* The Speech/Sound Cartridge's ROMs (design.md §12.9), read into dst:
  * the TMS7040's 4 KB, then the SP0256-AL2's 2 KB; NULL, or why not. */
 const char *card_ssc_roms_load(const card_job_t *job, uint8_t *dst);
+/* The Orchestra-90's ROM (design.md §12.10), 8 KB read into dst, its
+ * length in *len; NULL, or why not. */
+const char *card_orch90_load(const card_job_t *job, uint8_t *dst, uint32_t *len);
 
 bool card_is_rsdos(const char *name);
 

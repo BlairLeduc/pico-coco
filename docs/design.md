@@ -2184,12 +2184,18 @@ Multi-Pak's register and the Speech/Sound Cartridge's ports do: M17's
 answer on where the SmartWatch goes covers them all.
 
 **As built** (2026-11-24, host): `CART_ORCH90`, a kind added after
-`CART_MPI` so that the save states' numbers stand. There is no setting
-for it: a ROM whose SHA-1 is the cartridge's
-(`6a20fee9c70b36a6435ac8378f31d5b626017df0`, MAME's and XRoar's image
-and the archive's `.ccc`) makes its slot an Orchestra-90, so it is
-chosen from `/coco/carts/` as any cartridge is, alone or in a Multi-Pak
-slot; the configuration may fit one without its ROM, for the tests. Its
+`CART_MPI` so that the save states' numbers stand. A ROM whose SHA-1
+is the cartridge's (`6a20fee9c70b36a6435ac8378f31d5b626017df0`, MAME's
+and XRoar's image and the archive's `.ccc`; `ROM_ORCH90` in
+`romset.c`) makes its slot an Orchestra-90; the configuration may fit
+one without its ROM, for the tests. On the device it was first chosen
+from `/coco/carts/` as any cartridge is; at the owner's word
+(2026-11-25) it is now a Machine page choice, ORCHESTRA-90, and
+`cart = orch90` or `slotN = orch90`, as this section's plan had it,
+its ROM `orch90.rom` read from `/coco/roms/` by SHA-1 as the disk
+controller's and the Speech/Sound Cartridge's are: ROMs for hardware
+the menu names live there, program cartridges in `/coco/carts/`. A copy
+in `/coco/carts/` is still known by its SHA-1. Its
 CART line is on Q, as MAME has it. **Where its sound goes**, settled by
 running both tools: MAME 0.289 sends the DACs to the cartridge's input
 of the multiplexer and also to a stereo pair of its own; the player

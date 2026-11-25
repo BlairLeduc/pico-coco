@@ -4,8 +4,10 @@
  * One description, port_media_t, for the boot, the Machine page and
  * snapshots: a cartridge, or a Multi-Pak and its four slots. Each slot
  * is named as the settings file writes it: "" empty, "rsdos" the RS-DOS
- * controller, "smartwatch" the SmartWatch (§12.7), else a ROM image in
- * /coco/carts/. Core 1 reads the ROMs off the card straight into the
+ * controller, "smartwatch" the SmartWatch (§12.7), "ssc" the
+ * Speech/Sound Cartridge, "orch90" the Orchestra-90 (its ROM from
+ * /coco/roms/, as the RS-DOS controller's is), else a ROM image in
+ * /coco/carts/, an Orchestra-90 too if its SHA-1 is that ROM's. Core 1 reads the ROMs off the card straight into the
  * machine's pool, coco_t.cart, with the guest parked, and records where
  * each went; core 0's power-on, after coco_init, which leaves the pool,
  * registers them there (coco_slot_rom_placed). There is no second copy.
@@ -24,6 +26,8 @@
 #define CARTS_SMARTWATCH "smartwatch"
 #define CARTS_SSC        "ssc"        /* the Speech/Sound Cartridge (§12.9) */
 #define CARTS_SSC_BYTES  6144u        /* its two ROMs in the pool          */
+#define CARTS_ORCH90     "orch90"     /* the Orchestra-90 CC, its ROM from
+                                       * /coco/roms/ (§12.10)             */
 /* Why a ROM that fits the window does not fit what the pool has left. */
 #define CARTS_NO_ROOM    "NO ROOM: 32K FOR ALL"
 

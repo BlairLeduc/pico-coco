@@ -17,7 +17,8 @@ Cartridge checked on the device with The Interbank Incident (the
 Orchestra-90 not yet);
 M17, M13 and M12 are done** (`docs/design.md` §12.9, §12.10, §17,
 `docs/milestones.md`).
-M18: the Orchestra-90 (`CART_ORCH90`, known by its ROM's SHA-1); the
+M18: the Orchestra-90 (`CART_ORCH90`, known by its ROM's SHA-1, and
+ORCHESTRA-90 on the Machine page with `orch90.rom` in `/coco/roms/`); the
 Speech/Sound Cartridge (`CART_SSC`, `ssc.h`): a TMS7040 (`tms7000.h`,
 held to MAME's by `test_tms7000`), pico-oric's AY (`ay8912.h`) and an
 SP0256-AL2 modelled from its mask ROM (`sp0256.h`, held to MAME's by

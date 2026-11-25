@@ -133,6 +133,7 @@ static void one_rom(card_job_t *j, const FILINFO *fi, uint8_t *basic, uint8_t *b
     if (id == ROM_COCO_DISK11) snprintf(j->disk_path, sizeof j->disk_path, "%s", path);
     if (id == ROM_SSC_PIC7040) snprintf(j->ssc_pic_path, sizeof j->ssc_pic_path, "%s", path);
     if (id == ROM_SSC_AL2) snprintf(j->ssc_al2_path, sizeof j->ssc_al2_path, "%s", path);
+    if (id == ROM_ORCH90) snprintf(j->orch90_path, sizeof j->orch90_path, "%s", path);
     log_core1("  rom          : %s, %lu bytes, sha1 %s, %s%s, %lu us\n", fi->fname,
               (unsigned long)len, hex, id == ROM_UNKNOWN ? "" : "recognised as ", what,
               (unsigned long)us);
@@ -288,6 +289,16 @@ const char *card_ssc_roms_load(const card_job_t *job, uint8_t *dst) {
         romset_identify(dst + p->size, a->size) != ROM_SSC_AL2)
         return "SP0256-AL2.BIN UNREADABLE";
     log_core1("  cart         : speech/sound, %s and %s\n", job->ssc_pic_path, job->ssc_al2_path);
+    return NULL;
+}
+
+const char *card_orch90_load(const card_job_t *job, uint8_t *dst, uint32_t *len) {
+    const rom_info_t *r = &romset_images[ROM_ORCH90];
+    if (!job->orch90_path[0]) return "NEEDS ORCH90.ROM";
+    if (!load_file(job->orch90_path, dst, r->size)) return "CANNOT READ ORCH90.ROM";
+    if (romset_identify(dst, r->size) != ROM_ORCH90) return "ORCH90.ROM HAS CHANGED";
+    *len = r->size;
+    log_core1("  cart         : orchestra-90, %s, %lu bytes\n", job->orch90_path, (unsigned long)r->size);
     return NULL;
 }
 

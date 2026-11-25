@@ -6,6 +6,7 @@
 
 #include "coco.h"
 #include "hot.h"
+#include "romset.h"
 #include "sha1.h"
 
 #define SCS_FIRST       0x40u    /* $FF40-$FF5F                            */
@@ -14,13 +15,6 @@
 #define SMARTWATCH_LOW  0x58u    /* $FF58-$FF5F on SCS (§12.7)             */
 #define ORCH90_LEFT     0xFF7Au  /* §12.10                                 */
 #define ORCH90_RIGHT    0xFF7Bu
-
-/* The Orchestra-90's ROM, Tandy's 26-3143 (§12.10): MAME's and XRoar's
- * image, and the archive's .ccc. */
-static const uint8_t orch90_sha1[SHA1_DIGEST_LEN] = {
-    0x6a, 0x20, 0xfe, 0xe9, 0xc7, 0x0b, 0x36, 0xa6, 0x43, 0x5a,
-    0xc8, 0x37, 0x8f, 0x31, 0xd5, 0xb6, 0x26, 0x01, 0x7d, 0xf0,
-};
 
 static inline bool is_scs(unsigned off) { return off - SCS_FIRST < SCS_END - SCS_FIRST; }
 
@@ -86,7 +80,11 @@ static void take(coco_t *m, cart_t *c, uint32_t at, uint32_t room, size_t len) {
     if (c->kind == CART_NONE || c->kind == CART_ROM) {
         uint8_t h[SHA1_DIGEST_LEN];
         sha1(&m->cart[at], len, h);
-        c->kind = memcmp(h, orch90_sha1, sizeof h) == 0 ? CART_ORCH90 : CART_ROM;
+        /* The Orchestra-90's ROM, Tandy's 26-3143 (§12.10). */
+        c->kind = len == romset_images[ROM_ORCH90].size &&
+                          memcmp(h, romset_images[ROM_ORCH90].sha1, sizeof h) == 0
+                      ? CART_ORCH90
+                      : CART_ROM;
     }
     /* Both tie CART to the Q clock (§12.2; MAME's coco_orch90.cpp). */
     c->autostart = c->kind == CART_ROM || c->kind == CART_ORCH90;
