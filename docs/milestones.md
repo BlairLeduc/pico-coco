@@ -8,8 +8,8 @@ and done-when criteria; this file keeps the full record (EL §14.3).
 
 On branch `m18`, 2026-11-24 to 2026-11-25 (`design.md` §12.5,
 §12.9, §12.10, §17, §18). **Built, checked on the host, and the
-speech checked on the owner's board; The Interbank Incident not yet on
-the device.** Of §17's row: the registers settled from a primary
+Speech/Sound Cartridge checked on the owner's board, The Interbank
+Incident speaking; the Orchestra-90 not on the device.** Of §17's row: the registers settled from a primary
 source (the cartridge's manual), the TMS7000 core held to MAME's, the
 AY's tests from pico-oric passing, the Orchestra-90 held to XRoar's by
 the trace diff and the audio test, and the speech held to MAME's; The
@@ -86,6 +86,19 @@ idle, 41.0% while it speaks (headroom 4.20x, 3.71x, 2.48x); no late
 fields, no slips, no audio underruns or late refills over 300-field
 windows while it spoke.
 
+Then The Interbank Incident, played by the owner on the board, the
+Multi-Pak with the cartridge in slot 2 and Disk BASIC in slot 4: its
+music and speech heard, both too quiet against the disk's sounds. The
+mix's weights were doubled, its peaks bent above a knee rather than
+clipped (`ssc_mix`, `test_ssc`'s mix, which needs no ROMs; planted:
+the first weights, and a hard clip for the knee), and the owner judged
+the new build well balanced with the disk's sounds (2026-11-25). A
+lock-up after answering YES to the cartridge's question was the board
+restarted without it: the Machine page's Apply is not saved until the
+menu's SAVE, and the game waits for a cartridge that is not there, as
+it would on a CoCo; read over SWD from the running machine (no
+Multi-Pak, the disk controller alone, the cartridge's state zero).
+
 **Planted**, each failed: in `test_tms7000`, ten (the subtraction's C,
 SWAP's C, RRC, the prescaler, DECD's Z, BTJZ, IOCNT0's flags, an
 interrupt's status, RETS, and JP ignoring N, which only the oracle
@@ -97,8 +110,8 @@ settled pulse a sample long, and a pass with an interrupt taken for a
 cycle; in `test_audio` and `test_cart`, the Orchestra-90's right DAC,
 its bus update and another kind taking its writes.
 
-**Not checked.** The Interbank Incident on the device, and its speech
-anywhere; the Orchestra-90 on the device. The status
+**Not checked.** The Orchestra-90 on the device; The Interbank
+Incident played to its end. The status
 bit for a sound in progress is a stand-in for an analogue detector; the
 mix of the AY and the SP0256 is an estimate (§18).
 
