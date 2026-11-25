@@ -441,6 +441,35 @@ static bool step(sp0256_t *sp) {
     return true;
 }
 
+bool sp0256_settled(const sp0256_t *sp) {
+    if (!sp->halted || !sp->lrq || sp->interp || !sp->per || sp->out || sp->rpt <= 0) return false;
+    for (unsigned j = 0; j < 6u; j++)
+        if (sp->z[j][0] || sp->z[j][1]) return false;
+    return true;
+}
+
+/* Halted, each sample is: the microsequencer leaves the block one period
+ * long (rpt 1, the registers clear, nothing else moved); a step at the
+ * pitch counter's end is a pulse that ends the block, gives no sample and
+ * clears a filter already clear; the next step counts down and gives 0.
+ * So each sample takes one from the counter, or past its end, adds the
+ * period less one. */
+void sp0256_skip_settled(sp0256_t *sp, uint32_t n) {
+    int32_t cnt = sp->cnt, per = sp->per;
+    sp->samples += n;
+    while (n) {
+        if (cnt <= 0) {
+            cnt += per - 1;
+            n--;
+            continue;
+        }
+        uint32_t run = (uint32_t)cnt < n ? (uint32_t)cnt : n;
+        cnt -= (int32_t)run;
+        n -= run;
+    }
+    sp->cnt = (int16_t)cnt;
+}
+
 int16_t COCO_HOT1(sp0256_sample)(sp0256_t *sp, const uint8_t rom[SP0256_ROM_SIZE]) {
     for (;;) {
         if (sp->rpt <= 0) micro(sp, rom);

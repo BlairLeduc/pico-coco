@@ -474,6 +474,7 @@ static inline int due(const tms7000_t *c) {
 
 uint32_t tms7000_enter(tms7000_t *c, const uint8_t rom[TMS7000_ROM_SIZE], unsigned level) {
     uint32_t cyc = 19;
+    c->entries++;
     c->iocnt0 &= (uint8_t)~(0x02u << (2u * level));
     reflag(c);
     if (c->idle) {
@@ -505,8 +506,35 @@ uint32_t COCO_HOT2(tms7000_step)(tms7000_t *c, const uint8_t rom[TMS7000_ROM_SIZ
 
 uint32_t COCO_HOT2(tms7000_run)(tms7000_t *c, const uint8_t rom[TMS7000_ROM_SIZE], uint64_t until) {
     uint64_t start = c->cycles;
-    while (c->cycles < until) tms7000_step(c, rom);
+    c->stop = false;
+    while (c->cycles < until && !c->stop) tms7000_step(c, rom);
     return (uint32_t)(c->cycles - start);
+}
+
+uint64_t tms7000_timer_horizon(const tms7000_t *c) {
+    if ((c->t1_ctl & (T1_START | T1_SOURCE)) != T1_START) return UINT64_MAX;
+    /* The prescaler to zero, then the decrementer's every P + 1 clocks
+     * (timer_run): pre + 1 + dec (P + 1) clocks to the flag. */
+    uint64_t clocks = (uint64_t)c->t1_pre + 1u + (uint64_t)c->t1_dec * ((c->t1_ctl & T1_PRE) + 1u);
+    return clocks * T1_CLOCK - c->t1_phase;
+}
+
+void tms7000_skip(tms7000_t *c, uint64_t cycles, uint64_t insns) {
+    c->cycles += cycles;
+    c->instructions += insns;
+    if ((c->t1_ctl & (T1_START | T1_SOURCE)) != T1_START) return;
+    uint64_t ph = c->t1_phase + cycles;
+    uint64_t k = ph / T1_CLOCK;
+    c->t1_phase = (uint8_t)(ph % T1_CLOCK);
+    if (k <= c->t1_pre) {
+        c->t1_pre = (uint8_t)(c->t1_pre - k);
+        return;
+    }
+    k -= (uint64_t)c->t1_pre + 1u;
+    uint64_t p1 = (c->t1_ctl & T1_PRE) + 1u;
+    uint64_t steps = 1u + k / p1;
+    c->t1_pre = (uint8_t)((c->t1_ctl & T1_PRE) - k % p1);
+    c->t1_dec = (uint8_t)(c->t1_dec - steps);   /* short of underflow (tms7000.h) */
 }
 
 void tms7000_set_line(tms7000_t *c, unsigned level, bool high) {

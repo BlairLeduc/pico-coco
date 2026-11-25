@@ -102,6 +102,21 @@ typedef struct {
     uint32_t  ay_level;       /* the AY's, to AY_LEVEL_MAX                 */
     uint32_t  level;          /* the mix, to SSC_LEVEL_MAX                 */
     uint32_t  allophones;     /* loaded, since power-on                    */
+    uint32_t  bytes;          /* written at $FF7E since power-on; a count,
+                               * not state (not in a save state)         */
+    /* For ssc_run alone, not state: the AL2 while it runs; a count of
+     * what the 7040 has done to the outside (a port changed, a byte
+     * taken); and the 7040's state at a point it may come back to, to
+     * see it repeat (ssc.c). */
+    const uint8_t *al2_now;
+    uint32_t  effects;
+    uint16_t  idle_pc;
+    uint32_t  idle_effects, idle_entries;
+    uint64_t  idle_cycles, idle_insns, idle_period;
+    uint8_t   idle_rf[256];
+    uint8_t   idle_regs[12];
+    uint32_t  skipped;        /* passes skipped, since power-on            */
+    bool      exact;          /* tests: step every pass and every sample   */
     bool      attached;       /* in a machine's port, which hears it: set
                                * by the port after ssc_init (cart.c)      */
 } ssc_t;

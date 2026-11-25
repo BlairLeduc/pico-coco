@@ -512,6 +512,15 @@ static void COCO_HOT1(update_sound)(coco_t *m) {
     m->sound_edges++;
 }
 
+/* Whether the bus hears the cartridge now: the multiplexer enabled and
+ * set to it. Only then must the Speech/Sound Cartridge be brought up to
+ * a tick before something else moves the bus; otherwise its levels move
+ * nothing, and it runs on in long stretches, cheaply (ssc.c). */
+static inline bool cart_heard(const coco_t *m) {
+    return cart_ssc_live(&m->port) && cb2_level(&m->pia1.b) && cb2_level(&m->pia0.b) &&
+           !ca2_level(&m->pia0.a);
+}
+
 /* The Speech/Sound Cartridge's level moved at tick `at` (ssc.h): the bus
  * from there, if the multiplexer has it. The cartridge is brought up to
  * a tick before anything else moves the bus (cart_ssc_run), so `at` is
@@ -575,7 +584,7 @@ static uint8_t io_read(coco_t *m, uint16_t a) {
     }
     if (off < 0x40u) {
         before_pia(m);
-        if (reg == 2u && cart_ssc_live(&m->port)) cart_ssc_run(m, access_tick(m));   /* PB1 */
+        if (reg == 2u && cart_heard(m)) cart_ssc_run(m, access_tick(m));   /* PB1 */
         if (reg == 2u) m->pia1.b.in = pia1b_pins(m);
         /* PA0 is the cassette's comparator, low with no tape (XRoar; the
          * trace agrees, §18), and the signal's level while one plays
@@ -600,7 +609,8 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
     unsigned reg = a & 3u;
     if (off < 0x20u) {
         before_pia(m);
-        if (cart_ssc_live(&m->port)) cart_ssc_run(m, access_tick(m));   /* ssc.h */
+        /* CA2 and CB2 choose the multiplexer's source. */
+        if (cart_heard(m) || (cart_ssc_live(&m->port) && (reg & 1u))) cart_ssc_run(m, access_tick(m));
         mc6821_write(&m->pia0, reg, v);
         if (reg & 1u) update_sound(m);   /* CA2 and CB2 choose the source */
         update_irq(m);
@@ -609,7 +619,8 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
     }
     if (off < 0x40u) {
         before_pia(m);
-        if (cart_ssc_live(&m->port)) cart_ssc_run(m, access_tick(m));   /* ssc.h */
+        /* CB2 enables the multiplexer. */
+        if (cart_heard(m) || (cart_ssc_live(&m->port) && reg == 3u)) cart_ssc_run(m, access_tick(m));
         lines_due(m, access_tick(m));   /* in the mode they had (§9.3) */
         mc6821_write(&m->pia1, reg, v);
         if (reg == 3u) cart_q(m, access_tick(m) + m->tpc);
@@ -984,7 +995,6 @@ uint32_t COCO_HOT2(coco_run)(coco_t *m, uint32_t ticks) {
         hs_catch_up(m, coco_ticks(m));
         if (cart_due(&m->port) <= coco_ticks(m)) cart_run(m, coco_ticks(m));
     }
-    if (cart_ssc_live(&m->port)) cart_ssc_run(m, coco_ticks(m));   /* ssc.h */
     return (uint32_t)(coco_ticks(m) - start);
 }
 
@@ -1029,7 +1039,10 @@ uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
     memcpy(m->split_last, m->split_now, m->n_split_now * sizeof m->split_now[0]);
     m->n_split_last = m->n_split_now;
     m->n_split_now = 0;
-    /* The samples up to here, for the port to drain with the snapshot. */
+    /* The Speech/Sound Cartridge up to here, once a field unless the bus
+     * hears it sooner (ssc.h); then the samples, for the port to drain
+     * with the snapshot. */
+    if (cart_ssc_live(&m->port)) cart_ssc_run(m, coco_ticks(m));
     pcm_advance(&m->pcm, (uint32_t)coco_ticks(m));
     return (uint32_t)(coco_ticks(m) - start);
 }

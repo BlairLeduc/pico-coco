@@ -18,7 +18,14 @@
  *     into a machine doing something else: the two run on alike, the
  *     cartridge's every register and sample; a state with the
  *     cartridge's clock moved is refused, and one from a machine without
- *     the cartridge will not load into one with it.
+ *     the cartridge will not load into one with it;
+ *   - the idle 7040's repeated passes skipped and the standing-by
+ *     SP0256's samples taken at once end where stepping every one does.
+ *
+ * Planted one at a time (2026-11-25), each failed: a lost noise register
+ * and a lost RAM in the save state; a skip 8 cycles long; a settled
+ * pitch pulse a sample long; and a pass with an interrupt in it taken
+ * for a cycle (the bug the skipping first had).
  */
 
 #include <stdio.h>
@@ -265,6 +272,42 @@ static int test_snapshot(void) {
     return 0;
 }
 
+/* The idle 7040's passes skipped and the standing-by SP0256's samples
+ * taken at once (ssc.c) end where stepping every one does: two machines,
+ * one exact, through idling, speech and idling again. */
+static guest_t e;
+static int test_skip(void) {
+    build_ssc();
+    e = g;
+    coco_copy(&e.m, &g.m);
+    e.m.port.ssc.exact = true;
+    for (int pass = 0; pass < 2; pass++) {
+        coco_t *m = pass ? &e.m : &g.m;
+        for (int f = 0; f < 600; f++) coco_run_field(m);
+        bus_write(m, 0xFF01, 0x34); bus_write(m, 0xFF03, 0x3F); bus_write(m, 0xFF23, 0x3C);
+        for (const char *p = "SPEAK AND SKIP.\r"; *p; p++) {
+            while (!(bus_read(m, 0xFF7E) & 0x80)) coco_run_field(m);
+            bus_write(m, 0xFF7E, (uint8_t)*p);
+            coco_run_field(m);
+        }
+        for (int f = 0; f < 600; f++) coco_run_field(m);
+    }
+    const ssc_t *a = &g.m.port.ssc, *b = &e.m.port.ssc;
+    CHECK(a->skipped > 1000u && b->skipped == 0, "skipped %u passes, and %u exact", a->skipped, b->skipped);
+    CHECK(a->cpu.pc == b->cpu.pc && a->cpu.cycles == b->cpu.cycles &&
+          a->cpu.instructions == b->cpu.instructions && a->cpu.t1_dec == b->cpu.t1_dec &&
+          a->cpu.t1_pre == b->cpu.t1_pre && a->cpu.t1_phase == b->cpu.t1_phase &&
+          memcmp(a->cpu.rf, b->cpu.rf, sizeof a->cpu.rf) == 0,
+          "skipping parted the 7040 from stepping: PC %04X/%04X, %llu/%llu instructions", a->cpu.pc,
+          b->cpu.pc, (unsigned long long)a->cpu.instructions, (unsigned long long)b->cpu.instructions);
+    CHECK(memcmp(&a->sp, &b->sp, sizeof a->sp) == 0 && a->allophones == b->allophones && a->allophones > 8u,
+          "skipping parted the SP0256: %u/%u samples", a->sp.samples, b->sp.samples);
+    CHECK(g.m.sound_level == e.m.sound_level, "the sound bus parted");
+    printf("skip: %u passes skipped, the same 7040, SP0256 and %u allophones as stepping\n",
+           a->skipped, a->allophones);
+    return 0;
+}
+
 int main(void) {
     const char *dir;
     if (!guest_find_roms(&dir) || !guest_have_rom(ROM_COCO_EXTBAS11)) {
@@ -277,6 +320,7 @@ int main(void) {
     }
     if (test_basic()) return 1;
     if (test_snapshot()) return 1;
+    if (test_skip()) return 1;
     if (guest_have_rom(ROM_COCO_DISK11) && test_mpi()) return 1;
     TEST_DONE();
 }

@@ -67,6 +67,14 @@ void sp0256_reset(sp0256_t *sp);
 /* ALD*: an allophone, 0-63. Dropped while LRQ is low, as the chip does. */
 void sp0256_ald(sp0256_t *sp, uint8_t allophone);
 
+/* Whether the chip stands by with its filter at rest, so that each sample
+ * is 0 and moves only the pitch counter: halted, LRQ high, no
+ * interpolation, a pitch period, the filter's memory and output 0. */
+bool sp0256_settled(const sp0256_t *sp);
+
+/* n samples of a settled chip at once, as n calls would leave it. */
+void sp0256_skip_settled(sp0256_t *sp, uint32_t n);
+
 /* One sample, from the mask ROM. Returns it, -8192 to 8191. */
 int16_t sp0256_sample(sp0256_t *sp, const uint8_t rom[SP0256_ROM_SIZE]);
 

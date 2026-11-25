@@ -130,6 +130,26 @@ static int test_own(void) {
     CHECK(n_seen == 3 && seen[0] == 32 && seen[1] == 48 && seen[2] == 56,
           "JSR: pulses %d %d %d, not 32, 48 from the subroutine, then 56 after it", seen[0], seen[1], seen[2]);
     printf("own ROM: the pitch interpolated, and JSR's return to the next byte\n");
+
+    /* A settled chip skipped (sp0256_skip_settled) is as one stepped:
+     * after the first allophone above, halted, its filter at rest. */
+    memset(rom, 0, sizeof rom);
+    bitpos = 0;
+    put_bits(3, 4); put_bits(8, 4); put_bits(0x65, 8); put_bits(9, 8);
+    for (int i = 0; i < 12; i++) put_bits(0, 8);
+    put_bits(0, 8);
+    sp0256_reset(&sp);
+    sp0256_ald(&sp, 0);
+    unsigned settle = 0;
+    while (!sp0256_settled(&sp) && settle < 1000) { sp0256_sample(&sp, rom); settle++; }
+    CHECK(sp0256_settled(&sp), "never settled after the allophone");
+    for (uint32_t n = 1; n < 40; n += 3) {
+        sp0256_t a = sp, b = sp;
+        for (uint32_t i = 0; i < n; i++) sp0256_sample(&a, rom);
+        sp0256_skip_settled(&b, n);
+        CHECK(memcmp(&a, &b, sizeof a) == 0, "%u samples skipped differ from %u stepped", n, n);
+        CHECK(sp0256_settled(&a), "unsettled after %u samples", n);
+    }
     return 0;
 }
 

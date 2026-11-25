@@ -81,9 +81,12 @@ typedef struct tms7000_s {
     bool     line[3];         /* INT1, (unused), INT3 as driven             */
     bool     idle;            /* in IDLE, waiting for an interrupt          */
 
+    bool     stop;            /* set by the board to end tms7000_run after
+                               * the instruction; not state               */
     uint64_t cycles;          /* since power-on                             */
     uint64_t instructions;    /* executed, not interrupt entries            */
     uint32_t illegal;         /* undefined opcodes met, each a 5-cycle NOP  */
+    uint32_t entries;         /* interrupts taken, since power-on           */
 } tms7000_t;
 
 /* The board's ports (ssc.c). A read of an input port; a write gives the
@@ -103,10 +106,20 @@ void tms7000_reset(tms7000_t *c, const uint8_t rom[TMS7000_ROM_SIZE]);
 /* An interrupt line driven high or low (TMS7000_INT1 or _INT3). */
 void tms7000_set_line(tms7000_t *c, unsigned level, bool high);
 
-/* Run whole instructions until at least cycle `until`, taking interrupts
- * between them; returns the cycles run. In IDLE with nothing pending, the
+/* Run whole instructions until at least cycle `until`, or until the board
+ * sets `stop`, taking interrupts between them; returns the cycles run. In IDLE with nothing pending, the
  * time passes in one step, the timer run through it. */
 uint32_t tms7000_run(tms7000_t *c, const uint8_t rom[TMS7000_ROM_SIZE], uint64_t until);
+
+/* Cycles until Timer 1 next raises INT2's flag, from now; UINT64_MAX if
+ * it is stopped. */
+uint64_t tms7000_timer_horizon(const tms7000_t *c);
+
+/* Time passing with nothing executed changing anything: `cycles` and
+ * `insns` added, the timer run through them, which must not reach its
+ * horizon. For a board that has seen the CPU repeat itself exactly
+ * (ssc.c). */
+void tms7000_skip(tms7000_t *c, uint64_t cycles, uint64_t insns);
 
 /* One instruction, or one interrupt entry if one is due; its cycles. */
 uint32_t tms7000_step(tms7000_t *c, const uint8_t rom[TMS7000_ROM_SIZE]);
