@@ -22,9 +22,21 @@
  *   D  the data bus: the RAM's, the AY's, and the allophone on ALD*'s fall
  * The SP0256's LRQ (its FIFO has room) is the 7040's INT1.
  *
- * The 7040's cycle is 16 master ticks (tms7000.h). The cartridge is
- * brought up to a tick before the 6809 touches it and at the field's
- * end (ssc_run).
+ * The 7040's cycle is 16 master ticks (tms7000.h), the AY's 8, and the
+ * SP0256 makes a sample every 312 cycles of its 3.12 MHz crystal, about
+ * 1,431.8 ticks, kept as a rational. ssc_run brings the cartridge up to
+ * a tick, the 7040's instructions and the SP0256's samples in time
+ * order, so LRQ reaches INT1 within a sample; it is called before the
+ * 6809 touches the cartridge, before anything moves the sound bus, and
+ * at the field's end.
+ *
+ * Its sound: the AY and the SP0256 mixed into one level, the
+ * multiplexer's cartridge input (§10), to SSC_LEVEL_MAX: the AY's full
+ * scale, all three channels at 15, SSC_AY_SHARE of it; the SP0256's
+ * swing about SSC_SP_MID, SSC_SP_SHARE either way. The weights are an
+ * estimate, set so that MAME's (its AY at gain 2.0 and its SP0256 at
+ * 1.75) and these sound alike (§18). The level goes to the machine at
+ * each change, stamped (ssc_level_changed, coco.c).
  */
 #ifndef PICO_COCO_SSC_H
 #define PICO_COCO_SSC_H
@@ -32,10 +44,23 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "ay8912.h"
+#include "sp0256.h"
 #include "tms7000.h"
 
 #define SSC_RAM_SIZE     0x800u
 #define SSC_TICKS_PER_CYCLE 16u
+#define SSC_TICKS_PER_AY    8u
+
+/* The SP0256's sample period in master ticks: COCO_TICK_HZ x 312 /
+ * 3,120,000 = 1,431,818 / 1,000 at 14,318,180 Hz (config.h). */
+#define SSC_SP_TICKS_NUM  1431818u
+#define SSC_SP_TICKS_DEN  1000u
+
+#define SSC_LEVEL_MAX    65535u
+#define SSC_AY_SHARE     22937u   /* 0.35 */
+#define SSC_SP_MID       19661u   /* 0.30 */
+#define SSC_SP_SHARE     19661u   /* 0.30 */
 
 #define SSC_RESET   0xFF7Du
 #define SSC_DATA    0xFF7Eu
@@ -66,12 +91,15 @@ typedef struct {
     uint8_t   reset_line;     /* $FF7D as last written                   */
     uint64_t  cycle0;         /* the tick at the 7040's cycle 0          */
 
-    /* M18: the AY-3-8913 and the SP0256-AL2. Until they are built, the
-     * AY's registers alone, and the allophones as they are loaded. */
-    uint8_t   ay_addr;
-    uint8_t   ay_reg[16];
-    uint32_t  allophones;     /* loaded, since power-on                  */
-    uint8_t   last_allophone;
+    ay8912_t  ay;
+    sp0256_t  sp;
+    uint64_t  sp_next;        /* the tick of the SP0256's next sample      */
+    uint32_t  sp_frac;        /* its fraction, in 1/SSC_SP_TICKS_DEN       */
+    uint32_t  ay_level;       /* the AY's, to AY_LEVEL_MAX                 */
+    uint32_t  level;          /* the mix, to SSC_LEVEL_MAX                 */
+    uint32_t  allophones;     /* loaded, since power-on                    */
+    bool      attached;       /* in a machine's port, which hears it: set
+                               * by the port after ssc_init (cart.c)      */
 } ssc_t;
 
 /* Power on, then RESET, the 7040 started from its ROM. `now` is the
@@ -79,11 +107,16 @@ typedef struct {
 void ssc_init(ssc_t *s, const uint8_t rom[TMS7000_ROM_SIZE], uint64_t now);
 
 /* The 6809's access at $FF7D or $FF7E, at tick `now`: the cartridge is
- * brought up to `now` first. */
-uint8_t ssc_read(ssc_t *s, const uint8_t rom[TMS7000_ROM_SIZE], uint16_t a, uint64_t now);
-void    ssc_write(ssc_t *s, const uint8_t rom[TMS7000_ROM_SIZE], uint16_t a, uint8_t v, uint64_t now);
+ * brought up to `now` first. The ROMs are the 7040's and the AL2's. */
+uint8_t ssc_read(ssc_t *s, const uint8_t *rom, const uint8_t *al2, uint16_t a, uint64_t now);
+void    ssc_write(ssc_t *s, const uint8_t *rom, const uint8_t *al2, uint16_t a, uint8_t v,
+                  uint64_t now);
 
 /* Run the cartridge to tick `now`. */
-void ssc_run(ssc_t *s, const uint8_t rom[TMS7000_ROM_SIZE], uint64_t now);
+void ssc_run(ssc_t *s, const uint8_t *rom, const uint8_t *al2, uint64_t now);
+
+/* The machine's (coco.c): the cartridge's level is now s->level, from
+ * tick `at`. */
+void ssc_level_changed(ssc_t *s, uint64_t at);
 
 #endif /* PICO_COCO_SSC_H */

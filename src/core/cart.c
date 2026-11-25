@@ -31,6 +31,8 @@ void cart_init(coco_t *m) {
     const coco_config_t *cfg = &m->cfg;
     p->mpi = cfg->cart == CART_MPI;
     p->rsdos_slot = -1;
+    p->ssc_slot = -1;
+    p->ssc_roms = false;
     for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
         cart_kind_t k = CART_NONE;
         if (p->mpi) k = cfg->slot[s];
@@ -39,6 +41,10 @@ void cart_init(coco_t *m) {
         if (k == CART_RSDOS) {
             if (p->rsdos_slot >= 0) k = CART_NONE;   /* one controller (cart.h) */
             else p->rsdos_slot = (int8_t)s;
+        }
+        if (k == CART_SSC) {
+            if (p->ssc_slot >= 0) k = CART_NONE;     /* one cartridge (cart.h) */
+            else p->ssc_slot = (int8_t)s;
         }
         p->slot[s].kind = k;
         if (k == CART_SMARTWATCH) smartwatch_init(&p->slot[s].u.clock);
@@ -156,13 +162,18 @@ static void COCO_HOT1(scs_write)(coco_t *m, cart_t *c, uint16_t a, uint8_t v, ui
     if (c->kind == CART_RSDOS) rsdos_write(m, c, a, v, now);
 }
 
+static inline const uint8_t *ssc_rom(const coco_t *m) { return &m->cart[m->port.ssc_rom_at]; }
+static inline const uint8_t *ssc_al2(const coco_t *m) { return &m->cart[m->port.ssc_al2_at]; }
+
 uint8_t COCO_HOT1(cart_io_read)(coco_t *m, uint16_t a, uint8_t bus, uint64_t now) {
     cart_port_t *p = &m->port;
     if (is_scs(a & 0xFFu)) return scs_read(m, &p->slot[p->scs], a, bus, now);
     if (p->mpi && a == MPI_REG) return (uint8_t)(p->cts << 4 | p->scs);
-    /* The rest of the page reaches every slot; no kind answers there yet
-     * (M18: the Speech/Sound Cartridge). The Orchestra-90's DACs are
-     * written only. */
+    /* The rest of the page reaches every slot: the Speech/Sound
+     * Cartridge's two addresses. The Orchestra-90's DACs are written
+     * only. */
+    if ((a == SSC_RESET || a == SSC_DATA) && cart_ssc_live(p))
+        return ssc_read(&p->ssc, ssc_rom(m), ssc_al2(m), a, now);
     return bus;
 }
 
@@ -171,6 +182,10 @@ bool COCO_HOT1(cart_io_write)(coco_t *m, uint16_t a, uint8_t v, uint64_t now) {
     if (is_scs(a & 0xFFu)) {
         scs_write(m, &p->slot[p->scs], a, v, now);
         return false;
+    }
+    if ((a == SSC_RESET || a == SSC_DATA) && cart_ssc_live(p)) {
+        ssc_write(&p->ssc, ssc_rom(m), ssc_al2(m), a, v, now);
+        return false;   /* its sound reaches the bus by itself */
     }
     if (a == ORCH90_LEFT || a == ORCH90_RIGHT) {
         /* Every slot sees the rest of the page (§12.8). */
@@ -217,8 +232,46 @@ void cart_reset_select(coco_t *m) {
     p->cts = p->scs = p->switch_slot;
 }
 
+void cart_ssc_run(coco_t *m, uint64_t now) {
+    if (cart_ssc_live(&m->port)) ssc_run(&m->port.ssc, ssc_rom(m), ssc_al2(m), now);
+}
+
+static bool ssc_take(coco_t *m, uint32_t rom_at, uint32_t al2_at) {
+    cart_port_t *p = &m->port;
+    if (p->ssc_slot < 0) return false;
+    if (rom_at > COCO_CART_POOL - TMS7000_ROM_SIZE || al2_at > COCO_CART_POOL - SP0256_ROM_SIZE)
+        return false;
+    p->ssc_rom_at = rom_at;
+    p->ssc_al2_at = al2_at;
+    p->ssc_roms = true;
+    uint32_t end = (rom_at > al2_at ? rom_at + TMS7000_ROM_SIZE : al2_at + SP0256_ROM_SIZE);
+    if (end > p->pool_used) p->pool_used = end;
+    return true;
+}
+
+bool cart_load_ssc(coco_t *m, const uint8_t *rom, const uint8_t *al2) {
+    cart_port_t *p = &m->port;
+    if (p->ssc_slot < 0) return false;
+    uint32_t at = p->ssc_roms ? p->ssc_rom_at : p->pool_used;
+    if (at > COCO_CART_POOL - TMS7000_ROM_SIZE - SP0256_ROM_SIZE) return false;
+    memcpy(&m->cart[at], rom, TMS7000_ROM_SIZE);
+    memcpy(&m->cart[at + TMS7000_ROM_SIZE], al2, SP0256_ROM_SIZE);
+    return ssc_take(m, at, at + TMS7000_ROM_SIZE);
+}
+
+bool cart_ssc_placed(coco_t *m, uint32_t rom_at, uint32_t al2_at) {
+    return ssc_take(m, rom_at, al2_at);
+}
+
 void cart_reset(coco_t *m) {
     cart_port_t *p = &m->port;
+    /* RESET reaches the Speech/Sound Cartridge's chips, all of them, as
+     * MAME resets its devices. */
+    if (cart_ssc_live(p)) {
+        ssc_init(&p->ssc, ssc_rom(m), coco_ticks(m));
+        p->ssc.attached = true;
+        ay8912_set_average(&p->ssc.ay, m->pcm.num, m->pcm.den * SSC_TICKS_PER_AY);
+    }
     for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
         cart_t *c = &p->slot[s];
         /* The SmartWatch keeps its state: the DS1216 does not see RESET. */

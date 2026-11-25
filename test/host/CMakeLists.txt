@@ -47,6 +47,17 @@ foreach(t test_boot test_romset test_screen test_keyboard test_audio_rom test_ta
     set_tests_properties(${t} PROPERTIES SKIP_RETURN_CODE 77 LABELS rom)
 endforeach()
 
+# The AY's tests (test_ay8912) give the chip a sink of their own, so
+# they build its file and the pcm without the core library, whose ssc.c
+# defines the cartridge's sink (ay8912.h).
+add_executable(test_ay8912 test_ay8912.c ${PROJECT_SOURCE_DIR}/src/core/ay8912.c
+               ${PROJECT_SOURCE_DIR}/src/core/pcm.c ${PROJECT_SOURCE_DIR}/src/core/drivesnd.c)
+target_include_directories(test_ay8912 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/src/core)
+target_link_libraries(test_ay8912 PRIVATE m)
+target_compile_options(test_ay8912 PRIVATE ${PICO_COCO_WARNINGS})
+add_test(NAME test_ay8912 COMMAND test_ay8912)
+set_tests_properties(test_ay8912 PROPERTIES SKIP_RETURN_CODE 77)
+
 # The bench's library brings the slow path, which the CPU tests define
 # for themselves, so only test_bench links it.
 target_link_libraries(test_bench PRIVATE pico_coco_bench)

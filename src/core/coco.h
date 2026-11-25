@@ -245,6 +245,10 @@ bool     coco_load_slot_rom(coco_t *m, unsigned s, const uint8_t *data, size_t l
  * put it there with cart_pool_finish before this power-on: coco_init
  * leaves the pool as it was (cart_rom_placed). */
 bool     coco_slot_rom_placed(coco_t *m, unsigned s, uint32_t at, size_t len);
+/* The Speech/Sound Cartridge's ROMs, the TMS7040's 4 KB and the
+ * SP0256-AL2's 2 KB (cart_load_ssc), for a port that has one; before
+ * power-on, as every ROM (§13.3). */
+bool     coco_load_ssc_roms(coco_t *m, const uint8_t *rom, const uint8_t *al2);
 
 /* The cartridge taken out: $C000 reads as an empty slot. Power on after. */
 void     coco_cart_remove(coco_t *m);

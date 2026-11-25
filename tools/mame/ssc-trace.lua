@@ -6,6 +6,9 @@
 --               registers and register file when the trace stops) and
 --               ssc.bytes (each byte given, with the frame)
 --   SSC_FRAMES  how many fields to run (default 600)
+--   SSC_TRACE   0 to leave the trace off (for a recording alone)
+--   SSC_SCRIPT  which bytes: 1 (default) text, the AY and allophones; 2
+--               the manual's allophones alone
 --
 -- The script writes the 6809's side itself, as a program would: $FF7D
 -- set and cleared (the manual's reset), then each byte at $FF7E once
@@ -21,14 +24,22 @@ local dbg = manager.machine.debugger
 -- "I CAN TALK" and CR; the AY's registers through command $AF (tone A
 -- on, at volume 15, period 100); then the manual's allophones for
 -- "COLOR COMPUTER" into buffer 0 (command $B0) and spoken ($F0).
-local bytes = { 0x49,0x20,0x43,0x41,0x4E,0x20,0x54,0x41,0x4C,0x4B,0x20,0x0D,
-                0xAF,7,0x3E, 0xAF,8,15, 0xAF,0,100, 0xAF,1,0,
-                0xB0, 8,15,45,51,4,4,4,8,15,16,9,49,31,13,51,4,255, 0xF0 }
+local scripts = {
+  -- 1: all three
+  { 0x49,0x20,0x43,0x41,0x4E,0x20,0x54,0x41,0x4C,0x4B,0x20,0x0D,
+    0xAF,7,0x3E, 0xAF,8,15, 0xAF,0,100, 0xAF,1,0,
+    0xB0, 8,15,45,51,4,4,4,8,15,16,9,49,31,13,51,4,255, 0xF0 },
+  -- 2: the manual's allophones alone
+  { 0xB0, 8,15,45,51,4,4,4,8,15,16,9,49,31,13,51,4,255, 0xF0 },
+}
+local bytes = scripts[tonumber(os.getenv("SSC_SCRIPT") or "1")]
 local start = 150
 local n, i = 0, 1
 local log = io.open(out .. "/ssc.bytes", "w")
 
-dbg:command("trace " .. out .. "/ssc.tr,:ext:ssc:pic7040,noloop")
+if os.getenv("SSC_TRACE") ~= "0" then
+  dbg:command("trace " .. out .. "/ssc.tr,:ext:ssc:pic7040,noloop")
+end
 
 SUB = emu.add_machine_frame_notifier(function()
   n = n + 1
@@ -41,7 +52,7 @@ SUB = emu.add_machine_frame_notifier(function()
     log:write(string.format("%d reset 0\n", n))
   elseif n >= start and i <= #bytes then
     -- After the text, give the speech time before the next command.
-    local wait = (i == 13 and n < start + 200) or (i == 25 and n < start + 260)
+    local wait = #bytes > 20 and ((i == 13 and n < start + 200) or (i == 25 and n < start + 260))
     if not wait and (mem:read_u8(0xff7e) & 0x80) ~= 0 then
       mem:write_u8(0xff7e, bytes[i])
       log:write(string.format("%d byte %02x\n", n, bytes[i]))

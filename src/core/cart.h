@@ -42,6 +42,11 @@
  *                    it. A ROM whose SHA-1 is the cartridge's makes its
  *                    slot one (cart.c); the configuration may fit one
  *                    too, for the tests, which have no Tandy ROM
+ *   CART_SSC         the Speech/Sound Cartridge (ssc.h, §12.9): a TMS7040,
+ *                    an AY and an SP0256 on $FF7D and $FF7E, outside SCS.
+ *                    One in the port at most, as RS-DOS: its state is the
+ *                    port's, `ssc`, its two ROMs in the pool, and without
+ *                    them it is fitted silent
  * CART_MPI is a Multi-Pak, and only ever the port's. The kinds after it
  * were added after save states had numbered the first five.
  *
@@ -60,6 +65,7 @@
 #include "config.h"
 #include "rsdos.h"
 #include "smartwatch.h"
+#include "ssc.h"
 
 struct coco_s;
 
@@ -70,6 +76,7 @@ typedef enum {
     CART_SMARTWATCH,
     CART_MPI,
     CART_ORCH90,
+    CART_SSC,
     CART_KINDS
 } cart_kind_t;
 
@@ -97,6 +104,11 @@ typedef struct {
     uint32_t pool_used;      /* of coco_t.cart                            */
     cart_t   slot[COCO_MPI_SLOTS];
     rsdos_t  dk;             /* the RS-DOS controller's chips             */
+    int8_t   ssc_slot;       /* the Speech/Sound Cartridge's, or -1        */
+    bool     ssc_roms;       /* its two ROMs are in the pool               */
+    uint32_t ssc_rom_at;     /* the TMS7040's 4 KB, in the pool            */
+    uint32_t ssc_al2_at;     /* the SP0256-AL2's 2 KB                      */
+    ssc_t    ssc;
 } cart_port_t;
 
 /* The port's cartridges from the configuration (coco.h), for coco_init,
@@ -160,6 +172,20 @@ static inline uint64_t cart_due(const cart_port_t *p) {
 
 /* The cartridges' events up to tick now, and the lines they move. */
 void cart_run(struct coco_s *m, uint64_t now);
+
+/* The Speech/Sound Cartridge's two ROMs into the pool, after the slots'
+ * (cart.h): the TMS7040's 4 KB and the SP0256-AL2's 2 KB. False if the
+ * port has none or the pool has no room. cart_ssc_placed takes them
+ * where they already lie. */
+bool cart_load_ssc(struct coco_s *m, const uint8_t *rom, const uint8_t *al2);
+bool cart_ssc_placed(struct coco_s *m, uint32_t rom_at, uint32_t al2_at);
+
+/* The Speech/Sound Cartridge, if one is fitted with its ROMs: its state,
+ * and the cartridge brought up to tick `now` (ssc_run). */
+static inline bool cart_ssc_live(const cart_port_t *p) {
+    return p->ssc_slot >= 0 && p->ssc_roms;
+}
+void cart_ssc_run(struct coco_s *m, uint64_t now);
 
 /* The port's NMI and HALT onto the CPU: any slot's. */
 void cart_lines(struct coco_s *m);
