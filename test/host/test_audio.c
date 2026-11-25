@@ -4,8 +4,9 @@
  * A 6809 program in a ROM of the test's own writes the pins that reach
  * the bus, from a random script: the DAC's port and its direction, the
  * single bit and its direction, PIA1 CB2 enabling the multiplexer, PIA0
- * CA2 and CB2 choosing its source, at random gaps, now and then a long
- * one. Every sample the machine makes is held to the independent model
+ * CA2 and CB2 choosing its source, and an Orchestra-90's two DACs
+ * (§12.10), fitted in every third script and absent from the rest, at
+ * random gaps, now and then a long one. Every sample the machine makes is held to the independent model
  * (sound_model.h) run on the pins the program left after each
  * instruction, to 1 LSB with the DC blocker off; the model with every
  * record a cycle late must not match. No ROM of the user's is needed, so
@@ -111,6 +112,8 @@ static void make_script(unsigned n) {
         case 9:  case 10: a = 0xFF01; v = 0x34; break;   /* back to the DAC */
         case 11: case 12: a = 0xFF03; v = 0x34; break;
         case 13: a = 0xFF21; v = 0x34; break;
+        case 14: case 15: a = 0xFF7A; v = (uint8_t)rnd(256); break;   /* an Orchestra-90's */
+        case 16: case 17: a = 0xFF7B; v = (uint8_t)rnd(256); break;
         default: a = 0xFF20; v = (uint8_t)rnd(256); break;
         }
         table_add(a, v, count);
@@ -118,10 +121,13 @@ static void make_script(unsigned n) {
     table_add(0x0000, 0, 0);
 }
 
-/* Power on the program's machine and log its pins from tick 0. */
-static void start(void) {
+/* Power on the program's machine and log its pins from tick 0: with an
+ * Orchestra-90 fitted by the configuration, or with the port empty, where
+ * its DACs' writes reach nothing. */
+static void start(bool orch) {
     coco_config_t cfg;
     coco_config_default(&cfg);
+    if (orch) cfg.cart = CART_ORCH90;
     coco_init(&g_m, &cfg);
     coco_load_rom(&g_m, 0xA000u, rom, sizeof rom);
     coco_power_on(&g_m);
@@ -160,9 +166,10 @@ static int max_diff(size_t n, size_t *where) {
 
 static int test_scripts(void) {
     size_t samples = 0, edges = 0;
+    unsigned orch = 0;
     for (int s = 0; s < 24; s++) {
         make_script(s < 4 ? 40u : 1500u);
-        start();
+        start(s % 3 == 2);
         run_to_done();
         CHECK(g_m.cpu.pc == PROG_DONE, "script %d never finished", s);
         CHECK(snd_lost == 0, "script %d: %zu records lost", s, snd_lost);
@@ -176,6 +183,11 @@ static int test_scripts(void) {
               core_out[at], snd_model_out[at]);
         samples += n;
         edges += g_m.sound_edges;
+        if (s % 3 == 2) {
+            orch += g_m.port.slot[0].u.orch.left | g_m.port.slot[0].u.orch.right ? 1u : 0u;
+        } else {
+            CHECK(g_m.port.slot[0].kind == CART_NONE, "script %d: a cartridge in an empty port", s);
+        }
 
         /* The control: every record a cycle late. */
         if (s == 5) {
@@ -187,6 +199,7 @@ static int test_scripts(void) {
         }
     }
     CHECK(edges > 5000u, "only %zu changes of level: the scripts barely move the bus", edges);
+    CHECK(orch >= 6u, "the Orchestra-90's DACs were left at 0 in %u of 8 scripts", 8u - orch);
     printf("scripts: %zu samples, %zu changes of level, every sample equal to the model\n",
            samples, edges);
     return 0;
@@ -249,7 +262,7 @@ static int test_dc_block(void) {
  * by hand, with the multiplexer on the DAC: the DAC high, then low. */
 static int test_feedback(void) {
     make_script(0);
-    start();
+    start(false);
     coco_run_field(&g_m);   /* past the first FS rise: the sound has fed PB1 */
     coco_slow_write(&g_m, 0xFF23, 0x34);   /* PIA1 B: data, CB2 low */
     coco_slow_write(&g_m, 0xFF21, 0x30);   /* PIA1 A: the DDR */

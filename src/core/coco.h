@@ -151,6 +151,9 @@ typedef struct coco_s {
                                 * field cut fine costs core 0 (§6) */
     bool     sound_fed;        /* the sound has fed PIA1 PB1 back (coco.c) */
     uint32_t sound_level;      /* the bus now, to COCO_SOUND_LEVEL_MAX  */
+    uint32_t sound_out;        /* it with the cartridges' sound beside
+                                * the multiplexer (cart_beside), as the
+                                * PCM has it; not state                 */
     uint32_t sound_edges;      /* changes of it, since power-on         */
 
     /* The bus as PCM (§10), drained by the port once a field with

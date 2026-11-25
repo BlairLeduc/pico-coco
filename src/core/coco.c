@@ -483,6 +483,13 @@ static uint32_t sound_level_now(const coco_t *m) {
     return m->sound_level;
 }
 
+/* What the PCM hears: the bus and, beside the multiplexer, the
+ * cartridges' own sound (cart_beside, §12.10), to the full scale. */
+static inline uint32_t sound_out(const coco_t *m, uint32_t bus) {
+    uint32_t out = bus + cart_beside(m);
+    return out > COCO_SOUND_LEVEL_MAX ? COCO_SOUND_LEVEL_MAX : out;
+}
+
 /* After a write that can move the bus: the level, stamped with the tick
  * at the start of the writing instruction (EL §6.1). XRoar's sound
  * updates, and feeds PB1 back, at each FS rise and when the single bit
@@ -491,9 +498,11 @@ static void COCO_HOT1(update_sound)(coco_t *m) {
     const mc6821_port_t *pb = &m->pia1.b;
     if ((pb->ddr & 0x02u) || cb2_level(pb)) m->sound_fed = true;
     uint32_t level = sound_level_now(m);
-    if (level == m->sound_level) return;
-    pcm_set_level(&m->pcm, (uint32_t)coco_ticks(m), level);
+    uint32_t out = sound_out(m, level);
+    if (level == m->sound_level && out == m->sound_out) return;
+    if (out != m->sound_out) pcm_set_level(&m->pcm, (uint32_t)coco_ticks(m), out);
     m->sound_level = level;
+    m->sound_out = out;
     m->sound_edges++;
 }
 
@@ -589,7 +598,7 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         return;
     }
     if (off < 0xC0u) {   /* the cartridge port (§12.8) */
-        cart_io_write(m, a, v, access_tick(m));
+        if (cart_io_write(m, a, v, access_tick(m))) update_sound(m);
         return;
     }
     if (off >= 0xC0u && off < 0xE0u) {
@@ -763,11 +772,12 @@ void coco_power_on(coco_t *m) {
     m->fields = 0;
     m->sound_fed = false;
     m->sound_level = 0;   /* XRoar's bus starts at 0 */
+    m->sound_out = sound_out(m, 0);
     m->sound_edges = 0;
     /* The tick count starts again, and the next sample with it; the
      * drives fall silent, their motors stopped. */
     pcm_restart(&m->pcm, 0);
-    pcm_set_level(&m->pcm, 0, 0);
+    pcm_set_level(&m->pcm, 0, m->sound_out);
     drivesnd_motor(&m->pcm.drive, false);
     drivesnd_quiet(&m->pcm.drive);
     m->video_split = false;
@@ -1108,7 +1118,8 @@ void coco_restored(coco_t *m) {
     coco_disk_restored(m);
     drivesnd_quiet(&m->pcm.drive);
     pcm_restart(&m->pcm, now);
-    pcm_set_level(&m->pcm, now, m->sound_level);
+    m->sound_out = sound_out(m, m->sound_level);
+    pcm_set_level(&m->pcm, now, m->sound_out);
 }
 
 void coco_key_set(coco_t *m, int row, int col, bool down) {

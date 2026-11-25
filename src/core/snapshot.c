@@ -139,7 +139,9 @@ enum {
      * PS_ flags, its window's SHA-1, zero with no ROM, and a SmartWatch's
      * set, seconds ahead of the host's clock (smartwatch.h). */
     P_SLOT = 16, P_SLOT_LEN = 32,
-    PS_KIND = 0, PS_FLAGS = 1, PS_HASH = 2, PS_OFFSET = 22, PS_END = 30,
+    PS_KIND = 0, PS_FLAGS = 1, PS_HASH = 2, PS_OFFSET = 22,
+    PS_ORCH_L = 30, PS_ORCH_R = 31,   /* an Orchestra-90's DACs (§12.10)   */
+    PS_END = 32,
     P_END = P_SLOT + COCO_MPI_SLOTS * P_SLOT_LEN,   /* the rest reserved   */
 };
 _Static_assert(PS_HASH + SHA1_DIGEST_LEN == PS_OFFSET, "a slot's hash overruns");
@@ -229,6 +231,10 @@ static void port_encode(const coco_t *m, uint8_t pt[SNAP_PORT_LEN]) {
         q[PS_FLAGS] = (uint8_t)((c->rom ? PSF_ROM : 0) | (c->rom && c->autostart ? PSF_AUTOSTART : 0));
         window_hash(m, s, q + PS_HASH);
         if (c->kind == CART_SMARTWATCH) put64(q + PS_OFFSET, (uint64_t)c->u.clock.offset);
+        if (c->kind == CART_ORCH90) {
+            q[PS_ORCH_L] = c->u.orch.left;
+            q[PS_ORCH_R] = c->u.orch.right;
+        }
     }
 }
 
@@ -265,7 +271,8 @@ static bool port_plausible(const uint8_t st[SNAP_STATE_LEN], const uint8_t pt[SN
             if (!zero(q, P_SLOT_LEN)) return false;   /* only slot 1 without one */
             continue;
         }
-        if (k >= CART_MPI || (fl & ~(PSF_ROM | PSF_AUTOSTART))) return false;
+        if (k == CART_MPI || k >= CART_KINDS || (fl & ~(PSF_ROM | PSF_AUTOSTART))) return false;
+        if (k != CART_ORCH90 && (q[PS_ORCH_L] | q[PS_ORCH_R])) return false;
         if ((fl & PSF_AUTOSTART) && !(fl & PSF_ROM)) return false;
         if (k == CART_NONE && fl) return false;
         if (!(fl & PSF_ROM) && !zero(q + PS_HASH, SHA1_DIGEST_LEN)) return false;
@@ -516,7 +523,8 @@ static void info_of(const uint8_t st[SNAP_STATE_LEN], const uint8_t pt[SNAP_PORT
     info->mpi_switch = pt[P_SWITCH] & 3u;
     for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
         uint8_t k = pt[P_SLOT + s * P_SLOT_LEN + PS_KIND];
-        info->slot[s] = k < CART_MPI ? (cart_kind_t)k : CART_NONE;
+        /* An Orchestra-90 is a ROM image to the port (cart.h). */
+        info->slot[s] = k == CART_ORCH90 ? CART_ROM : k < CART_MPI ? (cart_kind_t)k : CART_NONE;
     }
 }
 
@@ -757,6 +765,10 @@ snap_status_t snapshot_load(coco_t *m, snap_read_fn read, void *ctx) {
     }
     for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
         cart_t *c = &p->slot[s];
+        if (c->kind == CART_ORCH90) {
+            c->u.orch.left = pt[P_SLOT + s * P_SLOT_LEN + PS_ORCH_L];
+            c->u.orch.right = pt[P_SLOT + s * P_SLOT_LEN + PS_ORCH_R];
+        }
         if (c->kind != CART_SMARTWATCH) continue;
         smartwatch_t *w = &c->u.clock;
         w->open = w->wrote = false;

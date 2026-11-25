@@ -30,6 +30,8 @@
 typedef struct {
     uint64_t at;
     uint8_t  pa_out, pa_ddr, pb_out, pb_ddr, cr1b, cr0a, cr0b;
+    /* An Orchestra-90's DACs, beside the bus (§12.10); zero without one. */
+    uint8_t  orch_l, orch_r;
 } snd_rec_t;
 
 #define SND_MAX_RECS 400000u
@@ -51,12 +53,18 @@ static void snd_pins(const coco_t *m, snd_rec_t *r) {
     r->cr1b = m->pia1.b.cr & 0x3Fu;
     r->cr0a = m->pia0.a.cr & 0x3Fu;
     r->cr0b = m->pia0.b.cr & 0x3Fu;
+    r->orch_l = r->orch_r = 0;
+    for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
+        if (m->port.slot[s].kind != CART_ORCH90) continue;
+        r->orch_l = m->port.slot[s].u.orch.left;
+        r->orch_r = m->port.slot[s].u.orch.right;
+    }
 }
 
 static bool snd_same(const snd_rec_t *a, const snd_rec_t *b) {
     return a->pa_out == b->pa_out && a->pa_ddr == b->pa_ddr && a->pb_out == b->pb_out &&
            a->pb_ddr == b->pb_ddr && a->cr1b == b->cr1b && a->cr0a == b->cr0a &&
-           a->cr0b == b->cr0b;
+           a->cr0b == b->cr0b && a->orch_l == b->orch_l && a->orch_r == b->orch_r;
 }
 
 /* coco_t.step_hook: after each step, a record if the pins moved. */
@@ -127,6 +135,15 @@ static double snd_level(const snd_rec_t *r, double held) {
     return held;
 }
 
+/* What is heard: the bus and, beside it, an Orchestra-90's two DACs as
+ * XRoar's orch90.c gives them to its mono output (each D / 255 of the
+ * full scale, summed), here at half, so that both at 255 reach the full
+ * scale, and clipped there (§12.10). */
+static double snd_heard(const snd_rec_t *r, double bus) {
+    double v = bus + ((double)r->orch_l / 255.0 + (double)r->orch_r / 255.0) / 2.0;
+    return v > 1.0 ? 1.0 : v;
+}
+
 /* ---- the box filter, exactly ------------------------------------------ */
 
 static int16_t snd_model_out[SND_MAX_SAMPLES];
@@ -139,7 +156,7 @@ static int16_t snd_model_out[SND_MAX_SAMPLES];
 static size_t snd_model_render(uint64_t from, uint64_t to, uint32_t num, uint32_t den,
                                int64_t shift) {
     size_t n = 0, ri = 0;
-    double level = 0.0;
+    double level = 0.0, heard = 0.0;
     uint64_t end_u = (to - from) * den;
     /* The records in units from `from`, applied in order. */
     for (uint64_t k = 0; (k + 1u) * num <= end_u && n < SND_MAX_SAMPLES; k++) {
@@ -153,13 +170,14 @@ static size_t snd_model_render(uint64_t from, uint64_t to, uint32_t num, uint32_
             }
             if (at_u >= s1) break;
             if (at_u > pos) {
-                acc += level * (double)(at_u - pos);
+                acc += heard * (double)(at_u - pos);
                 pos = at_u;
             }
             level = snd_level(&snd_recs[ri], level);
+            heard = snd_heard(&snd_recs[ri], level);
             ri++;
         }
-        acc += level * (double)(s1 - pos);
+        acc += heard * (double)(s1 - pos);
         double v = acc / (double)num * PCM_FULL_SCALE;
         snd_model_out[n++] = (int16_t)lround(v);
     }

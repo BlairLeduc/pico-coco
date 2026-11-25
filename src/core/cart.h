@@ -35,7 +35,15 @@
  *                    Q. One in the port at most: its chips are the
  *                    port's, `dk`, and a second is fitted empty
  *   CART_SMARTWATCH  a DS1216 on SCS at $FF58-$FF5F (smartwatch.h, §12.7)
- * CART_MPI is a Multi-Pak, and only ever the port's.
+ *   CART_ORCH90      the Orchestra-90 CC (§12.10): its ROM on CTS, which
+ *                    autostarts, and two 8-bit DACs written at $FF7A
+ *                    (left) and $FF7B (right), outside SCS, whose sound
+ *                    is beside the multiplexer, as XRoar's orch90.c has
+ *                    it. A ROM whose SHA-1 is the cartridge's makes its
+ *                    slot one (cart.c); the configuration may fit one
+ *                    too, for the tests, which have no Tandy ROM
+ * CART_MPI is a Multi-Pak, and only ever the port's. The kinds after it
+ * were added after save states had numbered the first five.
  *
  * The slots' ROMs are in coco_t.cart, the pool of COCO_CART_POOL bytes:
  * each in a power of two of room, at least a page, repeated through
@@ -61,6 +69,7 @@ typedef enum {
     CART_RSDOS,
     CART_SMARTWATCH,
     CART_MPI,
+    CART_ORCH90,
     CART_KINDS
 } cart_kind_t;
 
@@ -73,6 +82,9 @@ typedef struct cart_s {
     uint32_t    rom_room;
     union {
         smartwatch_t clock;  /* CART_SMARTWATCH                           */
+        struct {             /* CART_ORCH90: the DACs as last written     */
+            uint8_t left, right;
+        } orch;
     } u;
 } cart_t;
 
@@ -124,7 +136,14 @@ const uint8_t *cart_page(const struct coco_s *m, unsigned p);
  * what an address nothing drives reads, and a read returns it unless a
  * cartridge answers. */
 uint8_t cart_io_read(struct coco_s *m, uint16_t a, uint8_t bus, uint64_t now);
-void    cart_io_write(struct coco_s *m, uint16_t a, uint8_t v, uint64_t now);
+/* True if the write moved the port's sound (cart_beside). */
+bool    cart_io_write(struct coco_s *m, uint16_t a, uint8_t v, uint64_t now);
+
+/* The level the port's cartridges add to the sound bus beside the
+ * multiplexer, to COCO_SOUND_LEVEL_MAX (coco.h): an Orchestra-90's two
+ * DACs, mixed to one channel, each at full scale reaching half of it
+ * (§12.10). */
+uint32_t cart_beside(const struct coco_s *m);
 
 /* RESET's first part, before the page table is built again: the
  * Multi-Pak's slots back to its switch. */

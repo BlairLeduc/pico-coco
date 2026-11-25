@@ -8,6 +8,15 @@
  *     window reads as an empty slot.
  *   - Through a Multi-Pak: the CART line from the CTS slot alone, and
  *     Disk BASIC from slot 4 and from slot 3 (mpi_carts).
+ *   - The Orchestra-90 CC (§12.10), its ROM orch90.rom beside the
+ *     others (skipped without it): known by its SHA-1 and fitted with
+ *     its DACs, it starts to its title, and S, ENTER, P, ENTER plays the
+ *     William Tell Overture through them, heard beside the multiplexer;
+ *     the ROM with one byte changed is a plain cartridge, whose port
+ *     takes nothing at $FF7A. Planted, each failed (2026-11-24): the
+ *     right DAC dropped from the mix, the bus not updated after a DAC's
+ *     write (test_audio), and a slot of another kind taking the DACs'
+ *     writes (here).
  *   - Every .ccc in the media directory (PICO_COCO_MEDIA, else media/;
  *     gitignored, none committed) starts: the PC is in the cartridge, or
  *     in RAM it has copied itself to, and BASIC's OK is not on the screen.
@@ -136,6 +145,89 @@ static int mpi_carts(void) {
     return 0;
 }
 
+static uint8_t orch_img[COCO_CART_SIZE];
+static size_t  orch_len;
+
+static void build_orch(void) {
+    guest_build(&g, 64, true);
+    coco_load_rom(&g.m, 0xC000u, orch_img, orch_len);
+    coco_power_on(&g.m);
+}
+
+/* Whether a field's samples, drained after it, ever vary. */
+static bool field_heard(void) {
+    static int16_t buf[4096];
+    bool moved = false;
+    size_t n;
+    while ((n = coco_audio_drain(&g.m, buf, 4096)) > 0)
+        for (size_t i = 1; i < n; i++) moved |= buf[i] != buf[0];
+    return moved;
+}
+
+static int orch90(const char *dir) {
+    char path[1024];
+    snprintf(path, sizeof path, "%s/orch90.rom", dir);
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        printf("orchestra-90: skip, no %s\n", path);
+        return 0;
+    }
+    orch_len = fread(orch_img, 1, sizeof orch_img, f);
+    fclose(f);
+
+    build_orch();
+    CHECK(g.m.port.slot[0].kind == CART_ORCH90, "%s is not known as the Orchestra-90", path);
+    guest_fields(&g, 200);
+    CHECK(on_screen("ORCHESTRA-90/CC (TM)"), "the Orchestra-90's title is not on the screen");
+    guest_type(&g, " ");
+    guest_settle(&g, 600);
+    guest_fields(&g, 120);
+    CHECK(on_screen("/ WILLIAM TELL OVERTURE"), "no William Tell Overture after a key");
+    guest_type(&g, "S\r");
+    guest_settle(&g, 600);
+    guest_fields(&g, 300);
+    guest_type(&g, "P\r");
+    guest_settle(&g, 600);
+    /* The player moves the DACs, and the multiplexer is not on the
+     * cartridge: what is heard is beside it. */
+    unsigned writes = 0, heard = 0;
+    uint8_t last_l = g.m.port.slot[0].u.orch.left;
+    (void)field_heard();
+    for (int i = 0; i < 300; i++) {
+        guest_fields(&g, 1);
+        heard += field_heard();
+        writes += g.m.port.slot[0].u.orch.left != last_l;
+        last_l = g.m.port.slot[0].u.orch.left;
+    }
+    CHECK(writes > 50u, "the left DAC moved in only %u of 300 fields of playing", writes);
+    CHECK(heard > 50u, "the Orchestra-90 played and was heard in only %u of 300 fields", heard);
+    printf("orchestra-90: the overture moved the left DAC in %u of 300 fields, heard in %u\n",
+           writes, heard);
+
+    /* The control: one byte changed is a ROM, not an Orchestra-90, and
+     * its port takes nothing at $FF7A. */
+    orch_img[orch_len - 1] ^= 0x01u;
+    build_orch();
+    orch_img[orch_len - 1] ^= 0x01u;
+    CHECK(g.m.port.slot[0].kind == CART_ROM, "a changed image was still known as the Orchestra-90");
+    bus_write(&g.m, 0xFF7A, 0x80);
+    CHECK(g.m.port.slot[0].u.orch.left == 0 && cart_beside(&g.m) == 0, "a ROM cartridge took a DAC's write");
+
+    /* Nor does a SmartWatch beside an Orchestra-90 in a Multi-Pak. */
+    cart_kind_t kinds[COCO_MPI_SLOTS] = { CART_NONE, CART_NONE, CART_NONE, CART_SMARTWATCH };
+    guest_build_mpi(&g, 64, kinds, 0, NULL, NULL);
+    coco_load_slot_rom(&g.m, 0, orch_img, orch_len);
+    coco_power_on(&g.m);
+    smartwatch_t before = g.m.port.slot[3].u.clock;
+    bus_write(&g.m, 0xFF7A, 0x5A);
+    bus_write(&g.m, 0xFF7B, 0xA5);
+    CHECK(g.m.port.slot[0].kind == CART_ORCH90 && g.m.port.slot[0].u.orch.left == 0x5A &&
+          g.m.port.slot[0].u.orch.right == 0xA5, "the Orchestra-90 in slot 1 missed its DACs' writes");
+    CHECK(memcmp(&before, &g.m.port.slot[3].u.clock, sizeof before) == 0,
+          "the SmartWatch in slot 4 took the Orchestra-90's writes");
+    return 0;
+}
+
 static int media(void) {
     const char *env = getenv("PICO_COCO_MEDIA");
     char dir[1024];
@@ -190,6 +282,7 @@ int main(void) {
     }
     if (own_cart()) return 1;
     if (mpi_carts()) return 1;
+    if (orch90(dir)) return 1;
     if (media()) return 1;
     TEST_DONE();
 }
