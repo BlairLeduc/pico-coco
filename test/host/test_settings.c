@@ -30,6 +30,7 @@ int main(void) {
         CHECK(d.fast_tape && !d.layout[0], "fast tape, the standard keys (§11.3, §12.3)");
         CHECK(!d.vdg_t1, "the MC6847, not the T1 (§9.2)");
         CHECK(d.disk_sounds, "the drives heard (§10)");
+        CHECK(d.stereo, "an Orchestra-90 in stereo (§12.10)");
         CHECK(d.artefacts == SETTINGS_ARTEFACTS_SIMPLE && d.artefact_phase == SETTINGS_PHASE_BLUE,
               "simple artefacts, blue (§9.5)");
         CHECK(d.dark_bg, "text on its dark background (§9.5)");
@@ -60,6 +61,7 @@ int main(void) {
             "vdg       = 6847T1\r\n"
             "smartwatch = on\r\n"
             "disk_sounds = Off\r\n"
+            "stereo    = OFF\r\n"
             "artifacts = Full\r\n"
             "artifact_phase = random\r\n"
             "boot_tape = /coco/tapes/My Tape.cas\r\n"
@@ -84,6 +86,7 @@ int main(void) {
         /* smartwatch = on, retired (§12.7): taken, as the file's status
          * above says, and nothing to set. */
         CHECK(!s.disk_sounds, "disk_sounds = off");
+        CHECK(!s.stereo, "stereo = off");
         CHECK(s.artefacts == SETTINGS_ARTEFACTS_FULL, "artifacts = full");
         CHECK(s.artefact_phase == SETTINGS_PHASE_RANDOM, "artifact_phase = random");
     }
@@ -158,6 +161,7 @@ int main(void) {
             { "vdg = t1\n",            SET_BAD_VALUE },
             { "smartwatch = ds1216\n", SET_BAD_VALUE },
             { "disk_sounds = loud\n", SET_BAD_VALUE },
+            { "stereo = left\n",     SET_BAD_VALUE },
             { "disc_sounds = on\n",   SET_UNKNOWN },     /* the CoCo's word is disk */
             { "vdg = 6847T2\n",        SET_BAD_VALUE },
             { "artifacts = on\n",      SET_BAD_VALUE },

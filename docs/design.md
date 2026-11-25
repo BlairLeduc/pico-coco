@@ -1792,6 +1792,8 @@ documents keep *artefact*; and `disk_sounds` (§10).
 `color_` keys, one for each of the VDG's fourteen colours, six hex
 digits, which only the file sets and a save keeps as written (§9.5).
 An empty colour is refused, since `#00FF00` leaves one.
+**2026-11-25** adds `stereo`, on by default, and the Setup page's
+STEREO row: an Orchestra-90's DACs each to its own ear (§12.10).
 
 ### 12.7 The SmartWatch
 
@@ -2088,44 +2090,82 @@ a Multi-Pak.
 
 ### 12.9 The Speech/Sound Cartridge
 
-**Planned for M18** (the owner, 2026-11-24). Nothing here is built, and
-what is written of the hardware is from memory (§18: low): Tandy's
-Speech/Sound Cartridge, 26-3144, holds a General Instrument SP0256-AL2
-speech processor and an AY-3-8913 sound generator, at $FF7D and $FF7E.
-How the AY's address and data reach it, the status bits, the chips'
-clocks and whether the cartridge carries a ROM are not known here. They
-are read off the cartridge's manual and from what The Interbank
-Incident, which asks for the cartridge (§12.4), does with it on the
-host, before any is a constant.
+**Planned for M18** (the owner, 2026-11-24). What M18 settled first, on
+2026-11-24, before any code: the cartridge is not two sound chips on the
+6809's bus but a small computer of its own. From the cartridge's manual
+(Tandy 26-3144, its text as toolshed's `casm` help carries it,
+`coco_ssc*.htm`) and MAME 0.289's `coco_ssc.cpp` (read, and run):
 
-The cartridge decodes its own addresses outside SCS, so it works in any
-Multi-Pak slot beside the RS-DOS controller; The Interbank Incident
-needs both, and so needs M17's Multi-Pak.
+- **What the guest sees is two addresses**, decoded by the cartridge
+  outside SCS, so it works in any Multi-Pak slot. **$FF7D**, written: bit
+  0 high holds the speech chip in reset, and its fall resets the
+  microcontroller and the AY (the manual: POKE 1, then 0); read, $FF.
+  **$FF7E**, written: a byte for the microcontroller, which raises its
+  INT3 and sets BUSY; read: the status, active low, bit 7 **BUSY**
+  (the last byte not yet taken), bit 6 speaking, bit 5 a sound in
+  progress, bits 4-0 high. A byte written while BUSY is lost.
+- **Inside are a TMS7040 microcontroller with a 4 KB mask ROM**, 2 KB of
+  static RAM, the AY-3-8913 and the SP0256-AL2. The 7040's firmware is
+  the cartridge: it takes the guest's bytes, keeps sixteen 64-byte
+  buffers, plays the AY's sound events, and turns English text into
+  allophones by its own rules (the manual's "I CAN TALK" and CR). Its
+  ports: A, the guest's byte; B, the RAM's A0-A7; C, A8-A10, the RAM's
+  R/W* and CS*, the AY's BC1, BDIR and CS*, the SP0256's ALD* and the
+  latch that clears BUSY; D, the data bus. The SP0256's data request is
+  the 7040's INT1.
+- **Clocks**, as MAME has them (§18): the 7040 and the AY from twice the
+  port's E, 1.79 MHz, so the 7040 runs 894,886 machine cycles a second
+  (it divides by 2); the SP0256 from its own 3.12 MHz crystal.
+- **The sound activity bit** (status bit 5) is an analogue detector on
+  the AY's output, which MAME models with a filter and two thresholds.
+
+So the only faithful model runs the firmware: **a TMS7000 core**
+(`tms7000.c`), new, written from TI's *TMS7000 Family Data Manual*
+(SPND001C, 1989) and held to MAME's by a trace, as the 6809 is held to
+XRoar's (the owner, 2026-11-24). A high-level model of the command set
+was declined: the text-to-speech rules are the firmware's. The two
+ROMs come from `/coco/roms/` by SHA-1 (D10): `pic-7040-510.bin`, SHA-1
+`7c17dcbc21757535ce0b3a9e1ce5ca61319d3606`, and `sp0256-al2.bin`,
+`e60fcb5fa16ff3f3b69d36c7a6e955744d3feafc` (MAME's dumps; the owner's
+copies match). Without either, the cartridge is refused by name, as a
+missing ROM is (§12.1).
 
 - **The AY-3-8913** is the AY-3-8912 without its I/O port. pico-oric's
   `ay8912.c` is adapted, under §5's rules: its tests brought and passing
   here, its `THIRD-PARTY.md` entry with it.
 - **The SP0256-AL2** is new: the chip's filter and its microsequencer,
-  driven by the AL2's 2 KB mask ROM of allophones. The ROM is the
-  chip's maker's: it comes from `/coco/roms/` by SHA-1, as every ROM
-  does (D10), and without it the cartridge is refused by name, as a
-  missing ROM is (§12.1). XRoar 1.13 has no Speech/Sound Cartridge;
-  MAME has the cartridge and the chip, and **MAME and MESS may be used
-  to verify this project's work** (the owner, 2026-11-24), as XRoar is:
-  a tool, run or linked into a test, never source in the tree (D2, D8).
-  What the chip is held to is settled at M18's start, before its code
-  is written. **The chip is modelled from its
-  mask ROM** (the owner, 2026-11-24), not imitated: Pico-Logo's formant
-  synthesiser (MIT, the same author) speaks a different alphabet by a
-  different filter, and lends only its shape, an engine that fills one
-  refill block at a time and an offline render for tests. Mapping the
-  allophones onto it may follow as a fallback for a card without the
-  AL2's ROM, if the owner asks for one.
-- **The sound** goes into the multiplexer's cartridge input (§10), the
-  bus's level built from the two chips' outputs at the sample rate;
-  the guest hears it only with the multiplexer set to the cartridge.
-  Its cost on core 0 is an estimate until M18 measures it against a
-  control build.
+  driven by the AL2's 2 KB mask ROM. **The chip is modelled from its
+  mask ROM** (the owner, 2026-11-24), not imitated. XRoar 1.13 has no
+  Speech/Sound Cartridge; MAME has the cartridge and the chip, and
+  **MAME and MESS may be used to verify this project's work** (the
+  owner, 2026-11-24), as XRoar is: a tool, run or linked into a test,
+  never source in the tree (D2, D8). MAME's recording of the cartridge
+  speaking (`-wavwrite`, the bytes written to $FF7E from a Lua script,
+  2026-11-24) is what the speech is held to. Pico-Logo's formant
+  synthesiser (MIT, the same author) lends only its shape.
+- **The sound** goes into the multiplexer's cartridge input (§10); the
+  guest hears it only with the multiplexer set to the cartridge, as the
+  manual's programs set it. Its cost on core 0, a second CPU at the
+  6809's rate and two sound chips, is an estimate until M18 measures it
+  against a control build.
+
+**As built** (2026-11-24/25, host; docs/milestones.md, M18):
+`tms7000.c`, `ay8912.c`, `sp0256.c`, `ssc.c` and `CART_SSC`, one in
+the port, its two ROMs 6 KB of the pool, a Machine page choice
+SPEECH/SOUND. The 7040, its RAM and the two chips are in a save state's
+version 3. The SP0256's samples are interleaved with the 7040's
+instructions only where they must be: LRQ, the 7040's INT1, changes
+only as the 7040 loads an allophone or the sequencer takes one, so with
+LRQ high the 7040 runs free, and with it low the SP0256 runs up to 64
+samples ahead and the 7040 follows to the moment LRQ rises. The idle
+7040 repeats one pass of its firmware exactly, 1,621 cycles, and such
+passes are skipped whole up to the timer's next interrupt; a machine
+doing so ends where one stepping every pass does (`test_ssc`). AY
+changes made while the SP0256 runs ahead reach the bus up to 6.4 ms
+late against the speech. Measured on the host: +13% idle, +58%
+speaking, against the same machine without the cartridge. On the
+owner's board (2026-11-25): core 0 25.0% busy without it, 27.8% idle,
+41.0% speaking, with no late fields or audio underruns.
 
 ### 12.10 The Orchestra-90 CC
 
@@ -2144,6 +2184,62 @@ the trace diff and the audio test, as the sound bus is (§10).
 The DACs sit inside the SmartWatch's $FF78–$FF7F (§12.7), as the
 Multi-Pak's register and the Speech/Sound Cartridge's ports do: M17's
 answer on where the SmartWatch goes covers them all.
+
+**As built** (2026-11-24, host): `CART_ORCH90`, a kind added after
+`CART_MPI` so that the save states' numbers stand. A ROM whose SHA-1
+is the cartridge's (`6a20fee9c70b36a6435ac8378f31d5b626017df0`, MAME's
+and XRoar's image and the archive's `.ccc`; `ROM_ORCH90` in
+`romset.c`) makes its slot an Orchestra-90; the configuration may fit
+one without its ROM, for the tests. On the device it was first chosen
+from `/coco/carts/` as any cartridge is; at the owner's word
+(2026-11-25) it is now a Machine page choice, ORCHESTRA-90, and
+`cart = orch90` or `slotN = orch90`, as this section's plan had it,
+its ROM `orch90.rom` read from `/coco/roms/` by SHA-1 as the disk
+controller's and the Speech/Sound Cartridge's are: ROMs for hardware
+the menu names live there, program cartridges in `/coco/carts/`. A copy
+in `/coco/carts/` is still known by its SHA-1. Its
+CART line is on Q, as MAME has it. **Where its sound goes**, settled by
+running both tools: MAME 0.289 sends the DACs to the cartridge's input
+of the multiplexer and also to a stereo pair of its own; the player
+never selects the cartridge in the multiplexer, so through it alone the
+overture is silent, and what MAME's recording carries is the pair. XRoar
+adds them beside the multiplexer. So here they are beside it, mixed to
+one channel: (L + R) / 2 over 255 of the bus's full scale, added to the
+bus and clipped there, where XRoar's mono output adds each at full scale
+(`cart_beside`). The state's port section holds
+the two DACs in each slot's last two bytes, version 2 unchanged.
+**Stereo** (the owner, 2026-11-25), as the cartridge's own outputs and
+MAME's pair have it: the pcm carries, beside its mono, a side channel,
+half the DACs' difference in the same units (`cart_side`), box-filtered
+with it; each ear is made from the two at once, the left the mono plus
+the side and the right the mono less it, so that each ear hears the bus
+and its own DAC at full scale, rounded once and DC-blocked on its own
+(`pcm.h`, `coco_audio_drain_stereo`). The side channel wakes at its
+first difference, so a machine without an Orchestra-90 costs and sounds
+as before; the port pushes pairs, left to GP26 and right to GP27 (HW
+§5.1), while `stereo = on`, the default, and the mono to both ears with
+it off. `test_audio` runs each script with an Orchestra-90 again in
+stereo and holds both ears to its model to 1 LSB, the ears swapped
+failing; planted, each failed: the ears swapped, a change of the side
+alone not stamped, the side set without the pcm brought up to it, and
+the ears' DC blockers not taken up from the mono's (a thump at the
+first difference). On the owner's board, the overture (S, ENTER, P,
+ENTER) took core 0 to 57.5% busy against 52.9% for the build without
+stereo in the same sitting, no late fields or underruns in either. The owner heard it on the board and judged it great (2026-11-25).
+Checked: the trace diff with `-cart orch90` agrees with XRoar for every
+one of our 1,990,930 instructions through 600 fields of its start;
+XRoar's typing reaches only BASIC's keyboard routine and not the
+player's, so the playing is not in the trace. `test_audio` holds every
+sample, with an Orchestra-90 fitted in every third script and random
+writes to $FF7A and $FF7B in all, to its model to 1 LSB; `test_cart`,
+with the ROM, starts it, types S, ENTER, P, ENTER as MAME's source
+gives them, and hears the William Tell Overture; its pitches against
+MAME's recording of the same keys agree to within the measure, 412 Hz
+against 414, 276 against 276, 138 against 138, the notes on the same
+quarter-seconds (`out/m18/orch90-ours.wav`, `orch90-mame-stereo.wav`).
+Planted, each failed: the right DAC dropped from the mix, the bus not
+updated after a DAC's write, and a slot of another kind taking the
+DACs' writes. Heard on the device (the owner, 2026-11-25).
 
 ### 12.11 The Deluxe RS-232 Program Pak
 
@@ -2491,7 +2587,7 @@ the milestones after it are kept, since documents and commits cite them.
 | **M15** | HD6309: **deferred** by the owner, 2026-11-22 (§20) | Its oracle passes in both modes; a 6309 program runs on the device |
 | **M16** | Finish: README, the release build on a second board, attribution | A fresh card and board set up from the README alone |
 | **M17** | The cartridge port as one interface, the ROM cartridge and RS-DOS moved behind it; the Multi-Pak; the SmartWatch as a cartridge for `clock_bb`, its setting and `clock_tc3` dropped; save states with a Multi-Pak, the state's version 2 (§12.5, §12.7, §12.8; the owner, 2026-11-24) | The move changes nothing the tests and the trace diff see; `test_mpi` with its planted bugs; Disk BASIC in a Multi-Pak held to XRoar's by the trace diff; OS-9 booted with the controller in a Multi-Pak, and Tandy OS-9 2.01 reading and setting the date through `clock_bb` with the SmartWatch in slot 4, on the host and the device |
-| **M18** | The sound cartridges: the Speech/Sound Cartridge, its AY-3-8913 and SP0256-AL2, and the Orchestra-90 CC (§12.9, §12.10; the owner, 2026-11-24) | Their registers settled from a primary source; the AY's tests from pico-oric passing; the Orchestra-90 held to XRoar's by the trace diff and the audio test; the speech held to whatever M18 settles first; The Interbank Incident speaking on the device, with Disk BASIC beside it in the Multi-Pak |
+| **M18** | The sound cartridges: the Speech/Sound Cartridge, its TMS7040, AY-3-8913 and SP0256-AL2, and the Orchestra-90 CC (§12.9, §12.10; the owner, 2026-11-24) | Their registers settled from a primary source; the TMS7000 core held to MAME's by a trace of the firmware; the AY's tests from pico-oric passing; the Orchestra-90 held to XRoar's by the trace diff and the audio test; the speech held to MAME's recording; The Interbank Incident speaking on the device, with Disk BASIC beside it in the Multi-Pak |
 | **M19** | The Deluxe RS-232 Program Pak: its 6551 ACIA and its ROM (§12.11; the owner, 2026-11-24) | Its registers settled from a primary source; the pak's terminal program and an OS-9 serial port exchanging bytes with the host, on the host and the device |
 
 ---
@@ -2543,8 +2639,14 @@ configuration; once settled, it is a constant.
 | The Multi-Pak's register at $FF7F, its routing of CTS, SCS, CART, NMI and HALT, and RESET to the front switch (§12.8) | As XRoar 1.13's `mpi.c`, read 2026-11-24 | Medium | The Multi-Pak's service manual and schematic; Disk BASIC and OS-9 executed through it |
 | The card `clock_bb` was written for: Burke & Burke's CoCo XT-RTC, and its clock a DS1216 (§12.7) | By the name "bb", the hard disk driver beside it at $FF50–$FF5F, and the module's DS1216 protocol; no manual or schematic read | Low | The XT-RTC's manual or board |
 | Where a DS1216 answers behind a Multi-Pak, for `clock_bb` (§12.7, §12.8) | **Read off the module** (2026-11-24): $FF58–$FF5F on SCS, slot 4, which `clock_bb` selects through $FF7F. The card it was written for is not known | Medium | `clock_bb` read off the module; the card it was written for |
-| The Speech/Sound Cartridge: its chips, its ports at $FF7D and $FF7E, how the AY is reached, its status bits, its clocks, whether it carries a ROM (§12.9) | From memory | Low | The cartridge's manual and schematic; The Interbank Incident executed on the host |
-| The Orchestra-90's DACs at $FF7A and $FF7B, and its audio beside the multiplexer rather than through it (§12.10) | As XRoar 1.13's `orch90.c`, read 2026-11-24 | Medium | The cartridge's schematic; its ROM executed |
+| The Speech/Sound Cartridge: its ports at $FF7D and $FF7E and its status bits (§12.9) | The cartridge's manual, and MAME 0.289's `coco_ssc.cpp`, read and run, 2026-11-24 | High | Settled from the manual: the guest's side |
+| The Speech/Sound Cartridge's inside: the TMS7040's ports, its INT1 and INT3, the clocks (1.79 MHz for the 7040 and the AY, 3.12 MHz for the SP0256), the sound activity detector (§12.9) | MAME 0.289's `coco_ssc.cpp`, read 2026-11-24 | Medium | The cartridge's schematic; the firmware executed |
+| The 7040's clock when the SAM runs the 6809 fast: the cartridge's is taken as twice the slow E always (§12.9) | MAME's DERIVED_CLOCK of a fixed cartridge clock | Low | The cartridge's schematic |
+| The SP0256's sample rate: 3.12 MHz / 312, 10 kHz (§12.9) | The datasheet's 10 kHz; MAME's source of August 2026 (MAME 0.289 had 336) | High | Settled by the datasheet |
+| The SP0256's output resolution: the filter's sum limited to 14 bits, as MAME's (§12.9) | MAME's HIGH_QUALITY | Low | The chip's DAC, measured |
+| The cartridge's mix: the AY to 0.70 of the cartridge input, the SP0256 at four times its scale about 0.5, the swing bent above a knee at half of it (§12.9) | Estimated from MAME's gains, 2026-11-25; doubled the same day at the owner's word, from The Interbank Incident heard on the device, and then judged well balanced with the disk's sounds | Low | A cartridge's output measured |
+| The status bit for a sound in progress: an AY generator the level depends on, for an analogue detector (§12.9) | MAME's filter-and-threshold model, read | Low | The schematic |
+| The Orchestra-90's DACs at $FF7A and $FF7B, and its audio beside the multiplexer rather than through it (§12.10) | As XRoar 1.13's `orch90.c`, read 2026-11-24; its ROM executed under MAME 0.289 and here, 2026-11-24, the overture heard only beside the multiplexer | Medium | The cartridge's schematic |
 | The Deluxe RS-232 Program Pak: its 6551 at $FF68–$FF6B, its interrupt, its ROM (§12.11) | From memory | Low | The pak's manual and schematic; its ROM and OS-9's driver read |
 
 **Settled in M1**, 2026-11-14:

@@ -151,6 +151,12 @@ typedef struct coco_s {
                                 * field cut fine costs core 0 (§6) */
     bool     sound_fed;        /* the sound has fed PIA1 PB1 back (coco.c) */
     uint32_t sound_level;      /* the bus now, to COCO_SOUND_LEVEL_MAX  */
+    uint32_t sound_out;        /* it with the cartridges' sound beside
+                                * the multiplexer (cart_beside), as the
+                                * PCM has it; not state                 */
+    int32_t  sound_side;       /* the cartridges' stereo (cart_side), as
+                                * the PCM's side channel has it; not
+                                * state                                 */
     uint32_t sound_edges;      /* changes of it, since power-on         */
 
     /* The bus as PCM (§10), drained by the port once a field with
@@ -242,6 +248,13 @@ bool     coco_load_slot_rom(coco_t *m, unsigned s, const uint8_t *data, size_t l
  * put it there with cart_pool_finish before this power-on: coco_init
  * leaves the pool as it was (cart_rom_placed). */
 bool     coco_slot_rom_placed(coco_t *m, unsigned s, uint32_t at, size_t len);
+/* The Speech/Sound Cartridge's ROMs, the TMS7040's 4 KB and the
+ * SP0256-AL2's 2 KB (cart_load_ssc), for a port that has one; before
+ * power-on, as every ROM (§13.3). */
+bool     coco_load_ssc_roms(coco_t *m, const uint8_t *rom, const uint8_t *al2);
+/* The same, the two already in the pool at rom_at and al2_at (carts.c,
+ * which reads them there off the card). */
+bool     coco_ssc_roms_placed(coco_t *m, uint32_t rom_at, uint32_t al2_at);
 
 /* The cartridge taken out: $C000 reads as an empty slot. Power on after. */
 void     coco_cart_remove(coco_t *m);
@@ -294,6 +307,9 @@ void     coco_audio_set_rate(coco_t *m, uint32_t rate_num, uint32_t rate_den);
 /* Move up to `max` samples of the fields run so far out, oldest first.
  * Returns how many. coco_run_field brings the PCM to the field's end. */
 size_t   coco_audio_drain(coco_t *m, int16_t *dst, size_t max);
+/* The same as stereo pairs, left then right (pcm_drain_stereo): an
+ * Orchestra-90's DACs each to its own ear, the rest to both. */
+size_t   coco_audio_drain_stereo(coco_t *m, int16_t *dst, size_t max);
 
 /* After snapshot_load has put a state's fields back: what follows from
  * them worked out again, the keys released and the sound restarted at

@@ -22,6 +22,9 @@
  * port is another machine. Version 1, which a build before M17 wrote,
  * is made here from a version 2 file by taking the port section and
  * slots 2 to 4's names out, which is all that changed, and still loads.
+ * Version 3 (M18) added the Speech/Sound Cartridge's section; version 2
+ * is made from a version 3 file by taking it out, and still loads
+ * (test_ssc holds the section itself).
  */
 
 #include <string.h>
@@ -121,11 +124,28 @@ static void mem_downgrade(mem_t *s) {
     uint8_t *p = s->buf + SNAP_HEADER_LEN, *q = v1 + SNAP_HEADER_LEN;
     memcpy(v1, s->buf, SNAP_HEADER_LEN);
     memcpy(q, p, SNAP_STATE_LEN);
-    memcpy(q + SNAP_STATE_LEN, p + SNAP_STATE_LEN + SNAP_PORT_LEN, COCO_ADDR_SPACE + SNAP_MEDIA_V1_LEN);
+    memcpy(q + SNAP_STATE_LEN, p + SNAP_STATE_LEN + SNAP_PORT_LEN + SNAP_SSC_LEN,
+           COCO_ADDR_SPACE + SNAP_MEDIA_V1_LEN);
     v1[8] = 1u; v1[9] = 0u;
     for (unsigned i = 0; i < 4; i++) v1[12 + i] = (uint8_t)(SNAP_PAYLOAD_V1_LEN >> (8 * i));
     s->len = SNAP_HEADER_LEN + SNAP_PAYLOAD_V1_LEN;
     memcpy(s->buf, v1, s->len);
+    mem_recrc(s);
+}
+
+/* The version 2 file a build before M18 would have written: the Speech/
+ * Sound Cartridge's section out. Only for a machine without one. */
+static void mem_to_v2(mem_t *s) {
+    static uint8_t v2[SNAP_FILE_LEN];
+    uint8_t *p = s->buf + SNAP_HEADER_LEN, *q = v2 + SNAP_HEADER_LEN;
+    memcpy(v2, s->buf, SNAP_HEADER_LEN);
+    memcpy(q, p, SNAP_STATE_LEN + SNAP_PORT_LEN);
+    memcpy(q + SNAP_STATE_LEN + SNAP_PORT_LEN, p + SNAP_STATE_LEN + SNAP_PORT_LEN + SNAP_SSC_LEN,
+           COCO_ADDR_SPACE + SNAP_MEDIA_LEN);
+    v2[8] = 2u; v2[9] = 0u;
+    for (unsigned i = 0; i < 4; i++) v2[12 + i] = (uint8_t)(SNAP_PAYLOAD_V2_LEN >> (8 * i));
+    s->len = SNAP_HEADER_LEN + SNAP_PAYLOAD_V2_LEN;
+    memcpy(s->buf, v2, s->len);
     mem_recrc(s);
 }
 
@@ -303,7 +323,8 @@ int main(void) {
     {
         const uint8_t *st = snap.buf + SNAP_HEADER_LEN;
         CHECK(memcmp(snap.buf, "COCOSNAP", 8) == 0, "the magic");
-        CHECK(memcmp(st + SNAP_STATE_LEN + SNAP_PORT_LEN, g.ram, COCO_ADDR_SPACE) == 0, "RAM follows the state, as it stands");
+        CHECK(memcmp(st + SNAP_STATE_LEN + SNAP_PORT_LEN + SNAP_SSC_LEN, g.ram, COCO_ADDR_SPACE) == 0,
+              "RAM follows the state, as it stands");
         bool reserved = true;
         for (unsigned i = 232; i < SNAP_STATE_LEN; i++) reserved = reserved && st[i] == 0;
         CHECK(reserved, "reserved state bytes are written zero");
@@ -385,7 +406,7 @@ int main(void) {
     fields(&h, 9);
 
     CHECK(mem_save(&snap, &saved, NULL) == SNAP_OK, "save");
-    snap.buf[SNAP_HEADER_LEN + SNAP_STATE_LEN + SNAP_PORT_LEN + 0x1234u] ^= 0x01u;
+    snap.buf[SNAP_HEADER_LEN + SNAP_STATE_LEN + SNAP_PORT_LEN + SNAP_SSC_LEN + 0x1234u] ^= 0x01u;
     coco_copy(&before, &h);
     CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_CORRUPT, "a flipped RAM bit is damage");
     CHECK(snap_same(&before, &h, "damaged"), "a check changed the machine");
@@ -642,10 +663,23 @@ int main(void) {
               "version 1 with the controller: check");
         CHECK(mem_load(&snap, &h) == SNAP_OK && snap_same(&saved, &h, "version 1, the controller's"),
               "version 1 with the controller: load");
-        /* And a version 1 header over version 2's payload is no file. */
+        /* And a version 1 header over version 3's payload is no file. */
         CHECK(mem_save(&snap, &g, NULL) == SNAP_OK, "save");
         snap.buf[8] = 1u;
-        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_NOT_SNAPSHOT, "version 1 with version 2's length");
+        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_NOT_SNAPSHOT, "version 1 with version 3's length");
+        /* Version 2, which M17's build wrote: the same machine, the
+         * Speech/Sound Cartridge's section out; and its header over
+         * version 3's payload is no file. */
+        CHECK(mem_save(&snap, &g, NULL) == SNAP_OK, "save for version 2");
+        snap.buf[8] = 2u;
+        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_NOT_SNAPSHOT, "version 2 with version 3's length");
+        CHECK(mem_save(&snap, &g, NULL) == SNAP_OK, "save for version 2");
+        mem_to_v2(&snap);
+        coco_copy(&saved, &g);
+        coco_copy(&h, &g);
+        fields(&h, 5);
+        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_OK && mem_load(&snap, &h) == SNAP_OK &&
+              snap_same(&saved, &h, "version 2"), "version 2: did not load as the saved machine");
         machine(&saved, 64);   /* as the refusals had it, for what follows */
         fields(&saved, 25);
     }
@@ -675,7 +709,7 @@ int main(void) {
     fields(&h, 4);
     CHECK(mem_save(&snap, &saved, NULL) == SNAP_OK, "save");
     CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_OK, "the first pass");
-    snap.fail_at = SNAP_HEADER_LEN + SNAP_STATE_LEN + SNAP_PORT_LEN + 100u;
+    snap.fail_at = SNAP_HEADER_LEN + SNAP_STATE_LEN + SNAP_PORT_LEN + SNAP_SSC_LEN + 100u;
     CHECK(mem_load(&snap, &h) == SNAP_TORN, "the second pass, cut in the RAM");
     snap.fail_at = 0;
 

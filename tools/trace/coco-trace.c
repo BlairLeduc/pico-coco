@@ -107,7 +107,7 @@ int main(int argc, char **argv) {
             kinds[argv[++i][0] - '0'] = CART_RSDOS;
         else {
             fprintf(stderr, "usage: %s [-bas bas13|bas11] [-ram K] [-ext] [-fields N] [-type STRING]"
-                            " [-cart rsdos|mpi] [-mpi-slot N] [-mpi-load-cart N=rsdos]\n", argv[0]);
+                            " [-cart rsdos|mpi|orch90] [-mpi-slot N] [-mpi-load-cart N=rsdos]\n", argv[0]);
             return 2;
         }
     }
@@ -125,7 +125,33 @@ int main(int argc, char **argv) {
         fprintf(stderr, "coco-trace: a cartridge needs -ext, bas13 and disk11.rom\n");
         return 1;
     }
-    if (disk) guest_build_disk(&g, ram_k);
+    bool orch = !strcmp(cart, "orch90");
+    if (orch) {
+        /* XRoar's own name for it, the ROM found as orch90.rom (§12.10). */
+        static uint8_t img[COCO_CART_SIZE];
+        char path[1024];
+        snprintf(path, sizeof path, "%s/orch90.rom", dir);
+        FILE *f = fopen(path, "rb");
+        size_t n = f ? fread(img, 1, sizeof img, f) : 0;
+        if (f) fclose(f);
+        if (!n || !ext) {
+            fprintf(stderr, "coco-trace: -cart orch90 needs -ext and %s\n", path);
+            return 1;
+        }
+        coco_config_t cfg;
+        coco_config_default(&cfg);
+        cfg.ram_k = ram_k;
+        coco_init(&g.m, &cfg);
+        coco_load_rom(&g.m, 0xA000u, guest_rom_image(basic), romset_images[basic].size);
+        coco_load_rom(&g.m, 0x8000u, guest_rom_image(ROM_COCO_EXTBAS11),
+                      romset_images[ROM_COCO_EXTBAS11].size);
+        coco_load_rom(&g.m, 0xC000u, img, n);   /* load, then power on (§13.3) */
+        coco_power_on(&g.m);
+        if (g.m.port.slot[0].kind != CART_ORCH90) {
+            fprintf(stderr, "coco-trace: %s is not the Orchestra-90's ROM\n", path);
+            return 1;
+        }
+    } else if (disk) guest_build_disk(&g, ram_k);
     else if (mpi) guest_build_mpi(&g, ram_k, kinds, mpi_slot, NULL, NULL);
     else guest_build_as(&g, ram_k, basic, ext);
     t.at = bas11 ? bas11_at : bas13_at;

@@ -101,7 +101,7 @@ int main(void) {
         CHECK(romset_identify(buf, size) == (rom_id_t)i, "%s not identified",
               romset_images[i].file);
         /* A near-miss: one byte different. */
-        buf[0x1234] ^= 0x01u;
+        buf[size / 2u] ^= 0x01u;
         CHECK(romset_identify(buf, size) == ROM_UNKNOWN, "%s with a byte changed passed",
               romset_images[i].file);
         CHECK(romset_identify(img, size - 1) == ROM_UNKNOWN, "%s one byte short passed",

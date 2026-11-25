@@ -25,6 +25,9 @@ carries the same table, and `test_romset` holds the two to each other.
 | `$8000` | `extbas11.rom` | 8192 | `a82a6254` | Extended Color BASIC 1.1 |
 | `$C000` | `disk11.rom` | 8192 | `0b9c5415` | Disk Extended Color BASIC 1.1 (M13) |
 | `$A000` | `bas11.rom` | 8192 | `6270955a` | Color BASIC 1.1, for 4 KB CoCos |
+| SSC | `pic-7040-510.bin` | 4096 | `a8e2eb98` | the Speech/Sound Cartridge's TMS7040 (M18) |
+| SSC | `sp0256-al2.bin` | 2048 | `b504ac15` | its SP0256-AL2 (M18) |
+| `$C000` | `orch90.rom` | 8192 | `15fb39af` | the Orchestra-90 CC (M18) |
 
 SHA-1:
 
@@ -33,7 +36,18 @@ SHA-1:
 ad927fb4f30746d820cb8b860ebb585e7f095dea  extbas11.rom
 10bdc5aa2d7d7f205f67b47b19003a4bd89defd1  disk11.rom
 cecb7c24ff1e0ab5836e4a7a8eb1b8e01f1fded3  bas11.rom
+7c17dcbc21757535ce0b3a9e1ce5ca61319d3606  pic-7040-510.bin
+e60fcb5fa16ff3f3b69d36c7a6e955744d3feafc  sp0256-al2.bin
+6a20fee9c70b36a6435ac8378f31d5b626017df0  orch90.rom
 ```
+
+The two Speech/Sound Cartridge images (M18, 2026-11-24) are MAME's
+`coco_ssc` set, its CRC-32s and SHA-1s as above; the owner's copies are
+identical. The Orchestra-90's is MAME's and XRoar's image, and the
+Color Computer Archive's `.ccc`; the owner's copy is identical. Chosen
+as ORCHESTRA-90 on the Machine page, it is read from `/coco/roms/`, as
+the disk controller's is; a copy in `/coco/carts/` is still known by
+its SHA-1 (2026-11-25).
 
 ## OS-9 disks, for `test_os9`
 

@@ -115,6 +115,7 @@ static void apply_settings(const settings_t *st) {
     g_ui.dark_bg = st->dark_bg;
     display_set_colours(st->colour);
     g_ui.disk_sounds = st->disk_sounds;
+    g_ui.stereo = st->stereo;
     uint8_t r[2];
     if (st->backlight) {
         g_ui.backlight = st->backlight;

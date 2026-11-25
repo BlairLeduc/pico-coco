@@ -220,14 +220,26 @@ void audio_set_muted(bool muted) {
     s_muted = muted;
 }
 
-static inline uint32_t compare_word(int16_t s) {
-    if (s_muted) return SILENCE;
-    /* ±32767 at full volume is ±1023 about the mid-point: 11 bits. */
+/* One ear's compare value: ±32767 at full volume is ±1023 about the
+ * mid-point, 11 bits. */
+static inline uint32_t compare_of(int16_t s) {
     int32_t v = (int32_t)PWM_MID + ((int32_t)s * (int32_t)s_volume) / (1 << 13);
     if (v < 0) v = 0;
     if (v > (int32_t)COCO_PWM_TOP) v = COCO_PWM_TOP;
+    return (uint32_t)v;
+}
+
+static inline uint32_t compare_word(int16_t s) {
+    if (s_muted) return SILENCE;
     /* Mono, duplicated to both ears (hardware-notes.md §5.1). */
-    return (uint32_t)v | ((uint32_t)v << 16);
+    uint32_t v = compare_of(s);
+    return v | (v << 16);
+}
+
+/* Left on GP26, channel A, the low half; right on GP27, B, the high. */
+static inline uint32_t compare_pair(int16_t l, int16_t r) {
+    if (s_muted) return SILENCE;
+    return compare_of(l) | (compare_of(r) << 16);
 }
 
 void audio_push(const int16_t *pcm, size_t n) {
@@ -237,6 +249,20 @@ void audio_push(const int16_t *pcm, size_t n) {
          * The DMA IRQ is on this core, so it is also what wakes us. */
         while (head - s_tail >= COCO_PCM_QUEUE_LEN) __wfi();
         s_queue[head & (COCO_PCM_QUEUE_LEN - 1u)] = compare_word(pcm[i]);
+        __compiler_memory_barrier();
+        s_head = ++head;
+        if (!s_started && head - s_tail >= COCO_PCM_QUEUE_START) s_started = true;
+    }
+    s_pushed_us = time_us_32();
+}
+
+void audio_push_stereo(const int16_t *lr, size_t n) {
+    uint32_t head = s_head;
+    for (size_t i = 0; i < n; i++) {
+        /* Full: wait for the next refill. This is the throttle (EL §6.3).
+         * The DMA IRQ is on this core, so it is also what wakes us. */
+        while (head - s_tail >= COCO_PCM_QUEUE_LEN) __wfi();
+        s_queue[head & (COCO_PCM_QUEUE_LEN - 1u)] = compare_pair(lr[2 * i], lr[2 * i + 1]);
         __compiler_memory_barrier();
         s_head = ++head;
         if (!s_started && head - s_tail >= COCO_PCM_QUEUE_START) s_started = true;

@@ -76,25 +76,51 @@ void pcm_restart(pcm_t *p, uint32_t now) {
     p->start_frac = 0;
     p->pos = 0;
     p->acc = 0;
+    p->side_acc = 0;
 }
 
-static void COCO_HOT1(emit)(pcm_t *p, uint64_t acc) {
-    int32_t x = (int32_t)((acc * p->scale + (1ull << (PCM_SCALE_BITS - 1u))) >> PCM_SCALE_BITS);
-    int32_t y = x;
-    if (p->dc_block) {
-        /* y[n] = x[n] - x[n-1] + R y[n-1], with y carried in Q8 so the
-         * truncation does not leave a standing offset. */
-        p->hp_y = (x - p->hp_x) * 256 +
-                  (int32_t)(((int64_t)p->hp_y * PCM_HP_R) >> 15);
-        p->hp_x = x;
-        y = p->hp_y / 256;
-    }
-    if (drivesnd_sounding(&p->drive)) y += drivesnd_next(&p->drive, p->start);
-    if (y > INT16_MAX) y = INT16_MAX;
-    if (y < INT16_MIN) y = INT16_MIN;
+static inline int16_t clamp16(int32_t y) {
+    return (int16_t)(y > INT16_MAX ? INT16_MAX : y < INT16_MIN ? INT16_MIN : y);
+}
 
-    if (p->count < COCO_AUDIO_BUF_LEN) p->buf[p->count++] = (int16_t)y;
-    else p->overflow++;
+/* The DC blocker: y[n] = x[n] - x[n-1] + R y[n-1], with y carried in Q8
+ * so the truncation does not leave a standing offset. */
+static inline int32_t block(int32_t x, int32_t *hx, int32_t *hy) {
+    *hy = (x - *hx) * 256 + (int32_t)(((int64_t)*hy * PCM_HP_R) >> 15);
+    *hx = x;
+    return *hy / 256;
+}
+
+/* An ear, the mono's units and the side's together, as a sample:
+ * rounded once at the scale. acc x scale reaches 2^63 at full scale and
+ * |side_acc x scale| 2^62, so each is halved before the sum, a bit of
+ * the scale's 48 lost, and the sum, signed, stays inside int64. */
+static inline int32_t ear(const pcm_t *p, uint64_t acc, int64_t side_acc) {
+    int64_t v = (int64_t)((acc * p->scale) >> 1) + ((side_acc * (int64_t)p->scale) >> 1);
+    return (int32_t)((v + (1ll << (PCM_SCALE_BITS - 2u))) >> (PCM_SCALE_BITS - 1u));
+}
+
+static void COCO_HOT1(emit)(pcm_t *p, uint64_t acc, int64_t side_acc) {
+    int32_t x = (int32_t)((acc * p->scale + (1ull << (PCM_SCALE_BITS - 1u))) >> PCM_SCALE_BITS);
+    int32_t y = p->dc_block ? block(x, &p->hp_x, &p->hp_y) : x;
+    int32_t drive = drivesnd_sounding(&p->drive) ? drivesnd_next(&p->drive, p->start) : 0;
+    int32_t l = y + drive, r = l;
+    if (p->side_on) {
+        int32_t xl = ear(p, acc, side_acc), xr = ear(p, acc, -side_acc);
+        if (p->dc_block) {
+            xl = block(xl, &p->hl_x, &p->hl_y);
+            xr = block(xr, &p->hr_x, &p->hr_y);
+        }
+        l = xl + drive;
+        r = xr + drive;
+    }
+    if (p->count < COCO_AUDIO_BUF_LEN) {
+        p->buf[p->count] = clamp16(y + drive);
+        p->left[p->count] = clamp16(l);
+        p->right[p->count++] = clamp16(r);
+    } else {
+        p->overflow++;
+    }
 }
 
 void COCO_HOT1(pcm_advance)(pcm_t *p, uint32_t now) {
@@ -110,7 +136,8 @@ void COCO_HOT1(pcm_advance)(pcm_t *p, uint32_t now) {
     t -= p->start_frac;
 
     while (t >= p->num) {
-        emit(p, p->acc + (uint64_t)p->level * (p->num - p->pos));
+        emit(p, p->acc + (uint64_t)p->level * (p->num - p->pos),
+             p->side_acc + (int64_t)p->side * (p->num - p->pos));
 
         t -= p->num;
         p->start += p->q;
@@ -121,18 +148,38 @@ void COCO_HOT1(pcm_advance)(pcm_t *p, uint32_t now) {
         }
         p->pos = 0;
         p->acc = 0;
+        p->side_acc = 0;
     }
 
     if (t > p->pos) {
         p->acc += (uint64_t)p->level * ((uint32_t)t - p->pos);
+        p->side_acc += (int64_t)p->side * ((uint32_t)t - p->pos);
         p->pos = (uint32_t)t;
     }
+}
+
+/* n samples gone from the front of both buffers. */
+static void drop(pcm_t *p, size_t n) {
+    p->count -= (uint32_t)n;
+    if (!p->count) return;
+    memmove(p->buf, p->buf + n, p->count * sizeof(p->buf[0]));
+    memmove(p->left, p->left + n, p->count * sizeof(p->left[0]));
+    memmove(p->right, p->right + n, p->count * sizeof(p->right[0]));
 }
 
 size_t pcm_drain(pcm_t *p, int16_t *dst, size_t max) {
     size_t n = p->count < max ? p->count : max;
     memcpy(dst, p->buf, n * sizeof(p->buf[0]));
-    p->count -= (uint32_t)n;
-    if (p->count) memmove(p->buf, p->buf + n, p->count * sizeof(p->buf[0]));
+    drop(p, n);
+    return n;
+}
+
+size_t pcm_drain_stereo(pcm_t *p, int16_t *dst, size_t max) {
+    size_t n = p->count < max ? p->count : max;
+    for (size_t i = 0; i < n; i++) {
+        dst[2 * i] = p->left[i];
+        dst[2 * i + 1] = p->right[i];
+    }
+    drop(p, n);
     return n;
 }

@@ -182,6 +182,9 @@ typedef struct {
     /* The drives' steps and motor heard (drivesnd.h): core 0 takes it
      * each field. */
     volatile bool     disk_sounds;
+    /* An Orchestra-90's DACs each to its own ear (§12.10), or the mono
+     * to both: core 0 takes it each field. */
+    volatile bool     stereo;
     volatile bool     reset;       /* the menu's Reset: core 0 clears it  */
     volatile bool     power;       /* its Power off/on: core 0 clears it  */
     /* The Machine page's Apply: power on as restart_cfg, with the ROMs

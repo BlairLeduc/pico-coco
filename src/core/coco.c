@@ -477,10 +477,37 @@ static uint32_t sound_level_now(const coco_t *m) {
         unsigned in = 0;
         if (src == SOURCE_DAC) in = ((unsigned)mc6821_out(&m->pia1.a) >> 2) * 2u;
         else if (src == SOURCE_TAPE) in = 63u;
+        else if (src == SOURCE_CART && cart_ssc_live(&m->port)) {
+            /* The Speech/Sound Cartridge's level, finer than the 126ths
+             * (ssc.h). */
+            return (uint32_t)((uint64_t)sound_gain[src][s] * 126u * m->port.ssc.level / SSC_LEVEL_MAX) +
+                   (uint32_t)sound_offset[src][s] * 126u;
+        }
         return (uint32_t)sound_gain[src][s] * in + (uint32_t)sound_offset[src][s] * 126u;
     }
     if (sbs) return (uint32_t)sbs_offset[sbs_high] * 126u;
     return m->sound_level;
+}
+
+/* What the PCM hears: the bus and, beside the multiplexer, the
+ * cartridges' own sound (cart_beside, §12.10), to the full scale. */
+static inline uint32_t sound_out(const coco_t *m, uint32_t bus) {
+    uint32_t out = bus + cart_beside(m);
+    return out > COCO_SOUND_LEVEL_MAX ? COCO_SOUND_LEVEL_MAX : out;
+}
+
+/* The bus moved to `level` at tick `at`, or the cartridges' sound beside
+ * it did: the pcm's mono and side levels from there, if either changed. */
+static inline void sound_stamp(coco_t *m, uint32_t at, uint32_t level) {
+    uint32_t out = sound_out(m, level);
+    int32_t side = cart_side(m);
+    if (level == m->sound_level && out == m->sound_out && side == m->sound_side) return;
+    if (out != m->sound_out) pcm_set_level(&m->pcm, at, out);
+    if (side != m->sound_side) pcm_set_side(&m->pcm, at, side);
+    m->sound_level = level;
+    m->sound_out = out;
+    m->sound_side = side;
+    m->sound_edges++;
 }
 
 /* After a write that can move the bus: the level, stamped with the tick
@@ -490,11 +517,25 @@ static uint32_t sound_level_now(const coco_t *m) {
 static void COCO_HOT1(update_sound)(coco_t *m) {
     const mc6821_port_t *pb = &m->pia1.b;
     if ((pb->ddr & 0x02u) || cb2_level(pb)) m->sound_fed = true;
-    uint32_t level = sound_level_now(m);
-    if (level == m->sound_level) return;
-    pcm_set_level(&m->pcm, (uint32_t)coco_ticks(m), level);
-    m->sound_level = level;
-    m->sound_edges++;
+    sound_stamp(m, (uint32_t)coco_ticks(m), sound_level_now(m));
+}
+
+/* Whether the bus hears the cartridge now: the multiplexer enabled and
+ * set to it. Only then must the Speech/Sound Cartridge be brought up to
+ * a tick before something else moves the bus; otherwise its levels move
+ * nothing, and it runs on in long stretches, cheaply (ssc.c). */
+static inline bool cart_heard(const coco_t *m) {
+    return cart_ssc_live(&m->port) && cb2_level(&m->pia1.b) && cb2_level(&m->pia0.b) &&
+           !ca2_level(&m->pia0.a);
+}
+
+/* The Speech/Sound Cartridge's level moved at tick `at` (ssc.h): the bus
+ * from there, if the multiplexer has it. The cartridge is brought up to
+ * a tick before anything else moves the bus (cart_ssc_run), so `at` is
+ * never behind the pcm. */
+void ssc_level_changed(ssc_t *s, uint64_t at) {
+    coco_t *m = (coco_t *)((char *)s - offsetof(cart_port_t, ssc) - offsetof(coco_t, port));
+    sound_stamp(m, (uint32_t)at, sound_level_now(m));
 }
 
 void coco_audio_set_rate(coco_t *m, uint32_t rate_num, uint32_t rate_den) {
@@ -503,10 +544,16 @@ void coco_audio_set_rate(coco_t *m, uint32_t rate_num, uint32_t rate_den) {
     /* What is waiting and the DC blocker stay as they are, so the change
      * makes no step. */
     pcm_set_rate(&m->pcm, now, COCO_SOUND_LEVEL_MAX, COCO_TICK_HZ, rate_num, rate_den);
+    if (cart_ssc_live(&m->port))
+        ay8912_set_average(&m->port.ssc.ay, m->pcm.num, m->pcm.den * SSC_TICKS_PER_AY);
 }
 
 size_t coco_audio_drain(coco_t *m, int16_t *dst, size_t max) {
     return pcm_drain(&m->pcm, dst, max);
+}
+
+size_t coco_audio_drain_stereo(coco_t *m, int16_t *dst, size_t max) {
+    return pcm_drain_stereo(&m->pcm, dst, max);
 }
 
 /* The cassette's relay, PIA1 CA2 driven high (§12.3): an input, as
@@ -543,6 +590,7 @@ static uint8_t io_read(coco_t *m, uint16_t a) {
     }
     if (off < 0x40u) {
         before_pia(m);
+        if (reg == 2u && cart_heard(m)) cart_ssc_run(m, access_tick(m));   /* PB1 */
         if (reg == 2u) m->pia1.b.in = pia1b_pins(m);
         /* PA0 is the cassette's comparator, low with no tape (XRoar; the
          * trace agrees, §18), and the signal's level while one plays
@@ -567,6 +615,8 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
     unsigned reg = a & 3u;
     if (off < 0x20u) {
         before_pia(m);
+        /* CA2 and CB2 choose the multiplexer's source. */
+        if (cart_heard(m) || (cart_ssc_live(&m->port) && (reg & 1u))) cart_ssc_run(m, access_tick(m));
         mc6821_write(&m->pia0, reg, v);
         if (reg & 1u) update_sound(m);   /* CA2 and CB2 choose the source */
         update_irq(m);
@@ -575,6 +625,8 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
     }
     if (off < 0x40u) {
         before_pia(m);
+        /* CB2 enables the multiplexer. */
+        if (cart_heard(m) || (cart_ssc_live(&m->port) && reg == 3u)) cart_ssc_run(m, access_tick(m));
         lines_due(m, access_tick(m));   /* in the mode they had (§9.3) */
         mc6821_write(&m->pia1, reg, v);
         if (reg == 3u) cart_q(m, access_tick(m) + m->tpc);
@@ -589,7 +641,7 @@ static void io_write(coco_t *m, uint16_t a, uint8_t v) {
         return;
     }
     if (off < 0xC0u) {   /* the cartridge port (§12.8) */
-        cart_io_write(m, a, v, access_tick(m));
+        if (cart_io_write(m, a, v, access_tick(m))) update_sound(m);
         return;
     }
     if (off >= 0xC0u && off < 0xE0u) {
@@ -707,6 +759,14 @@ bool coco_slot_rom_placed(coco_t *m, unsigned s, uint32_t at, size_t len) {
     return true;
 }
 
+bool coco_load_ssc_roms(coco_t *m, const uint8_t *rom, const uint8_t *al2) {
+    return cart_load_ssc(m, rom, al2);
+}
+
+bool coco_ssc_roms_placed(coco_t *m, uint32_t rom_at, uint32_t al2_at) {
+    return cart_ssc_placed(m, rom_at, al2_at);
+}
+
 void coco_cart_remove(coco_t *m) {
     cart_remove_rom(m, 0);
     map(m);
@@ -763,11 +823,14 @@ void coco_power_on(coco_t *m) {
     m->fields = 0;
     m->sound_fed = false;
     m->sound_level = 0;   /* XRoar's bus starts at 0 */
+    m->sound_out = sound_out(m, 0);
+    m->sound_side = cart_side(m);
     m->sound_edges = 0;
     /* The tick count starts again, and the next sample with it; the
      * drives fall silent, their motors stopped. */
     pcm_restart(&m->pcm, 0);
-    pcm_set_level(&m->pcm, 0, 0);
+    pcm_set_level(&m->pcm, 0, m->sound_out);
+    pcm_set_side(&m->pcm, 0, m->sound_side);
     drivesnd_motor(&m->pcm.drive, false);
     drivesnd_quiet(&m->pcm.drive);
     m->video_split = false;
@@ -984,7 +1047,10 @@ uint32_t COCO_HOT2(coco_run_field)(coco_t *m) {
     memcpy(m->split_last, m->split_now, m->n_split_now * sizeof m->split_now[0]);
     m->n_split_last = m->n_split_now;
     m->n_split_now = 0;
-    /* The samples up to here, for the port to drain with the snapshot. */
+    /* The Speech/Sound Cartridge up to here, once a field unless the bus
+     * hears it sooner (ssc.h); then the samples, for the port to drain
+     * with the snapshot. */
+    if (cart_ssc_live(&m->port)) cart_ssc_run(m, coco_ticks(m));
     pcm_advance(&m->pcm, (uint32_t)coco_ticks(m));
     return (uint32_t)(coco_ticks(m) - start);
 }
@@ -1108,7 +1174,10 @@ void coco_restored(coco_t *m) {
     coco_disk_restored(m);
     drivesnd_quiet(&m->pcm.drive);
     pcm_restart(&m->pcm, now);
-    pcm_set_level(&m->pcm, now, m->sound_level);
+    m->sound_out = sound_out(m, m->sound_level);
+    m->sound_side = cart_side(m);
+    pcm_set_level(&m->pcm, now, m->sound_out);
+    pcm_set_side(&m->pcm, now, m->sound_side);
 }
 
 void coco_key_set(coco_t *m, int row, int col, bool down) {

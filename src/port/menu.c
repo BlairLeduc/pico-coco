@@ -68,7 +68,7 @@ enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_POWER, I_SAVE, 
        I_ABOUT, I_COUNT };
 
 enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_VDG, D_ARTEFACTS, D_PHASE,
-       D_BACKGROUND, D_DISK_SOUNDS, D_COUNT };
+       D_BACKGROUND, D_DISK_SOUNDS, D_STEREO, D_COUNT };
 _Static_assert(ROW_TOP + I_COUNT + 2 <= ROW_STATUS, "the main page's rows fit");
 /* The layout's bindings go below the rows, as many as there is room
  * for: with the background's row, none. */
@@ -119,6 +119,8 @@ static const unsigned k_rams[4] = { 4u, 16u, 32u, 64u };
 #define MENU_CART_RSDOS      (-2)
 #define MENU_CART_MPI        (-3)
 #define MENU_CART_SMARTWATCH (-4)
+#define MENU_CART_SSC        (-5)
+#define MENU_CART_ORCH90     (-6)
 static unsigned       s_slot;      /* the Snapshots page's, kept between openings */
 
 static struct {
@@ -351,6 +353,10 @@ static void draw_setup(void) {
             /* The drives' steps and motor (drivesnd.h). */
             snprintf(line, sizeof line, " DISK SOUNDS     < %s >", on_off(g_ui.disk_sounds));
             break;
+        case D_STEREO:
+            /* An Orchestra-90's two DACs, each to its own ear (§12.10). */
+            snprintf(line, sizeof line, " STEREO          < %s >", on_off(g_ui.stereo));
+            break;
         }
         textpage_line(s_scr, ROW_TOP + i, line, i == s.setup_sel);
     }
@@ -415,6 +421,8 @@ static const char *choice_name(int c, unsigned slot) {
     case MENU_CART_RSDOS:      return CARD_RSDOS;
     case MENU_CART_MPI:        return CARTS_MPI;
     case MENU_CART_SMARTWATCH: return CARTS_SMARTWATCH;
+    case MENU_CART_SSC:        return CARTS_SSC;
+    case MENU_CART_ORCH90:     return CARTS_ORCH90;
     }
     if (c >= (int)s.n_carts) return g_boot.port.slot[slot].name;
     return s_carts[c];
@@ -427,6 +435,8 @@ static const char *choice_label(int c, unsigned slot) {
     case MENU_CART_RSDOS:      return "DISK CONTROLLER";
     case MENU_CART_MPI:        return "MULTI-PAK";
     case MENU_CART_SMARTWATCH: return "XT-RTC CLOCK";
+    case MENU_CART_SSC:        return "SPEECH/SOUND";
+    case MENU_CART_ORCH90:     return "ORCHESTRA-90";
     }
     return base(choice_name(c, slot));
 }
@@ -437,6 +447,8 @@ static int choice_of(const char *name, unsigned slot) {
     case CART_NONE:       return MENU_CART_NONE;
     case CART_RSDOS:      return MENU_CART_RSDOS;
     case CART_SMARTWATCH: return MENU_CART_SMARTWATCH;
+    case CART_SSC:        return MENU_CART_SSC;
+    case CART_ORCH90:     return MENU_CART_ORCH90;
     case CART_MPI:        return MENU_CART_MPI;
     default:              break;
     }
@@ -455,6 +467,8 @@ static bool machine_staged(void) {
  * or the running one's; 0 for none. */
 static uint32_t choice_size(int c, unsigned slot) {
     if (c == MENU_CART_RSDOS) return romset_images[ROM_COCO_DISK11].size;
+    if (c == MENU_CART_SSC) return CARTS_SSC_BYTES;
+    if (c == MENU_CART_ORCH90) return romset_images[ROM_ORCH90].size;
     if (c < 0) return 0;
     if (c >= (int)s.n_carts) return g_boot.port.slot[slot].len;
     return s_cart_size[c];
@@ -471,6 +485,14 @@ static void choice_info(int c, unsigned slot, bool in_mpi, char a[TEXT_COLS], ch
     case MENU_CART_RSDOS:
         snprintf(a, TEXT_COLS, "DISK BASIC 1.1, 8K ROM");
         snprintf(b, TEXT_COLS, "NEEDS 16K OR MORE AND EXTENDED");
+        return;
+    case MENU_CART_SSC:
+        snprintf(a, TEXT_COLS, "SPEECH/SOUND CARTRIDGE, 6K");
+        snprintf(b, TEXT_COLS, "NEEDS PIC-7040-510 AND THE AL2");
+        return;
+    case MENU_CART_ORCH90:
+        snprintf(a, TEXT_COLS, "ORCHESTRA-90 CC, 8K ROM");
+        snprintf(b, TEXT_COLS, "NEEDS ORCH90.ROM IN /COCO/ROMS");
         return;
     case MENU_CART_SMARTWATCH:
         snprintf(a, TEXT_COLS, "A CLOCK, NO ROM");
@@ -527,7 +549,11 @@ static void machine_info(int row) {
     }
     textpage_line(s_scr, row, line, false);
     uint32_t used = 0;
-    for (unsigned j = 0; j < COCO_MPI_SLOTS; j++) used += cart_room(choice_size(s.st_slot[j], j));
+    for (unsigned j = 0; j < COCO_MPI_SLOTS; j++) {
+        int c = s.st_slot[j];
+        /* The Speech/Sound Cartridge's ROMs take their bytes, not a window. */
+        used += c == MENU_CART_SSC ? CARTS_SSC_BYTES : cart_room(choice_size(c, j));
+    }
     if (s.machine_sel == M_CART) {
         snprintf(line, sizeof line, " %.30s", b);
     } else {
@@ -597,7 +623,15 @@ static void draw_about(void) {
     snprintf(line, sizeof line, " %.30s", machine_name(g_machine.extended, g_machine.ram_k));
     textpage_line(s_scr, 5, line, false);
     textpage_line(s_scr, 7, s.about_job ? " " COCO_ROM_DIR "/:" : " NO CARD: ROMS NOT READ", false);
-    for (int id = 0; id < ROM_IMAGE_COUNT && 8 + id < ROW_STATUS - 1; id++) about_rom(8 + id, (rom_id_t)id);
+    /* Five rows: BASIC's four ROMs, then the cartridges' (§12.9, §12.10). */
+    _Static_assert(9 + ROM_COCO_BAS11 < ROW_STATUS - 1, "the About page's ROM rows fit");
+    for (int id = 0; id <= ROM_COCO_BAS11; id++) about_rom(8 + id, (rom_id_t)id);
+    const char *ssc = !s.about_job                                                 ? ""
+                      : s_job.found[ROM_SSC_PIC7040] && s_job.found[ROM_SSC_AL2] ? "FOUND"
+                                                                                  : "--";
+    snprintf(line, sizeof line, " SSC %-5s ORCH90 %s", ssc,
+             !s.about_job ? "" : s_job.found[ROM_ORCH90] ? "FOUND" : "--");
+    textpage_line(s_scr, 9 + ROM_COCO_BAS11, line, false);
     const char *err = settingsio_error();
     snprintf(line, sizeof line, " SETTINGS %.22s",
              err[0] ? err : settingsio_state_str(settingsio_state()));
@@ -827,6 +861,7 @@ static void save_settings(void) {
     out.artefact_phase = g_ui.artefact_phase;
     out.dark_bg = g_ui.dark_bg;
     out.disk_sounds = g_ui.disk_sounds;
+    out.stereo = g_ui.stereo;
     /* A layout a loaded file chose is not the user's choice, so the file
      * keeps the one it had (§11.3). */
     if (!keymapio_chosen_by()[0])
@@ -1303,17 +1338,25 @@ static void key_setup(uint8_t c) {
         g_ui.disk_sounds = !g_ui.disk_sounds;
         log_core1("  setup        : disk sounds %s\n", g_ui.disk_sounds ? "on" : "off");
         break;
+    case D_STEREO:
+        g_ui.stereo = !g_ui.stereo;
+        say(g_ui.stereo ? " AN ORCHESTRA-90 IN STEREO" : " BOTH EARS HEAR THE SAME", "");
+        log_core1("  setup        : stereo %s\n", g_ui.stereo ? "on" : "off");
+        break;
     }
 }
 
 /* The next choice for the cartridge row (slot < 0) or slot `slot`'s:
- * none, RS-DOS, a Multi-Pak or the SmartWatch, the card's images, and
- * the running image if the card no longer lists it. */
+ * none, RS-DOS, the Speech/Sound Cartridge, the Orchestra-90, a
+ * Multi-Pak or the SmartWatch, the card's images, and the running image
+ * if the card no longer lists it. */
 static int next_choice(int now, int slot, int dir) {
-    static int list[4 + COCO_CART_LIST_MAX];
+    static int list[6 + COCO_CART_LIST_MAX];
     unsigned n = 0, k = slot < 0 ? 0u : (unsigned)slot;
     list[n++] = MENU_CART_NONE;
     list[n++] = MENU_CART_RSDOS;
+    list[n++] = MENU_CART_SSC;
+    list[n++] = MENU_CART_ORCH90;
     list[n++] = slot < 0 ? MENU_CART_MPI : MENU_CART_SMARTWATCH;
     for (unsigned i = 0; i < s.n_carts; i++) list[n++] = (int)i;
     int run = slot < 0 ? s.run_cart : s.run_slot[k];

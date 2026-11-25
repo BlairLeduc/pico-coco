@@ -21,6 +21,14 @@
  * Output is signed 16-bit mono through a one-pole DC blocker, so the
  * bus's unipolar level comes to rest at 0, which is the silence value
  * the port pads an underrun with.
+ *
+ * Beside it, a side channel for stereo (design.md §12.10): a signed
+ * level, half the difference of the two ears, box-filtered as the mono
+ * is. Each ear is made from the two at once, the left the mono plus the
+ * side and the right the mono less it, rounded once and DC-blocked on
+ * its own, and drained as pairs. It costs nothing until a side level
+ * other than 0 is first set (an Orchestra-90's DACs apart); until then
+ * both ears are the mono.
  */
 #ifndef PICO_COCO_PCM_H
 #define PICO_COCO_PCM_H
@@ -58,7 +66,15 @@ typedef struct {
      * (drivesnd.h); off, nothing is added. pcm_init leaves it off. */
     drivesnd_t drive;
 
+    /* The side channel (above): latched on by its first non-zero level. */
+    bool     side_on;
+    int32_t  side;
+    int64_t  side_acc;       /* side x units over the current sample      */
+    int32_t  hl_x, hl_y;     /* the left ear's DC blocker, as hp_x, hp_y  */
+    int32_t  hr_x, hr_y;     /* the right's                               */
+
     int16_t  buf[COCO_AUDIO_BUF_LEN];
+    int16_t  left[COCO_AUDIO_BUF_LEN], right[COCO_AUDIO_BUF_LEN];
     uint32_t count;
     uint32_t overflow;       /* samples lost because nobody drained       */
 } pcm_t;
@@ -93,7 +109,26 @@ static inline void pcm_set_level(pcm_t *p, uint32_t now, uint32_t level) {
     p->level = level;
 }
 
+/* The side level changes to `side` at `now`: half the difference of the
+ * ears, in the levels' units, |side| at most level_max / 2. */
+static inline void pcm_set_side(pcm_t *p, uint32_t now, int32_t side) {
+    if (side == p->side) return;
+    pcm_advance(p, now);
+    p->side = side;
+    if (side && !p->side_on) {
+        /* The ears' blockers take up where the mono's is, so that the
+         * first difference makes no step. */
+        p->side_on = true;
+        p->hl_x = p->hr_x = p->hp_x;
+        p->hl_y = p->hr_y = p->hp_y;
+    }
+}
+
 /* Move up to `max` samples out, oldest first. Returns how many. */
 size_t pcm_drain(pcm_t *p, int16_t *dst, size_t max);
+
+/* The same as stereo pairs, left then right: up to `max` pairs into dst,
+ * 2 x max values. Returns how many pairs. */
+size_t pcm_drain_stereo(pcm_t *p, int16_t *dst, size_t max);
 
 #endif /* PICO_COCO_PCM_H */

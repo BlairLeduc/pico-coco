@@ -24,6 +24,7 @@ void settings_default(settings_t *s) {
     s->dark_bg   = true;        /* the datasheet's backgrounds (§9.5) */
     for (unsigned c = 0; c < VDG_COLOUR_COUNT; c++) s->colour[c] = SETTINGS_COLOUR_NONE;
     s->disk_sounds = true;      /* the drives heard (§10) */
+    s->stereo = true;           /* as the cartridge's own outputs (§12.10) */
     s->mpi_switch = 1u + cfg.mpi_switch;   /* slot 4 (§12.8) */
 }
 
@@ -162,7 +163,7 @@ static settings_status_t layout(settings_t *s, const char *v) {
 enum { K_BASIC, K_RAM, K_CART, K_VOLUME, K_PERF, K_STATUS, K_BACKLIGHT, K_LAYOUT, K_FAST_TAPE,
        K_VDG, K_SMARTWATCH, K_DISK_SOUNDS, K_ARTIFACTS, K_ARTIFACT_PHASE, K_BACKGROUND, K_BOOT_TAPE,
        K_BOOT_DISK, K_BOOT_DISK1, K_BOOT_DISK2, K_BOOT_DISK3,
-       K_SLOT1, K_SLOT2, K_SLOT3, K_SLOT4, K_MPI_SWITCH,
+       K_SLOT1, K_SLOT2, K_SLOT3, K_SLOT4, K_MPI_SWITCH, K_STEREO,
        K_COLOUR, K_COUNT = K_COLOUR + VDG_COLOUR_COUNT };
 _Static_assert(K_SLOT4 - K_SLOT1 + 1 == COCO_MPI_SLOTS, "a key for each Multi-Pak slot");
 _Static_assert(K_BOOT_DISK3 - K_BOOT_DISK + 1 == COCO_DISK_DRIVES, "a key for each drive");
@@ -178,7 +179,7 @@ static const char *const k_names[K_COUNT] = {
     "basic", "ram", "cart", "volume", "perf", "status", "backlight", "layout", "fast_tape",
     "vdg", "smartwatch", "disk_sounds", "artifacts", "artifact_phase", "background", "boot_tape",
     "boot_disk", "boot_disk1", "boot_disk2", "boot_disk3",
-    "slot1", "slot2", "slot3", "slot4", "mpi_switch",
+    "slot1", "slot2", "slot3", "slot4", "mpi_switch", "stereo",
     /* In vdg_colour_t's order. */
     "color_green", "color_yellow", "color_blue", "color_red", "color_buff", "color_cyan",
     "color_magenta", "color_orange", "color_black", "color_dark_green", "color_dark_orange",
@@ -213,6 +214,7 @@ static settings_status_t apply(settings_t *s, unsigned k, const char *v) {
         return on_off(v, &ignored);
     }
     case K_DISK_SOUNDS: return on_off(v, &s->disk_sounds);
+    case K_STEREO:    return on_off(v, &s->stereo);
     case K_ARTIFACTS: return one_of(v, k_artefacts, 3u, &s->artefacts);
     case K_ARTIFACT_PHASE: return one_of(v, k_phases, 3u, &s->artefact_phase);
     case K_BACKGROUND: return background(s, v);
@@ -346,6 +348,7 @@ static bool key_equal(unsigned k, const settings_t *a, const settings_t *b) {
     case K_VDG:       return a->vdg_t1 == b->vdg_t1;
     case K_SMARTWATCH: return true;   /* retired: the line is kept as it is */
     case K_DISK_SOUNDS: return a->disk_sounds == b->disk_sounds;
+    case K_STEREO:    return a->stereo == b->stereo;
     case K_ARTIFACTS: return a->artefacts == b->artefacts;
     case K_ARTIFACT_PHASE: return a->artefact_phase == b->artefact_phase;
     case K_BACKGROUND: return a->dark_bg == b->dark_bg;
@@ -387,6 +390,7 @@ static const char *value_of(unsigned k, const settings_t *s, char num[8]) {
     case K_FAST_TAPE: return s->fast_tape ? "on" : "off";
     case K_VDG:       return s->vdg_t1 ? "6847t1" : "6847";
     case K_DISK_SOUNDS: return s->disk_sounds ? "on" : "off";
+    case K_STEREO:    return s->stereo ? "on" : "off";
     case K_ARTIFACTS: return settings_artefacts_str(s->artefacts);
     case K_ARTIFACT_PHASE: return settings_phase_str(s->artefact_phase);
     case K_BACKGROUND: return s->dark_bg ? "dark" : "black";

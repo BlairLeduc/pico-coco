@@ -33,6 +33,10 @@ void audio_rate(uint32_t *rate_num, uint32_t *rate_den);
  * starts once COCO_PCM_QUEUE_START samples are waiting. */
 void audio_push(const int16_t *pcm, size_t n);
 
+/* The same for n stereo pairs, left then right, 2 x n values: each ear
+ * its own channel of the slice (hardware-notes.md §5.1). */
+void audio_push_stereo(const int16_t *lr, size_t n);
+
 /* Samples the queue can take now without blocking. Turbo (design.md
  * §12.3, M12) will top the queue up with silence to this, so an
  * unpaced guest never waits on it and the ring never runs dry. */

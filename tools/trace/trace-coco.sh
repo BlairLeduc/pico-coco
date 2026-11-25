@@ -4,7 +4,7 @@
 #
 #   tools/trace/trace-coco.sh [-bas bas13|bas11] [-ram K] [-ext]
 #                             [-fields N] [-type STRING]
-#                             [-cart rsdos|mpi] [-mpi-slot N] [-mpi-load-cart N=rsdos]
+#                             [-cart rsdos|mpi|orch90] [-mpi-slot N] [-mpi-load-cart N=rsdos]
 #
 # The cartridge options are XRoar's, given to both (design.md §12.8).
 #
