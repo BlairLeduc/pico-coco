@@ -2033,6 +2033,21 @@ the UART passes the PicoCalc's arrow codes, $B4–$B7, through
 `keymap_picocalc_text` (`tools/uart-type.sh`). Not checked: a ROM
 cartridge in a slot, and the settings file saved with a Multi-Pak.
 
+**The trace diff** (2026-11-24): `coco-trace` takes XRoar's own
+`-cart rsdos`, `-cart mpi`, `-mpi-slot N` and `-mpi-load-cart N=rsdos`,
+and `trace-coco.sh` gives them to both. Through 300 fields of boot,
+every instruction agrees: Disk BASIC in the port alone (1,080,240),
+in Multi-Pak slot 3 and in slot 4 with the switch at it (1,080,240
+each), and the switch at an empty slot, where Extended boots
+(1,078,633). The control, our switch at slot 4 against XRoar's at an
+empty slot, parts at Extended's `CMPX $C000`, its look for Disk BASIC
+on CTS. Typing `DIR` with no disk, slot 3 and the port alone part at
+the same instruction, 529,899: the first read of the WD1793's status in
+the command, `$05` under XRoar (busy, TR00) and `$21` here (busy, head
+loaded). Both end in `?IO ERROR`. The Multi-Pak adds nothing to it;
+it is M13's controller, whose archive was held to XRoar by screen
+(§12.4), and is a row of §18.
+
 **Tested by** `test_mpi`: each line routed, the register read back, a
 CART edge from a slot that is not the CTS slot not seen, NMI and HALT
 from any slot, RESET to the switch; each shown to bite by a planted
@@ -2481,6 +2496,7 @@ configuration; once settled, it is a constant.
 | A PIA1 write's delay to the picture, for a change of mode along a line (§9.4) | **2026-11-22**: 1 µs, 14 ticks, from two pictures of Dragonfire: a low-resolution photograph of a real CoCo, whose wall edges match with about a cycle's delay and not without, and a sharper picture of a later build, whose every edge falls on a byte's boundary at 14 ticks and a pixel late at 16. Dark Star's and Rommel's Revenge's bars come out centred. The MC6821's tPDW, up to 1 µs, is that size. Where the second picture was taken, and whether the delay is the PIA's, the VDG's, or both, is not known | Medium | MC6821 and MC6847 datasheets; a sharper photograph of Dragonfire, or a scope on PB3 and the video |
 | ROM file names, sizes and SHA-1s (§12.1) | **Settled** 2026-11-14 (M3) for `bas13.rom`, `extbas11.rom`, `disk11.rom` and `bas11.rom`, the owner's images, each matching XRoar 1.13's CRC-32 (`roms/README.md`); `d32.rom` was in the table until the Dragon was removed (D6, 2026-11-16); other CoCo versions to come | High | The owner's images; XRoar's ROM list |
 | Disc controller registers, latch bits, interrupt and HALT wiring (§12.4) | As the table, from XRoar's decodes | Medium | Each DOS ROM read; controller schematics |
+| The WD1793's status in a Type I command with no disk: TR00 and the head-loaded bit (§12.8) | Here head loaded, no TR00; XRoar TR00, no head loaded (the trace diff, 2026-11-24). A real drive's TR00 sensor reads without a disk, which favours XRoar's TR00 | Low | The WD1793 datasheet's HLD/HLT rules; a real drive |
 | Which Tandy controller carries which chip: WD1793 on the 26-3022, the MB8877A (a 5 V WD1793) on early 26-3029s, the FD-500 as the 26-3029, the WD1773 on later ones and the FD-502; the FD-501 unknown (§12.8) | CoCopedia, read 2026-11-24; a classiccmp post orders the WD1773 and WD1793 the other way round | Low | The boards themselves; Tandy's service manuals |
 | WD2797 against WD1793: which differences each DOS sees | Side select, some status bits | Low | Datasheets |
 | VDK and JVC header rules | Community descriptions | Low | A corpus of real files (EL §8.8) |
