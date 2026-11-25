@@ -760,9 +760,15 @@ static void open_snaps(void) {
     s.page = P_SNAPS;
     s.snap_sel = N_SAVE;
     unsigned used = 0;
-    for (unsigned i = 0; i < SNAPIO_SLOTS; i++) used += s.used[i];
-    log_core1("  snapshot     : page open, slot %u, %u of %u slots in use\n", s_slot + 1u, used,
-              SNAPIO_SLOTS);
+    char which[2 * SNAPIO_SLOTS + 1] = "";
+    for (unsigned i = 0; i < SNAPIO_SLOTS; i++) {
+        if (!s.used[i]) continue;
+        which[2 * used] = ' ';
+        which[2 * used + 1] = (char)('1' + i);
+        which[2 * ++used] = 0;
+    }
+    log_core1("  snapshot     : page open, slot %u, %u of %u slots in use%s%s\n", s_slot + 1u, used,
+              SNAPIO_SLOTS, used ? ":" : "", which);
 }
 
 static void open_machine(void) {
@@ -1089,8 +1095,9 @@ static bool snap_switch(const snap_info_t *in) {
         return false;
     }
     log_core1("  snapshot     : slot %u is the %s%s%s's; powering on as it\n", s_slot + 1u,
-              machine_name(mc.extended, mc.ram_k), mc.rsdos ? " with the disk controller" : mc.cart ? " with " : "",
-              mc.rsdos ? "" : mc.cart ? carts_label(&g_boot.port) : "");
+              machine_name(mc.extended, mc.ram_k),
+              mc.mpi ? " with a Multi-Pak" : mc.rsdos ? " with the disk controller" : mc.cart ? " with " : "",
+              mc.mpi || mc.rsdos ? "" : mc.cart ? carts_label(&g_boot.port) : "");
     core0_power_on(s.m, &mc);
     return true;
 }

@@ -44,10 +44,11 @@ snap_status_t snapio_save(const coco_t *m, unsigned slot, uint32_t *us);
 snap_status_t snapio_check(const coco_t *m, unsigned slot, snap_info_t *info, bool *recovered);
 
 /* The machine the last checked state needs, from its info and media,
- * onto *mc, and its cartridge read into g_boot's when it has one: NULL,
- * or why the card cannot give it (a ROM missing or unknown, the
- * cartridge gone), and *st the refusal, SNAP_NO_ROM or SNAP_NO_CART.
- * A cartridge that fails to read leaves g_boot's as m runs it. */
+ * onto *mc, and its port, a cartridge or a Multi-Pak's slots, read into
+ * g_boot's: NULL, or why the card cannot give it (a ROM missing or
+ * unknown, a cartridge gone), and *st the refusal, SNAP_NO_ROM or
+ * SNAP_NO_CART. A cartridge that fails to read leaves g_boot's as m
+ * runs it. */
 const char   *snapio_machine(const coco_t *m, const snap_info_t *info, machine_t *mc,
                              snap_status_t *st);
 

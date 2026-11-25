@@ -1698,6 +1698,38 @@ RAM, BASIC or cartridge loads into a machine powered on as it (EL
 §8.5), its ROMs from the boot's job and its cartridge from the card by
 name. A Dragon 32's state, which M3 to M11 could write on the host, is
 refused as not a snapshot (D6).
+**Version 2** (M17, 2026-11-24) adds a 160-byte port section after the
+state, the cartridge port as `cart.h` has it (§12.8): whether a
+Multi-Pak is fitted, its switch, $FF7F as it stands and whether the
+switch still counts, and for each slot its kind, whether it has a ROM
+and a CART line on Q, its window's SHA-1, and a SmartWatch's set
+(§12.7); and to the media, slots 2 to 4's names after version 1's.
+The Multi-Pak, its switch and each slot's kind, ROM and CART line are
+what a power-on chooses, so a state for another port loads into a
+machine powered on as it; $FF7F and the set are put back by the load.
+A save always writes version 2. Version 1 still loads: its port is the
+one cartridge its state section names, with no Multi-Pak. The state
+section is laid out as before, with `M_AUTOSTART` now slot 1's own
+line rather than the CTS slot's, and `M_RSDOS` the controller in any
+slot, which with no Multi-Pak are the same thing. `test_snapshot`
+holds it on its own ROM: a Multi-Pak machine with $FF7F moved off its
+switch and its SmartWatch set meets the original 150 fields on, straight
+after a load into one with both otherwise; another switch, slot kind or
+slot ROM, or no Multi-Pak, is another machine and the info names the
+port; twelve port fields no machine keeps are refused; the four slots'
+names come back; and version 1 files, made from version 2 ones by
+taking out what version 2 added, load with no cartridge, with one and
+with the controller. Eleven planted bugs each failed it (the load
+forgetting CTS, the set or the key, the switch or a slot's hash not
+compared, version 1's CART line or controller lost, the slots' names
+not read, slot 1's CART line taken from CTS, a set on a ROM's slot or
+CTS without a Multi-Pak let through). On the owner's Plus 2 W
+(2026-11-24, `out/m17/snap1.log`): Disk BASIC from a Multi-Pak with
+Doodle Bug in slot 1, the controller in slot 3 and the SmartWatch in
+slot 4, $FF7F written $23 and a variable set, saved in 256 ms; the
+machine then made the plain port's controller, and the state loaded in
+226 ms by powering on as the Multi-Pak, the variable and $FF7F as saved;
+SCS moved back to slot 3, DIR read the disk the state named.
 `snapio.c` keeps four slots in `/coco/snaps/` through `.NEW` and a
 rename; the Snapshots page (§14) saves, loads and deletes them. Tested
 by `test_snapshot` on a ROM of its own, and `test_snapshot_rom` over
@@ -1965,9 +1997,8 @@ each slot's, and a second is fitted empty. The ROMs share a pool of
 page table, any other size in a whole window; the tier 2 UART0 build's
 BSS rose by 16,616 bytes, to leave about 38 KB of its 55 KB, until the port's own copy went (below). A write
 to $FF7F that moves CTS builds the page table again and gives the CART
-line its edge. A save state is refused with a Multi-Pak fitted
-(`SNAP_MPI`), and checked against one as another machine, until the
-state has room for it. `test_mpi`, with no ROM, holds each line of the
+line its edge. A save state holds the port in version 2 of the state
+(§12.5); M17's first build refused one with a Multi-Pak. `test_mpi`, with no ROM, holds each line of the
 table above, the pool and the one controller, each shown to bite by a
 planted bug (in its header); `test_cart` starts its own cartridge from
 slot 1 at field 145, as from the port alone, and not with the switch
@@ -2459,7 +2490,7 @@ the milestones after it are kept, since documents and commits cite them.
 | ~~M14~~ | **Withdrawn** (D6, the owner, 2026-11-16): the Dragon 32 and 64, DragonDOS and VDK images | — |
 | **M15** | HD6309: **deferred** by the owner, 2026-11-22 (§20) | Its oracle passes in both modes; a 6309 program runs on the device |
 | **M16** | Finish: README, the release build on a second board, attribution | A fresh card and board set up from the README alone |
-| **M17** | The cartridge port as one interface, the ROM cartridge and RS-DOS moved behind it; the Multi-Pak; the SmartWatch as a cartridge for `clock_bb`, its setting and `clock_tc3` dropped (§12.7, §12.8; the owner, 2026-11-24) | The move changes nothing the tests and the trace diff see; `test_mpi` with its planted bugs; Disk BASIC in a Multi-Pak held to XRoar's by the trace diff; OS-9 booted with the controller in a Multi-Pak, and Tandy OS-9 2.01 reading and setting the date through `clock_bb` with the SmartWatch in slot 4, on the host and the device |
+| **M17** | The cartridge port as one interface, the ROM cartridge and RS-DOS moved behind it; the Multi-Pak; the SmartWatch as a cartridge for `clock_bb`, its setting and `clock_tc3` dropped; save states with a Multi-Pak, the state's version 2 (§12.5, §12.7, §12.8; the owner, 2026-11-24) | The move changes nothing the tests and the trace diff see; `test_mpi` with its planted bugs; Disk BASIC in a Multi-Pak held to XRoar's by the trace diff; OS-9 booted with the controller in a Multi-Pak, and Tandy OS-9 2.01 reading and setting the date through `clock_bb` with the SmartWatch in slot 4, on the host and the device |
 | **M18** | The sound cartridges: the Speech/Sound Cartridge, its AY-3-8913 and SP0256-AL2, and the Orchestra-90 CC (§12.9, §12.10; the owner, 2026-11-24) | Their registers settled from a primary source; the AY's tests from pico-oric passing; the Orchestra-90 held to XRoar's by the trace diff and the audio test; the speech held to whatever M18 settles first; The Interbank Incident speaking on the device, with Disk BASIC beside it in the Multi-Pak |
 | **M19** | The Deluxe RS-232 Program Pak: its 6551 ACIA and its ROM (§12.11; the owner, 2026-11-24) | Its registers settled from a primary source; the pak's terminal program and an OS-9 serial port exchanging bytes with the host, on the host and the device |
 

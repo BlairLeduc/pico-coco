@@ -33,8 +33,9 @@
  * new time, kept as an offset from the host's, so the clock the port
  * gives (its DS3231, smartwatch_set_host) is never written: a set lasts
  * until power-off, as the guest's own clock would until its battery
- * failed, and never moves the board's. Not in a save state: the offset
- * goes with the machine, and a key half sent is only a few cycles long.
+ * failed, and never moves the board's. A save state keeps the offset
+ * (snapshot.h's port section) but not the key: one half sent is only a
+ * few cycles long, and a load shuts it.
  *
  * As the chip, from the module's code and the DS1216 datasheet's
  * protocol as remembered (§18: medium). The rest of its slot's SCS,

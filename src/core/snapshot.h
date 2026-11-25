@@ -9,20 +9,28 @@
  *
  *   header  20 bytes: "COCOSNAP" (8), version (2), header length (2),
  *           payload length (4), CRC-32 of the payload (4)
- *   payload the state (SNAP_STATE_LEN), all 64 KB of coco_t's RAM, then
- *           the media (SNAP_MEDIA_LEN)
+ *   payload the state (SNAP_STATE_LEN), the port (SNAP_PORT_LEN), all
+ *           64 KB of coco_t's RAM, then the media (SNAP_MEDIA_LEN)
+ *
+ * Version 2 (M17) added the port section, the cartridge port as cart.h
+ * has it: whether a Multi-Pak is fitted, its switch and $FF7F, and for
+ * each slot its kind, its ROM's hash and a SmartWatch's set; and to the
+ * media, slots 2 to 4's names. Version 1, which has neither, still
+ * loads: its port is the one cartridge its state section describes, in
+ * a port with no Multi-Pak.
  *
  * The media are the files the port had in the deck and the cartridge
- * slot, the four drives', and the deck's place (snap_media_t):
+ * slots, the four drives', and the deck's place (snap_media_t):
  * names, not contents, which stay on the card. The core carries them and
  * never opens them; the port fills them on a save and puts them back
  * after a load.
  *
  * No ROM is in a state: what is, is the SHA-1 of each ROM half at $8000
- * and $A000 and of the cartridge's 16 KB window, and a state loads only
- * into a machine whose ROMs hash the same and whose machine, RAM, CART
- * line, tape trap and field are the same, since every count in it is in
- * that machine's ticks. The field is the build's (coco_init's); the rest
+ * and $A000 and of each slot's 16 KB window, and a state loads only
+ * into a machine whose ROMs hash the same and whose machine, RAM, port
+ * (its Multi-Pak, switch and each slot's kind and CART line), tape trap
+ * and field are the same, since every count in it is in that machine's
+ * ticks. The field is the build's (coco_init's); the rest
  * a power-on chooses, and snap_info_t says what a state needs, so that
  * the port can power on as that machine and load it (snapio.h). Unused
  * state bytes are written zero and read as reserved, so a later version
@@ -51,15 +59,20 @@
 #include "coco.h"
 #include "romset.h"
 
-#define SNAP_VERSION     1u
+#define SNAP_VERSION     2u
 #define SNAP_HEADER_LEN  20u
 #define SNAP_STATE_LEN   256u
-/* The deck's path, the cartridge's, COCO_SNAP_DRIVES drives', each
- * COCO_PATH_MAX bytes NUL-padded; then the deck's
- * place, its rewind mark and flags (4 bytes each), and 4 reserved. */
+#define SNAP_PORT_LEN    160u   /* version 2's                          */
+/* The deck's path, slot 1's (the cartridge's without a Multi-Pak),
+ * COCO_SNAP_DRIVES drives', each COCO_PATH_MAX bytes NUL-padded; then
+ * the deck's place, its rewind mark and flags (4 bytes each), and 4
+ * reserved; version 1 ends there, and version 2 has slots 2 to 4's
+ * paths after them. */
 #define COCO_SNAP_DRIVES COCO_DISK_DRIVES
-#define SNAP_MEDIA_LEN   ((2u + COCO_SNAP_DRIVES) * COCO_PATH_MAX + 16u)
-#define SNAP_PAYLOAD_LEN (SNAP_STATE_LEN + COCO_ADDR_SPACE + SNAP_MEDIA_LEN)
+#define SNAP_MEDIA_V1_LEN ((2u + COCO_SNAP_DRIVES) * COCO_PATH_MAX + 16u)
+#define SNAP_MEDIA_LEN   (SNAP_MEDIA_V1_LEN + (COCO_MPI_SLOTS - 1u) * COCO_PATH_MAX)
+#define SNAP_PAYLOAD_V1_LEN (SNAP_STATE_LEN + COCO_ADDR_SPACE + SNAP_MEDIA_V1_LEN)
+#define SNAP_PAYLOAD_LEN (SNAP_STATE_LEN + SNAP_PORT_LEN + COCO_ADDR_SPACE + SNAP_MEDIA_LEN)
 #define SNAP_FILE_LEN    (SNAP_HEADER_LEN + SNAP_PAYLOAD_LEN)
 
 typedef enum {
@@ -81,15 +94,14 @@ typedef enum {
     SNAP_UNSAVED,         /* the port's: a recording is not on the card  */
     SNAP_TORN,            /* snapshot_load's read failed once m had begun
                              to change: it must be powered on again      */
-    SNAP_MPI,             /* a Multi-Pak is fitted: not saved yet (M17,
-                             design.md §12.8)                            */
 } snap_status_t;
 
 /* The port's media at the save (the header above). Paths are as the
- * port keeps them, "" for an empty deck, slot or drive. */
+ * port keeps them, "" for an empty deck, slot or drive; a slot's as the
+ * settings name it (carts.h). */
 typedef struct snap_media_s {
     char     tape[COCO_PATH_MAX];
-    char     cart[COCO_PATH_MAX];
+    char     cart[COCO_MPI_SLOTS][COCO_PATH_MAX];   /* [0] without a Multi-Pak */
     char     disk[COCO_SNAP_DRIVES][COCO_PATH_MAX];
     uint32_t tape_pos;            /* where the head stands               */
     uint32_t tape_rewind;         /* the port's rewind mark (tapeio.c)   */
@@ -104,18 +116,22 @@ typedef struct {
     unsigned       ram_k;
     bool           rom_present[2];   /* $8000, $A000                    */
     rom_id_t       rom[2];
-    bool           cart;             /* a ROM at $C000                  */
+    bool           cart;             /* a ROM in slot 1 (the port's)    */
     bool           cart_autostart;   /* its CART line on the Q clock    */
     bool           tape_trap;
-    bool           rsdos;            /* the RS-DOS cartridge (rsdos.h)  */
+    bool           rsdos;            /* the RS-DOS controller, in any slot */
+    bool           mpi;              /* a Multi-Pak (cart.h)            */
+    uint8_t        mpi_switch;       /* its switch, 0 to 3              */
+    cart_kind_t    slot[COCO_MPI_SLOTS];   /* each slot's; [0] without one */
 } snap_info_t;
 
 /* Move exactly n bytes; false on any failure. */
 typedef bool (*snap_write_fn)(void *ctx, const uint8_t *src, size_t n);
 typedef bool (*snap_read_fn)(void *ctx, uint8_t *dst, size_t n);
 
-/* `media` NULL writes an empty deck, slot and drives. SNAP_BUSY, and
- * nothing written, while a tape request waits. */
+/* `media` NULL writes an empty deck, slots and drives. SNAP_BUSY, and
+ * nothing written, while a tape request waits. Always the latest
+ * version. */
 snap_status_t snapshot_save(const coco_t *m, const snap_media_t *media, snap_write_fn write,
                             void *ctx);
 
@@ -136,7 +152,7 @@ snap_status_t snapshot_load(coco_t *m, snap_read_fn read, void *ctx);
 
 /* A state refused SNAP_OTHER_ROM, SNAP_OTHER_RAM or SNAP_OTHER_MACHINE
  * has passed every other check, the field's first, and loads into a
- * machine powered on as `info` says with the cartridge the media name. */
+ * machine powered on as `info` says with the cartridges the media name. */
 static inline bool snapshot_other_machine(snap_status_t st) {
     return st == SNAP_OTHER_ROM || st == SNAP_OTHER_RAM || st == SNAP_OTHER_MACHINE;
 }

@@ -16,6 +16,12 @@
  * Then the refusals — damaged, short, foreign or newer files, fields no
  * running machine keeps, another ROM, RAM, cartridge or trap, a tape
  * request waiting — each leave the machine that refused it untouched.
+ *
+ * Version 2 (M17) has the cartridge port: a Multi-Pak's state, its
+ * slots, $FF7F and a SmartWatch's set meet the same way, and another
+ * port is another machine. Version 1, which a build before M17 wrote,
+ * is made here from a version 2 file by taking the port section and
+ * slots 2 to 4's names out, which is all that changed, and still loads.
  */
 
 #include <string.h>
@@ -77,6 +83,56 @@ static void build_rom(bool cwai) {
     rom[0x1FF8] = 0xA0; rom[0x1FF9] = 0x50;   /* IRQ   */
     rom[0x1FFE] = 0xA0; rom[0x1FFF] = 0x00;   /* RESET */
     if (!cwai) { rom[0x3C] = 0x20; rom[0x3D] = 0xE9; }   /* BRA $A027 */
+}
+
+static uint8_t slot_rom[0x2000];
+
+/* A Multi-Pak: slot 1 a ROM, slot 2 a SmartWatch (or `sw2` instead),
+ * slots 3 and 4 empty; the switch at `sw`. The ROM at $A000 starts,
+ * whatever CTS selects, as an empty slot's window or a ROM that waits
+ * for its CART line both leave Color BASIC's reset alone. */
+static void mpi_machine_as(coco_t *m, uint8_t sw, cart_kind_t k2, uint8_t rom0) {
+    coco_config_t cfg;
+    coco_config_default(&cfg);
+    cfg.ram_k = 64;
+    cfg.cart = CART_MPI;
+    cfg.slot[0] = CART_NONE;
+    cfg.slot[1] = k2;
+    cfg.slot[2] = cfg.slot[3] = CART_NONE;
+    cfg.mpi_switch = sw;
+    coco_init(m, &cfg);
+    coco_load_rom(m, 0xA000u, rom, sizeof rom);
+    memset(slot_rom, 0x12, sizeof slot_rom);
+    slot_rom[0] = rom0;
+    coco_load_slot_rom(m, 0, slot_rom, sizeof slot_rom);
+    coco_power_on(m);
+    m->pcm.dc_block = false;
+}
+
+static void mpi_machine(coco_t *m) {
+    mpi_machine_as(m, 3, CART_SMARTWATCH, 0x12);
+}
+
+/* The version 1 file a build before M17 would have written for the
+ * same machine: the port section and slots 2 to 4's names out. Only for
+ * a port without a Multi-Pak, which is all version 1 had. */
+static void mem_downgrade(mem_t *s) {
+    static uint8_t v1[SNAP_FILE_LEN];
+    uint8_t *p = s->buf + SNAP_HEADER_LEN, *q = v1 + SNAP_HEADER_LEN;
+    memcpy(v1, s->buf, SNAP_HEADER_LEN);
+    memcpy(q, p, SNAP_STATE_LEN);
+    memcpy(q + SNAP_STATE_LEN, p + SNAP_STATE_LEN + SNAP_PORT_LEN, COCO_ADDR_SPACE + SNAP_MEDIA_V1_LEN);
+    v1[8] = 1u; v1[9] = 0u;
+    for (unsigned i = 0; i < 4; i++) v1[12 + i] = (uint8_t)(SNAP_PAYLOAD_V1_LEN >> (8 * i));
+    s->len = SNAP_HEADER_LEN + SNAP_PAYLOAD_V1_LEN;
+    memcpy(s->buf, v1, s->len);
+    mem_recrc(s);
+}
+
+/* The port section's byte at `off`, changed, the CRC made good. */
+static void poke_port(unsigned off, uint8_t v) {
+    snap.buf[SNAP_HEADER_LEN + SNAP_STATE_LEN + off] = v;
+    mem_recrc(&snap);
 }
 
 static void machine(coco_t *m, unsigned ram_k) {
@@ -247,7 +303,7 @@ int main(void) {
     {
         const uint8_t *st = snap.buf + SNAP_HEADER_LEN;
         CHECK(memcmp(snap.buf, "COCOSNAP", 8) == 0, "the magic");
-        CHECK(memcmp(st + SNAP_STATE_LEN, g.ram, COCO_ADDR_SPACE) == 0, "RAM follows the state, as it stands");
+        CHECK(memcmp(st + SNAP_STATE_LEN + SNAP_PORT_LEN, g.ram, COCO_ADDR_SPACE) == 0, "RAM follows the state, as it stands");
         bool reserved = true;
         for (unsigned i = 232; i < SNAP_STATE_LEN; i++) reserved = reserved && st[i] == 0;
         CHECK(reserved, "reserved state bytes are written zero");
@@ -311,7 +367,7 @@ int main(void) {
         static snap_media_t md, back;
         memset(&md, 0, sizeof md);
         snprintf(md.tape, sizeof md.tape, "/coco/tapes/PIPES.CAS");
-        snprintf(md.cart, sizeof md.cart, "/coco/carts/Doodle Bug.ccc");
+        snprintf(md.cart[0], sizeof md.cart[0], "/coco/carts/Doodle Bug.ccc");
         md.tape_pos = 12345u;
         md.tape_rewind = 7u;
         md.tape_chosen = true;
@@ -329,7 +385,7 @@ int main(void) {
     fields(&h, 9);
 
     CHECK(mem_save(&snap, &saved, NULL) == SNAP_OK, "save");
-    snap.buf[SNAP_HEADER_LEN + SNAP_STATE_LEN + 0x1234u] ^= 0x01u;
+    snap.buf[SNAP_HEADER_LEN + SNAP_STATE_LEN + SNAP_PORT_LEN + 0x1234u] ^= 0x01u;
     coco_copy(&before, &h);
     CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_CORRUPT, "a flipped RAM bit is damage");
     CHECK(snap_same(&before, &h, "damaged"), "a check changed the machine");
@@ -428,6 +484,172 @@ int main(void) {
         CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_OTHER_MACHINE, "without the trap");
     }
 
+    /* ---- the Multi-Pak (version 2) ---------------------------------------- */
+    {
+        /* A machine that has moved $FF7F away from its switch, and whose
+         * SmartWatch the guest has set, meets as any other; the machine
+         * loaded into has them otherwise. */
+        mpi_machine(&g);
+        fields(&g, 12);
+        coco_slow_write(&g, 0xFF7Fu, 0x01u);   /* CTS slot 1, SCS slot 2 */
+        CHECK(g.port.cts == 0 && g.port.scs == 1 && !g.port.switch_on, "$FF7F written");
+        g.port.slot[1].u.clock.offset = -86400 * 3650;   /* ten years back */
+        fields(&g, 3);
+        CHECK(mem_save(&snap, &g, NULL) == SNAP_OK, "a save with a Multi-Pak");
+        coco_copy(&saved, &g);
+        fields(&g, 150);
+        coco_copy(&ahead, &g);
+        mpi_machine(&h);
+        fields(&h, 7);
+        coco_slow_write(&h, 0xFF7Fu, 0x33u);
+        h.port.slot[1].u.clock.offset = 99;
+        h.port.slot[1].u.clock.key = 5;   /* a key half sent */
+        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_OK, "the Multi-Pak's: check");
+        CHECK(mem_load(&snap, &h) == SNAP_OK, "the Multi-Pak's: load");
+        CHECK(snap_same(&saved, &h, "the Multi-Pak's, straight after"), "not the saved Multi-Pak");
+        fields(&h, 150);
+        CHECK(snap_same(&ahead, &h, "the Multi-Pak's"), "the Multi-Pak's: apart after 150 fields");
+
+        /* Another port is another machine, and the info says which. */
+        snap_info_t info;
+        memset(&info, 0, sizeof info);
+        machine(&h, 64);
+        coco_copy(&before, &h);
+        CHECK(mem_check(&snap, &h, &info, NULL) == SNAP_OTHER_MACHINE, "into a machine without one");
+        CHECK(mem_load(&snap, &h) == SNAP_OTHER_MACHINE, "loaded into a machine without one");
+        CHECK(snap_same(&before, &h, "without a Multi-Pak"), "the machine without one changed");
+        CHECK(info.mpi && info.mpi_switch == 3 && info.slot[0] == CART_ROM &&
+              info.slot[1] == CART_SMARTWATCH && info.slot[2] == CART_NONE &&
+              info.slot[3] == CART_NONE && info.cart && info.cart_autostart && !info.rsdos,
+              "the info names the port: mpi %d switch %u slots %d %d %d %d", info.mpi,
+              info.mpi_switch, info.slot[0], info.slot[1], info.slot[2], info.slot[3]);
+        mpi_machine_as(&h, 2, CART_SMARTWATCH, 0x12);
+        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_OTHER_MACHINE, "another switch");
+        mpi_machine_as(&h, 3, CART_NONE, 0x12);
+        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_OTHER_MACHINE, "no SmartWatch");
+        mpi_machine_as(&h, 3, CART_SMARTWATCH, 0x39);
+        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_OTHER_MACHINE, "another ROM in slot 1");
+        mpi_machine(&h);
+        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_OK, "and the control, the same port");
+        CHECK(mem_save(&snap, &before, NULL) == SNAP_OK, "save without one");
+        CHECK(mem_check(&snap, &h, &info, NULL) == SNAP_OTHER_MACHINE && !info.mpi &&
+              info.slot[0] == CART_NONE, "a state without one into a Multi-Pak");
+
+        /* The port section, each field one no machine keeps; offsets are
+         * snapshot.c's. */
+        static const struct { unsigned off; uint8_t v; const char *what; } bad[] = {
+            {   0, 0x04, "an unknown port flag" },
+            {   1, 4,    "a switch at slot 5" },
+            {   2, 4,    "CTS at slot 5" },
+            {   5, 1,    "a reserved byte" },
+            {  80, 7,    "an unknown kind in slot 3" },
+            {  80, CART_MPI, "a Multi-Pak in a slot" },
+            {  81, 0x01, "a ROM flag in an empty slot" },
+            {  17, 0x02, "slot 1's CART line on, unlike the state section" },
+            {  18, 0x00, "slot 1's hash unlike the state section's" },
+            {  38, 0x01, "a set on a ROM's slot" },
+            {  77, 0x40, "a set too far off" },
+            { 150, 1,    "a reserved byte at the end" },
+        };
+        for (unsigned i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+            mpi_machine(&h);
+            CHECK(mem_save(&snap, &saved, NULL) == SNAP_OK, "save");
+            poke_port(bad[i].off, bad[i].v);
+            coco_copy(&before, &h);
+            snap_status_t c = mem_check(&snap, &h, NULL, NULL), l = mem_load(&snap, &h);
+            CHECK(c == SNAP_NOT_SNAPSHOT && l == SNAP_NOT_SNAPSHOT, "%s: check %s, load %s", bad[i].what,
+                  snapshot_status_str(c), snapshot_status_str(l));
+            CHECK(snap_same(&before, &h, bad[i].what), "%s: the refusing machine changed", bad[i].what);
+        }
+        /* Two controllers, and one the state section does not have. */
+        CHECK(mem_save(&snap, &saved, NULL) == SNAP_OK, "save");
+        poke_port(16 + 64, CART_RSDOS);
+        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_NOT_SNAPSHOT, "a controller the state lacks");
+        /* Without a Multi-Pak, only slot 1. */
+        machine(&h, 64);
+        CHECK(mem_save(&snap, &h, NULL) == SNAP_OK, "save");
+        poke_port(16 + 32, CART_SMARTWATCH);
+        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_NOT_SNAPSHOT, "slot 2 without a Multi-Pak");
+        CHECK(mem_save(&snap, &h, NULL) == SNAP_OK, "save");
+        poke_port(2, 1);
+        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_NOT_SNAPSHOT, "CTS without a Multi-Pak");
+
+        /* The four slots' names come back. */
+        static snap_media_t md, back;
+        memset(&md, 0, sizeof md);
+        snprintf(md.cart[0], sizeof md.cart[0], "/coco/carts/Doodle Bug.ccc");
+        snprintf(md.cart[1], sizeof md.cart[1], "smartwatch");
+        snprintf(md.cart[3], sizeof md.cart[3], "rsdos");
+        snprintf(md.disk[2], sizeof md.disk[2], "/coco/disks/OS9.DSK");
+        CHECK(mem_save(&snap, &saved, &md) == SNAP_OK, "save with four slots");
+        memset(&back, 0x55, sizeof back);
+        CHECK(mem_check(&snap, &saved, NULL, &back) == SNAP_OK, "check with four slots");
+        CHECK(memcmp(&md, &back, sizeof md) == 0, "the four slots' names come back");
+    }
+
+    /* ---- version 1, as a build before M17 wrote it ------------------------ */
+    {
+        static snap_media_t md, back;
+        memset(&md, 0, sizeof md);
+        snprintf(md.tape, sizeof md.tape, "/coco/tapes/PIPES.CAS");
+        snprintf(md.cart[0], sizeof md.cart[0], "/coco/carts/Doodle Bug.ccc");
+        snprintf(md.cart[2], sizeof md.cart[2], "not in version 1");
+        machine(&g, 64);
+        fields(&g, 21);
+        static uint8_t cart[0x2000];
+        memset(cart, 0x39, sizeof cart);
+        for (int with = 0; with < 2; with++) {
+            if (with) {
+                /* With a cartridge: its CART line and its hash. */
+                machine(&g, 64);
+                coco_load_rom(&g, 0xC000u, cart, sizeof cart);   /* autostarts */
+                fields(&g, 21);
+            }
+            CHECK(mem_save(&snap, &g, &md) == SNAP_OK, "save for version 1");
+            mem_downgrade(&snap);
+            CHECK(snap.len == SNAP_HEADER_LEN + SNAP_PAYLOAD_V1_LEN, "version 1's length");
+            coco_copy(&saved, &g);
+            coco_copy(&h, &g);
+            fields(&h, 9);
+            snap_info_t info;
+            memset(&info, 0x55, sizeof info);
+            memset(&back, 0x55, sizeof back);
+            CHECK(mem_check(&snap, &h, &info, &back) == SNAP_OK, "version 1: check (%d)", with);
+            CHECK(!info.mpi && info.slot[0] == (with ? CART_ROM : CART_NONE) &&
+                  info.slot[1] == CART_NONE && info.cart == (with != 0), "version 1's info: no Multi-Pak");
+            CHECK(!strcmp(back.tape, md.tape) && !strcmp(back.cart[0], md.cart[0]) && !back.cart[2][0],
+                  "version 1's media: one cartridge");
+            CHECK(mem_load(&snap, &h) == SNAP_OK, "version 1: load (%d)", with);
+            CHECK(snap_same(&saved, &h, "version 1"), "version 1: not the saved machine");
+            mpi_machine(&h);
+            CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_OTHER_MACHINE, "version 1 into a Multi-Pak");
+        }
+        /* The RS-DOS controller's, its chips in the state section. */
+        coco_config_t cfg;
+        coco_config_default(&cfg);
+        cfg.cart = CART_RSDOS;
+        coco_init(&g, &cfg);
+        coco_load_rom(&g, 0xA000u, rom, sizeof rom);
+        coco_power_on(&g);
+        fields(&g, 30);
+        CHECK(mem_save(&snap, &g, NULL) == SNAP_OK, "save the controller's for version 1");
+        mem_downgrade(&snap);
+        coco_copy(&saved, &g);
+        coco_copy(&h, &g);
+        fields(&h, 5);
+        snap_info_t info;
+        CHECK(mem_check(&snap, &h, &info, NULL) == SNAP_OK && info.rsdos && info.slot[0] == CART_RSDOS,
+              "version 1 with the controller: check");
+        CHECK(mem_load(&snap, &h) == SNAP_OK && snap_same(&saved, &h, "version 1, the controller's"),
+              "version 1 with the controller: load");
+        /* And a version 1 header over version 2's payload is no file. */
+        CHECK(mem_save(&snap, &g, NULL) == SNAP_OK, "save");
+        snap.buf[8] = 1u;
+        CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_NOT_SNAPSHOT, "version 1 with version 2's length");
+        machine(&saved, 64);   /* as the refusals had it, for what follows */
+        fields(&saved, 25);
+    }
+
     /* ---- a tape request: no save, no load into it --------------------------- */
     machine(&h, 64);
     fields(&h, 3);
@@ -453,7 +675,7 @@ int main(void) {
     fields(&h, 4);
     CHECK(mem_save(&snap, &saved, NULL) == SNAP_OK, "save");
     CHECK(mem_check(&snap, &h, NULL, NULL) == SNAP_OK, "the first pass");
-    snap.fail_at = SNAP_HEADER_LEN + SNAP_STATE_LEN + 100u;
+    snap.fail_at = SNAP_HEADER_LEN + SNAP_STATE_LEN + SNAP_PORT_LEN + 100u;
     CHECK(mem_load(&snap, &h) == SNAP_TORN, "the second pass, cut in the RAM");
     snap.fail_at = 0;
 
