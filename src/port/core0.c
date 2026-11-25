@@ -24,6 +24,7 @@
 #include "handoff.h"
 #include "kbd.h"
 #include "keymapio.h"
+#include "serial.h"
 #include "log.h"
 #include "dskio.h"
 #include "park.h"
@@ -532,6 +533,8 @@ void core0_run(coco_t *m, keymatrix_t *k) {
 #endif
         uint32_t ran = coco_run_field(m);
         uint32_t run_us = time_us_32() - t_run;
+        /* The RS-232 pak's line, both ways (serial.h). */
+        serial_field(m);
 #if PICO_COCO_AUDIO
         memmove(&s_recs[0], &s_recs[1], sizeof s_recs - sizeof s_recs[0]);
         s_recs[FIELD_RECS - 1u] = (field_rec_t){

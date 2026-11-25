@@ -4,6 +4,103 @@ What each milestone verified, on which board, on what date, and what was
 not checked, newest first. `design.md` §17 holds each milestone's scope
 and done-when criteria; this file keeps the full record (EL §14.3).
 
+## M19: the Deluxe RS-232 Program Pak
+
+On branch `m19`, 2026-11-25 (`design.md` §12.11, §12.5, §17, §18).
+**Done: built, checked on the host, and checked on the owner's board.**
+Of §17's row: the 6551's registers settled from a primary source; the
+pak's terminal program and NitrOS-9's serial port exchanging bytes with
+the host, on the host and on the device. The owner gave the pak's ROM
+the same day; it matches MAME's SHA-1.
+
+**Settled first.** The 6551 from Synertek's SY6551 data sheet (the
+1981–1982 Data Catalog, pp. 3-169 to 3-176, from bitsavers): the
+registers, both resets, the fifteen rates and the frames. The pak from
+MAME's `coco_rs232.cpp` (fetched at the pinned commit with the 6551's
+`mos6551.cpp`, as tools): $FF68–$FF6B, /IRQ on CART, a 4 KB ROM on CTS,
+CRC-32 $D990E1F9, SHA-1 `3fad25f3…`. The two OS-9 drivers, read off
+their disks: NitrOS-9 3.3.0's `sc6551` (source) and Tandy 2.01's
+`ACIAPAK` (its bytes) both hook D.FIRQ, enable PIA1 CB1 on a falling
+edge and write $03 to $FF7F.
+
+**Built.** `acia6551.c`, a character at a time in oscillator ticks.
+`CART_RS232`, one in the port, its chip `port.acia`, its ROM known by
+SHA-1, its /IRQ the CTS slot's CART line to CB1 (`coco_cart_line`).
+Save states version 4, with the 6551's section and its rings; versions
+1 to 3 still load. On the board: `serial.c`, UART0 on GP0/GP1 at the
+guest's format, its interrupt on core 1 and two 1 KB rings, core 0
+moving bytes between fields; the UART0 development build's log moved
+to a PIO UART on GP2/GP3 (`piouart.c`); RS-232 PAK on the Machine
+page, `rs232` in the settings, `rs232.rom` read from `/coco/roms/` if
+there; the About page says whether it is.
+
+**Checked on the host**, 2026-11-25. `test_acia`: every rate of the
+table to its tick, eight formats' frames, TDRE and back-to-back
+characters, the transmitter off, DTR off and break, both interrupts,
+RDRF, overrun, seven bits, the programmed reset, echo. `test_rs232`,
+with a test ROM of its own, no Tandy ROM: 32 characters echoed by a
+FIRQ handler, in order and no faster than 9600 baud; the pak in a
+Multi-Pak slot other than CTS raising nothing until $FF7F selects it; a
+save state taken with characters in flight running on alike in another
+machine, and refused by a machine without a pak; RESET. `test_os9`:
+NitrOS-9's `sc6551` and `t2_sc6551`, loaded at the shell from its 720K
+disk, and Tandy's `ACIAPAK` and `T2` from 2.01's configuration disk in
+/D1, each with the pak in slot 1 and the controller in slot 4: `ECHO
+…>/T2` reaches the host, and `LIST /T2` shows the host's line; the
+controls, the pak in slot 2, hear nothing. All 43 host tests pass.
+
+**Found.** MAME withdraws the 6551's IRQ when its source is disabled;
+the sheet clears it only by a status read. With MAME's, Tandy's ACIAPAK
+sent one character and hung: it disables the transmitter's interrupt
+just after one is raised, and the FIRQ that follows is claimed by no
+6551, so nothing clears PIA1's flag. With the sheet's, it runs. And
+NitrOS-9's keyboard gives '_' for CLEAR and '-', so Ctrl and '-' on the
+PicoCalc; SHIFT and the up arrow, Color BASIC's '_', is $1C to OS-9.
+
+**Planted**, one at a time, each failed: the stop bit left out of the
+frame; IRQ withdrawn on disable (`test_acia`, and `test_os9`'s Tandy
+run); RDR's read leaving RDRF; the idle transmitter's interrupt not
+repeated; CART from any slot (`test_rs232`, `test_os9`'s controls); the
+receive ring left out of the save state; RESET not reaching the 6551.
+
+**The pak's program on the host**: from Extended Color BASIC, `EXEC
+&HC000` shows its menu (V-1.00.00, 300 baud, 8N1); BREAK starts its
+terminal, which sets the 6551 to control $16, command $09; a line from
+the host shows, and keys typed go out (`test_rs232`). An LF from the
+host is drawn as the cursor moving down once the next character comes,
+which is the program's; a host terminal sends CR alone, as a CoCo
+expects.
+
+**On the board**, 2026-11-25, the UART0 build on the owner's Plus 2 W,
+the PicoCalc's USB-C connector to the Mac's CH340 port (`out/m19/`):
+- the log over PIO on GP2/GP3 carried the banner, the ROM list and the
+  heartbeats, and `uart-type.sh`'s `PRINT 2+3` typed through it and
+  answered 5;
+- a Multi-Pak with the pak in slot 1 and the controller in slot 4, the
+  switch at slot 1, `rs232.rom` on the card: the pak's program from
+  `EXEC &HC000`, its terminal at 300 baud showing the Mac's line and
+  sending `HI MAC` typed on the PicoCalc; then at 19,200 baud, its
+  fastest, twelve 40-character lines sent back to back from the Mac,
+  528 characters, every line shown whole, and `QUICK` sent back;
+- the switch at slot 4, NitrOS-9's 720K disk booted from Disk BASIC:
+  `sc6551` loaded, `T2_SC6551.DD` typed by the owner with Ctrl and '-'
+  for its underscore, which OS-9 took; `ECHO HELLO FROM NITROS9>/T2`
+  reached the Mac at 9600 baud, and `LIST /T2` showed the Mac's line,
+  ended by ESC.
+
+**Found on the board.** The card's ROMs are read at boot, so a ROM
+copied onto the card while the board runs is not found until it
+restarts: the pak was fitted without its ROM and `EXEC &HC000` ran into
+an empty window. It is how every cartridge ROM has behaved since M9;
+the Machine page's Apply then needs the menu's SAVE to survive the
+restart. `uart-type.sh` cannot type OS-9's underscore: Ctrl and '-' is
+$1F, which the firmware takes as its pause request.
+
+**Not checked.** Tandy's ACIAPAK on the device (on the host only);
+rates below 143 baud, which the UART cannot make at 150 MHz; break;
+parity and seven-bit formats on the device; MAME running the same
+software, as no session was traced.
+
 ## M18: the sound cartridges
 
 On branch `m18`, 2026-11-24 to 2026-11-25 (`design.md` §12.5,

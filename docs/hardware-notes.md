@@ -93,6 +93,22 @@ UART0 cannot be routed to GP4/GP5; those pins carry only UART1 or `i2c0`.
 GP0/GP1 and GP2/GP3 are both UART0: a firmware that wants the USB-C
 serial and a debug UART on GP2/GP3 at once has one hardware UART for
 the two, and needs a PIO UART for one of them.
+Give the USB-C serial the hardware UART and move the debug UART to PIO
+on GP2/GP3: two state machines on `pio0`, eight PIO cycles a bit, TX
+and RX of four instructions each (the pico-examples `uart_tx` and
+`uart_rx_mini` programs), registered as a stdio driver so `printf` and
+`getchar_timeout_us` work as before, and turn off the SDK's stdio UART
+in that build. Verified on a Plus 2 W on 2026-11-25 at 115200: the
+banner, the log and typed keys at four a second through the Debug
+Probe, while UART0 sat on GP0/GP1. A joined FIFO is 8 deep against the
+hardware UART's 32, so feed it from a loop that does not block.
+For the hardware UART on GP0/GP1, two PL011 facts. Its transmit
+interrupt comes as the FIFO falls through its level, so it never fires
+for an empty FIFO: put the first bytes in by hand, then enable it, and
+disable it when the ring is empty, or it stays asserted. And at a
+150 MHz `clk_peri` its 16-bit divider bottoms out near 143 baud, so 50,
+75, 110 and 134.5 baud cannot be made without slowing `clk_peri`, which
+the LCD's SPI shares.
 A DS3231 real-time clock (which the carrier lacks, §1.2) fitted on `i2c0`
 at GP4 (SDA) and GP5 (SCL), 100 kHz, alone on the bus, takes those pins.
 The debug UART then moves to UART0 on GP2 (TX) and GP3 (RX): set

@@ -21,6 +21,7 @@ set(PICO_COCO_HOST_TESTS
     test_recorder
     test_smartwatch
     test_mpi
+    test_acia
 )
 
 foreach(t ${PICO_COCO_HOST_TESTS})
@@ -36,7 +37,7 @@ endforeach()
 # the images in roms/ unless PICO_COCO_ROMS says otherwise.
 foreach(t test_boot test_romset test_screen test_keyboard test_audio_rom test_tape test_cart
           test_snapshot_rom test_soak test_cassette test_disk test_os9 test_drivesnd test_tms7000
-          test_sp0256 test_ssc)
+          test_sp0256 test_ssc test_rs232)
     add_executable(${t} ${t}.c guest.c frame_ppm.c)
     target_link_libraries(${t} PRIVATE pico_coco_core m)
     target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})

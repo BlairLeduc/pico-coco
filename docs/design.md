@@ -2243,24 +2243,64 @@ DACs' writes. Heard on the device (the owner, 2026-11-25).
 
 ### 12.11 The Deluxe RS-232 Program Pak
 
-**Planned for M19** (the owner, 2026-11-24). From memory (§18: low): Tandy
-26-2226, a 6551 ACIA at $FF68–$FF6B, outside SCS, its IRQ on the
-port's CART line or not at all, and a ROM, the pak's terminal program.
-XRoar 1.13 has a 6551 (`mos6551.c`) and no cartridge that uses it;
-MAME, which may be used to verify (§12.9), has the pak. The 6551 is
-written from its datasheet and held by its own tests, with a planted
-bug each, and by MAME where it can run the same software. Disk BASIC beside it in the
-Multi-Pak and OS-9's driver for it are the software that tells.
+**Built in M19**, 2026-11-25, as the owner asked on 2026-11-24. Tandy
+26-2226: a 6551 ACIA at $FF68–$FF6B, outside SCS, its /IRQ on the
+port's CART line, and a 4 KB ROM on CTS, the pak's terminal program,
+which does not autostart (MAME's `coco_rs232.cpp`, read 2026-11-25;
+§18). XRoar 1.13 has a 6551 and no cartridge that uses it, so the trace
+diff does not reach it; MAME may be used to verify (§12.9).
+
+**The 6551** (`acia6551.h`) is written from Synertek's SY6551 data
+sheet, the 1981–1982 Data Catalog, pp. 3-169 to 3-176: its four
+registers, their hardware and programmed resets, the baud rate
+generator's fifteen rates from a 1.8432 MHz crystal, and the frame each
+format makes. It is modelled a character at a time, each taking its
+frame in oscillator ticks, as the tape's signal is an edge at a time
+(§12.3). Where the sheet is silent MAME's `mos6551.cpp` is followed:
+the transmitter's interrupt repeats each character time while it
+idles; divisor 0 takes the crystal as the 16x clock, 115,200 baud; a
+receiver clocked from RxC hears nothing; an overrun's character replaces
+the unread one. One place departs from MAME for the sheet: **an IRQ
+raised stays until the status register is read**, though its source is
+disabled. MAME withdraws it, and Tandy's ACIAPAK, which disables the
+transmitter's interrupt just after one is raised, then takes a FIRQ
+that no 6551 claims, whose flag no one clears, and hangs after one
+character (`test_os9`, 2026-11-25). The modem lines are tied as a
+three-wire cable leaves them: CTS, DCD and DSR low, ready.
+
+**The interrupt.** /IRQ is the CART line, which reaches PIA1 CB1 and so
+FIRQ, from the CTS slot alone in a Multi-Pak (§12.8). Both OS-9 drivers
+take it so: they hook D.FIRQ, enable CB1's interrupt on a falling edge,
+and write $03 to $FF7F, CTS at slot 1 and SCS at slot 4. So the pak goes
+in slot 1 and the disk controller in slot 4: NitrOS-9's `sc6551` with
+`t2_sc6551`, and Tandy's `ACIAPAK` with `T2` from 2.01's configuration
+disk, both loaded at the shell, send and receive (`test_os9`). With the
+pak in another slot its interrupt never arrives and nothing is received.
+CB1's remembered level starts high with a pak fitted, as the pulled-up
+line is, so that its first interrupt is an edge.
 
 **Its bytes go to the PicoCalc's USB-C connector** (the owner,
-2026-11-24): GP0 and GP1, UART0's TX and RX, through the carrier's
-CH340C (HW §1). The release build has no debug UART, so UART0 is the
-pak's alone there. The owner's development build puts its log on
-GP2/GP3, which on the RP2350 is UART0 too (HW §1), so one of the two
-moves to a PIO UART in that build; which, is settled in M19 by what each
-costs core 1. Its baud rate is the guest's, up to the 6551's 19,200;
-bytes are paced to it in oscillator ticks, as the tape's edges are
-(§12.3).
+2026-11-24): UART0 on GP0 and GP1 through the carrier's CH340C (HW §1),
+in every build, at the guest's rate and format. The owner's development
+build had its log on GP2/GP3, which is UART0 too, so **the log moved to
+a PIO UART on the same pins** (`piouart.h`), keeping its typed keys:
+the pak then has the same hardware UART in the build that ships and in
+the one the board runs every day, and the log's cost to core 1 is a
+FIFO written as the UART's was. Core 1 owns the UART, its interrupt on
+core 1 moving bytes between the FIFOs and two 1 KB rings, so a busy
+loop or a park loses nothing; core 0 moves them to and from the 6551's
+own rings between fields (`serial.h`). Below about 143 baud the
+UART's divider is at its end at 150 MHz: 50, 75, 110 and 134.5 baud run
+at that. A break is not sent, and the UART's errors are counted, not
+given to the guest.
+
+**The ROM** is known by its SHA-1, MAME's dump and the owner's copy
+alike, as `rs232.rom` in `/coco/roms/` or as a cartridge image; the pak
+works without it, the 6551 alone, as OS-9 needs nothing more. Its
+program, V-1.00.00, starts from BASIC with `EXEC &HC000`, at 300 baud.
+Checked on the device, 2026-11-25: the pak's terminal at 300 and
+19,200 baud, and NitrOS-9's /T2 at 9600, each way. Save states are at version 4,
+with the 6551's section and the characters in its rings.
 
 ---
 
@@ -2647,7 +2687,11 @@ configuration; once settled, it is a constant.
 | The cartridge's mix: the AY to 0.70 of the cartridge input, the SP0256 at four times its scale about 0.5, the swing bent above a knee at half of it (§12.9) | Estimated from MAME's gains, 2026-11-25; doubled the same day at the owner's word, from The Interbank Incident heard on the device, and then judged well balanced with the disk's sounds | Low | A cartridge's output measured |
 | The status bit for a sound in progress: an AY generator the level depends on, for an analogue detector (§12.9) | MAME's filter-and-threshold model, read | Low | The schematic |
 | The Orchestra-90's DACs at $FF7A and $FF7B, and its audio beside the multiplexer rather than through it (§12.10) | As XRoar 1.13's `orch90.c`, read 2026-11-24; its ROM executed under MAME 0.289 and here, 2026-11-24, the overture heard only beside the multiplexer | Medium | The cartridge's schematic |
-| The Deluxe RS-232 Program Pak: its 6551 at $FF68–$FF6B, its interrupt, its ROM (§12.11) | From memory | Low | The pak's manual and schematic; its ROM and OS-9's driver read |
+| The Deluxe RS-232 Program Pak: its 6551 at $FF68–$FF6B, /IRQ on CART, its 4 KB ROM on CTS without autostart (§12.11) | MAME's `coco_rs232.cpp`, read 2026-11-25; the address and the interrupt confirmed by NitrOS-9's `sc6551` and Tandy's `ACIAPAK` running against it (`test_os9`, 2026-11-25) | High | Settled: OS-9's two drivers executed |
+| The 6551's registers, resets, rates and frames (§12.11) | **Settled from Synertek's SY6551 data sheet** (1981–1982 Data Catalog, pp. 3-169 to 3-176), 2026-11-25 | High | Settled |
+| The 6551 where the sheet is silent: the idle transmitter's repeated interrupt, divisor 0 as 115,200 baud, an overrun overwriting, RxC unconnected on the pak (§12.11) | MAME's `mos6551.cpp`, read 2026-11-25 | Low | The pak's schematic; a real 6551 |
+| The 6551's IRQ kept until status is read though its source is disabled (§12.11) | The sheet's Figure 8 ("cleared by: read status register"), and Tandy's ACIAPAK, which hangs otherwise (2026-11-25); MAME withdraws it | Medium | A real 6551 |
+| The pak's modem lines: CTS, DCD and DSR read low, ready (§12.11) | Chosen for a three-wire line; the pak's receivers with nothing connected not known | Low | The pak's schematic |
 
 **Settled in M1**, 2026-11-14:
 

@@ -153,6 +153,7 @@ const char *snapio_machine(const coco_t *m, const snap_info_t *info, machine_t *
         case CART_RSDOS:      name = CARD_RSDOS; break;
         case CART_SMARTWATCH: name = CARTS_SMARTWATCH; break;
         case CART_SSC:        name = CARTS_SSC; break;
+        case CART_RS232:      name = CARTS_RS232; break;
         /* Chosen by name, or an image in /coco/carts/ the media name. */
         case CART_ORCH90:     name = s_media.cart[s][0] ? s_media.cart[s] : CARTS_ORCH90; break;
         case CART_ROM:        name = s_media.cart[s]; break;

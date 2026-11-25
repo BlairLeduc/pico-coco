@@ -767,6 +767,21 @@ bool coco_ssc_roms_placed(coco_t *m, uint32_t rom_at, uint32_t al2_at) {
     return cart_ssc_placed(m, rom_at, al2_at);
 }
 
+bool coco_serial_put(coco_t *m, uint8_t c) {
+    uint64_t now = coco_ticks(m);
+    bool ok = cart_serial_put(m, c, now);
+    coco_cart_line(m, now);
+    return ok;
+}
+
+int coco_serial_get(coco_t *m) {
+    return cart_serial_get(m);
+}
+
+const acia_t *coco_serial(const coco_t *m) {
+    return cart_acia(&m->port);
+}
+
 void coco_cart_remove(coco_t *m) {
     cart_remove_rom(m, 0);
     map(m);
@@ -779,6 +794,17 @@ void coco_cart_autostart(coco_t *m, bool on) {
 void coco_cart_selected(coco_t *m) {
     map(m);
     cart_q(m, coco_ticks(m) + m->tpc);
+    coco_cart_line(m, coco_ticks(m));
+}
+
+/* A 6551's /IRQ on the CART line (cart.h): CB1 follows it, so its
+ * falling edge sets the flag a polarity of 0 selects, which NitrOS-9's
+ * sc6551 enables for FIRQ (§12.11). */
+void coco_cart_line(coco_t *m, uint64_t now) {
+    bool low = cart_line_low(&m->port);
+    if (low == m->port.cart_low) return;
+    m->port.cart_low = low;
+    c1_edge(m, 3, !low, now);
 }
 
 void coco_reset(coco_t *m) {

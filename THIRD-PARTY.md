@@ -154,3 +154,20 @@ by use of this software.
 Its one condition applies to source, and `ffconf.h` carries the notice for
 that reason. Binary redistribution has no condition in this version of the
 licence; the notice is reproduced here anyway.
+
+## PIO UART programs — Raspberry Pi pico-examples
+
+`src/port/piouart.pio`, the development log's UART on PIO in the UART0
+build (`design.md` §12.11), is adapted from the `uart_tx` and
+`uart_rx_mini` programs of Raspberry Pi's pico-examples (`pio/uart_tx`
+and `pio/uart_rx`): the same instructions, renamed, with comments of our
+own; the C that loads them is our own.
+
+> Copyright (c) 2020 Raspberry Pi (Trading) Ltd.
+> SPDX-License-Identifier: BSD-3-Clause
+
+The BSD-3-Clause licence's conditions: redistributions of source keep
+the copyright notice, the conditions and the disclaimer; redistributions
+in binary form reproduce them in the documentation; and neither the
+holder's name nor its contributors' may endorse derived products without
+permission. The software is provided as is, without warranty.

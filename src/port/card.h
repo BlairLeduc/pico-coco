@@ -51,6 +51,8 @@ typedef struct {
     char         ssc_al2_path[COCO_PATH_MAX];
     /* The Orchestra-90's, likewise (card_orch90_load). */
     char         orch90_path[COCO_PATH_MAX];
+    /* The Deluxe RS-232 Program Pak's, likewise (card_rs232_load). */
+    char         rs232_path[COCO_PATH_MAX];
 } card_job_t;
 
 /* The ROMs on the card (design.md §12.1): list COCO_ROM_DIR, read each
@@ -93,6 +95,10 @@ const char *card_ssc_roms_load(const card_job_t *job, uint8_t *dst);
 /* The Orchestra-90's ROM (design.md §12.10), 8 KB read into dst, its
  * length in *len; NULL, or why not. */
 const char *card_orch90_load(const card_job_t *job, uint8_t *dst, uint32_t *len);
+/* The Deluxe RS-232 Program Pak's ROM (design.md §12.11), 4 KB read
+ * into dst, its length in *len, which is 0 if the card has none: the
+ * pak's 6551 works without it. NULL, or why not. */
+const char *card_rs232_load(const card_job_t *job, uint8_t *dst, uint32_t *len);
 
 bool card_is_rsdos(const char *name);
 

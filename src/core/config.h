@@ -40,6 +40,11 @@
  * 16 KB game and 8 KB more. 16 KB more than one window, measured
  * against the tier 2 UART0 build's 55 KB free (2026-11-24). */
 #define COCO_CART_POOL     0x8000u
+/* The Deluxe RS-232 Program Pak's two rings, to the line and from it
+ * (acia6551.h): a power of two, and more than a field's characters at
+ * the 6551's 19,200 baud, 32, which the port moves a field at a time
+ * (design.md §12.11). */
+#define COCO_SERIAL_RING   256u
 /* The largest image the ROM table knows (romset.h). */
 #define COCO_ROM_IMAGE_MAX 0x2000u
 

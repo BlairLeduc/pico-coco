@@ -28,6 +28,7 @@ carries the same table, and `test_romset` holds the two to each other.
 | SSC | `pic-7040-510.bin` | 4096 | `a8e2eb98` | the Speech/Sound Cartridge's TMS7040 (M18) |
 | SSC | `sp0256-al2.bin` | 2048 | `b504ac15` | its SP0256-AL2 (M18) |
 | `$C000` | `orch90.rom` | 8192 | `15fb39af` | the Orchestra-90 CC (M18) |
+| `$C000` | `rs232.rom` | 4096 | `d990e1f9` | the Deluxe RS-232 Program Pak (M19) |
 
 SHA-1:
 
@@ -39,6 +40,7 @@ cecb7c24ff1e0ab5836e4a7a8eb1b8e01f1fded3  bas11.rom
 7c17dcbc21757535ce0b3a9e1ce5ca61319d3606  pic-7040-510.bin
 e60fcb5fa16ff3f3b69d36c7a6e955744d3feafc  sp0256-al2.bin
 6a20fee9c70b36a6435ac8378f31d5b626017df0  orch90.rom
+3fad25f3462a0b581b9c182ac11ad90c8fa08cb6  rs232.rom
 ```
 
 The two Speech/Sound Cartridge images (M18, 2026-11-24) are MAME's
@@ -48,6 +50,10 @@ Color Computer Archive's `.ccc`; the owner's copy is identical. Chosen
 as ORCHESTRA-90 on the Machine page, it is read from `/coco/roms/`, as
 the disk controller's is; a copy in `/coco/carts/` is still known by
 its SHA-1 (2026-11-25).
+
+The Deluxe RS-232 Program Pak's (M19) is MAME's `coco_rs232` set,
+`deluxe_rs-232_program_pak_1983_26-2226_tandy.rom`, by its CRC-32 and
+SHA-1; the owner's copy is identical (2026-11-25).
 
 ## OS-9 disks, for `test_os9`
 

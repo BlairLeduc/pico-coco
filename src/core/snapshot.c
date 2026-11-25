@@ -19,6 +19,7 @@ static uint8_t s_port[SNAP_PORT_LEN];
 static uint8_t s_piece[256];
 static uint8_t s_media[SNAP_MEDIA_LEN];
 static uint8_t s_ssc[SNAP_SSC_LEN];
+static uint8_t s_acia[SNAP_RS232_LEN];
 
 /* ---- CRC-32 ---------------------------------------------------------- */
 
@@ -452,10 +453,11 @@ typedef struct {
     uint8_t *b;
     unsigned at;
     bool     out;
+    unsigned len;            /* the section's                              */
 } walk_t;
 
 static void w_bytes(walk_t *w, void *p, unsigned n) {
-    if (w->at + n > SNAP_SSC_LEN) return;
+    if (w->at + n > w->len) return;
     if (w->out) memcpy(w->b + w->at, p, n);
     else memcpy(p, w->b + w->at, n);
     w->at += n;
@@ -548,7 +550,7 @@ static void ssc_encode(const coco_t *m, uint8_t b[SNAP_SSC_LEN]) {
     memset(b, 0, SNAP_SSC_LEN);
     if (!cart_ssc_live(&m->port)) return;
     b[0] = 1;
-    walk_t w = { b, 1, true };
+    walk_t w = { b, 1, true, SNAP_SSC_LEN };
     ssc_walk(&w, (ssc_t *)&m->port.ssc);
 }
 
@@ -564,7 +566,7 @@ static bool ssc_plausible(const uint8_t b[SNAP_SSC_LEN], uint64_t now) {
     }
     static ssc_t t;
     memset(&t, 0, sizeof t);
-    walk_t w = { (uint8_t *)b, 1, false };
+    walk_t w = { (uint8_t *)b, 1, false, SNAP_SSC_LEN };
     ssc_walk(&w, &t);
     for (unsigned i = w.at; i < SNAP_SSC_LEN; i++)
         if (b[i]) return false;
@@ -578,6 +580,65 @@ static bool ssc_plausible(const uint8_t b[SNAP_SSC_LEN], uint64_t now) {
     if (dist(t.cycle0 + t.ay.t * SSC_TICKS_PER_AY, now) > 64) return false;
     for (unsigned g = 0; g < AY_GEN_COUNT; g++) if (!t.ay.per[g]) return false;
     if (t.sp.rpt < -1 || t.sp.cnt < -1) return false;
+    return true;
+}
+
+/* ---- the Deluxe RS-232 Program Pak (version 4) ------------------------- */
+
+/* Its 6551, field by field, and its two rings: the characters on their
+ * way to and from the line are the machine's. Byte 0 is 1 with a pak. */
+static void ring_walk(walk_t *w, acia_ring_t *r) {
+    w_bytes(w, r->buf, sizeof r->buf);
+    w_u16(w, &r->head); w_u16(w, &r->tail); w_u32(w, &r->lost);
+}
+
+static void acia_walk(walk_t *w, acia_t *a) {
+    w_u8(w, &a->control); w_u8(w, &a->command); w_u8(w, &a->status);
+    w_u8(w, &a->tdr); w_u8(w, &a->rdr); w_u8(w, &a->irq_src);
+    w_bool(w, &a->tx_busy); w_u8(w, &a->tx_shift); w_u64(w, &a->tx_end); w_u64(w, &a->tx_next);
+    w_bool(w, &a->rx_busy); w_u8(w, &a->rx_shift); w_u64(w, &a->rx_end);
+    w_u64(w, &a->due); w_u32(w, &a->frame);
+    ring_walk(w, &a->tx);
+    ring_walk(w, &a->rx);
+}
+
+static void acia_encode(const coco_t *m, uint8_t b[SNAP_RS232_LEN]) {
+    memset(b, 0, SNAP_RS232_LEN);
+    if (m->port.rs232_slot < 0) return;
+    b[0] = 1;
+    walk_t w = { b, 1, true, SNAP_RS232_LEN };
+    acia_walk(&w, (acia_t *)&m->port.acia);
+}
+
+/* Could a running 6551 have had this at tick `now`? Every event it waits
+ * for within a character of now, as acia_run leaves it, its frame its
+ * registers', its rings no fuller than they hold, and its IRQ bit its
+ * sources'. */
+static bool acia_plausible(const uint8_t b[SNAP_RS232_LEN], uint64_t now) {
+    if (b[0] > 1u) return false;
+    if (!b[0]) {
+        for (unsigned i = 1; i < SNAP_RS232_LEN; i++)
+            if (b[i]) return false;
+        return true;
+    }
+    static acia_t t;
+    memset(&t, 0, sizeof t);
+    walk_t w = { (uint8_t *)b, 1, false, SNAP_RS232_LEN };
+    acia_walk(&w, &t);
+    for (unsigned i = w.at; i < SNAP_RS232_LEN; i++)
+        if (b[i]) return false;
+    if (t.frame != acia_frame_ticks(t.control, t.command)) return false;
+    if (t.irq_src & ~3u) return false;
+    if (((t.status & ACIA_SR_IRQ) != 0) != (t.irq_src != 0)) return false;
+    if (t.status & (ACIA_SR_DCD | ACIA_SR_DSR | ACIA_SR_PARITY | ACIA_SR_FRAMING)) return false;
+    if ((uint16_t)(t.tx.head - t.tx.tail) > COCO_SERIAL_RING ||
+        (uint16_t)(t.rx.head - t.rx.tail) > COCO_SERIAL_RING)
+        return false;
+    int64_t fr = (int64_t)t.frame;
+    if (t.tx_busy && (dist(t.tx_end, now) > fr || dist(now, t.tx_end) >= 0)) return false;
+    if (t.rx_busy && (dist(t.rx_end, now) > fr || dist(now, t.rx_end) >= 0)) return false;
+    if (dist(t.tx_next, now) > fr) return false;
+    if (t.due != UINT64_MAX && (dist(t.due, now) > fr || dist(now, t.due) >= 0)) return false;
     return true;
 }
 
@@ -596,6 +657,7 @@ snap_status_t snapshot_save(const coco_t *m, const snap_media_t *media, snap_wri
     state_encode(m, st);
     port_encode(m, s_port);
     ssc_encode(m, s_ssc);
+    acia_encode(m, s_acia);
     media_encode(media, s_media);
 
     /* The CRC goes in the header, ahead of what it covers; the machine is
@@ -603,6 +665,7 @@ snap_status_t snapshot_save(const coco_t *m, const snap_media_t *media, snap_wri
     uint32_t crc = snapshot_crc32(0, st, SNAP_STATE_LEN);
     crc = snapshot_crc32(crc, s_port, SNAP_PORT_LEN);
     crc = snapshot_crc32(crc, s_ssc, SNAP_SSC_LEN);
+    crc = snapshot_crc32(crc, s_acia, SNAP_RS232_LEN);
     crc = snapshot_crc32(crc, m->ram, sizeof m->ram);
     crc = snapshot_crc32(crc, s_media, SNAP_MEDIA_LEN);
 
@@ -617,20 +680,24 @@ snap_status_t snapshot_save(const coco_t *m, const snap_media_t *media, snap_wri
     if (!write(ctx, st, SNAP_STATE_LEN)) return SNAP_IO;
     if (!write(ctx, s_port, SNAP_PORT_LEN)) return SNAP_IO;
     if (!write(ctx, s_ssc, SNAP_SSC_LEN)) return SNAP_IO;
+    if (!write(ctx, s_acia, SNAP_RS232_LEN)) return SNAP_IO;
     for (uint32_t off = 0; off < sizeof m->ram; off += 4096u)
         if (!write(ctx, m->ram + off, 4096u)) return SNAP_IO;
     if (!write(ctx, s_media, SNAP_MEDIA_LEN)) return SNAP_IO;
     return SNAP_OK;
 }
 
-/* The header, and the file's version, 1 to 3. */
+/* The header, and the file's version, 1 to 4. */
 static snap_status_t read_header(snap_read_fn read, void *ctx, uint32_t *crc, unsigned *version) {
     uint8_t hdr[SNAP_HEADER_LEN];
     if (!read(ctx, hdr, sizeof hdr)) return SNAP_IO;
     if (memcmp(hdr, magic, sizeof magic) != 0) return SNAP_NOT_SNAPSHOT;
     unsigned v = get16(hdr + 8);
     if (v > SNAP_VERSION) return SNAP_NEWER;
-    uint32_t want = v == 1u ? SNAP_PAYLOAD_V1_LEN : v == 2u ? SNAP_PAYLOAD_V2_LEN : SNAP_PAYLOAD_LEN;
+    uint32_t want = v == 1u   ? SNAP_PAYLOAD_V1_LEN
+                    : v == 2u ? SNAP_PAYLOAD_V2_LEN
+                    : v == 3u ? SNAP_PAYLOAD_V3_LEN
+                              : SNAP_PAYLOAD_LEN;
     if (v == 0 || get16(hdr + 10) != SNAP_HEADER_LEN || get32(hdr + 12) != want)
         return SNAP_NOT_SNAPSHOT;
     *crc = get32(hdr + 16);
@@ -638,11 +705,12 @@ static snap_status_t read_header(snap_read_fn read, void *ctx, uint32_t *crc, un
     return SNAP_OK;
 }
 
-/* The state section, the port section, version 1's made from it, and
- * the Speech/Sound Cartridge's, zero before version 3; *crc runs over
- * what was read. */
+/* The state section, the port section, version 1's made from it, the
+ * Speech/Sound Cartridge's, zero before version 3, and the RS-232 pak's,
+ * zero before version 4; *crc runs over what was read. */
 static bool read_sections(snap_read_fn read, void *ctx, unsigned version, uint32_t *crc) {
     memset(s_ssc, 0, SNAP_SSC_LEN);
+    memset(s_acia, 0, SNAP_RS232_LEN);
     if (!read(ctx, s_st, SNAP_STATE_LEN)) return false;
     *crc = snapshot_crc32(0, s_st, SNAP_STATE_LEN);
     if (version == 1u) {
@@ -654,6 +722,10 @@ static bool read_sections(snap_read_fn read, void *ctx, unsigned version, uint32
     if (version >= 3u) {
         if (!read(ctx, s_ssc, SNAP_SSC_LEN)) return false;
         *crc = snapshot_crc32(*crc, s_ssc, SNAP_SSC_LEN);
+    }
+    if (version >= 4u) {
+        if (!read(ctx, s_acia, SNAP_RS232_LEN)) return false;
+        *crc = snapshot_crc32(*crc, s_acia, SNAP_RS232_LEN);
     }
     return true;
 }
@@ -676,6 +748,7 @@ static void info_of(const uint8_t st[SNAP_STATE_LEN], const uint8_t pt[SNAP_PORT
         uint8_t k = pt[P_SLOT + s * P_SLOT_LEN + PS_KIND];
         /* An Orchestra-90 is a ROM image to the port (cart.h). */
         info->slot[s] = k == CART_ORCH90 ? CART_ROM : k == CART_SSC ? CART_SSC
+                      : k == CART_RS232 ? CART_RS232
                       : k < CART_MPI ? (cart_kind_t)k : CART_NONE;
     }
 }
@@ -786,6 +859,10 @@ static snap_status_t compatible(const coco_t *m, const uint8_t st[SNAP_STATE_LEN
     if ((s_ssc[0] != 0) != cart_ssc_live(&m->port)) return SNAP_OTHER_MACHINE;
     uint64_t now = get64(st + S_TICK0) + (get64(st + S_CYCLES) - get64(st + S_CYC0)) * st[S_TPC];
     if (!ssc_plausible(s_ssc, now)) return SNAP_NOT_SNAPSHOT;
+    /* The RS-232 pak: its chip in both or in neither. A state before
+     * version 4 has none. */
+    if ((s_acia[0] != 0) != (m->port.rs232_slot >= 0)) return SNAP_OTHER_MACHINE;
+    if (!acia_plausible(s_acia, now)) return SNAP_NOT_SNAPSHOT;
     return SNAP_OK;
 }
 
@@ -933,9 +1010,13 @@ snap_status_t snapshot_load(coco_t *m, snap_read_fn read, void *ctx) {
         w->offset = (int64_t)get64(pt + P_SLOT + s * P_SLOT_LEN + PS_OFFSET);
     }
     if (s_ssc[0]) {
-        walk_t w = { s_ssc, 1, false };
+        walk_t w = { s_ssc, 1, false, SNAP_SSC_LEN };
         ssc_walk(&w, &p->ssc);
         p->ssc.attached = true;
+    }
+    if (s_acia[0]) {
+        walk_t w = { s_acia, 1, false, SNAP_RS232_LEN };
+        acia_walk(&w, &p->acia);
     }
 
     coco_restored(m);

@@ -13,6 +13,7 @@ option(PICO_COCO_HOST "Build the portable core and its host tests, with no Pico 
 
 # Every fixed capacity lives in src/core/config.h; nothing here duplicates one.
 set(PICO_COCO_CORE_SOURCES
+    src/core/acia6551.c
     src/core/ay8912.c
     src/core/bus.c
     src/core/cart.c
@@ -323,9 +324,11 @@ else()
         src/port/main.c
         src/port/menu.c
         src/port/park.c
+        src/port/piouart.c
         src/port/roms.c
         src/port/rtc.c
         src/port/sd.c
+        src/port/serial.c
         src/port/settingsio.c
         src/port/southbridge.c
         src/port/storage.c
@@ -342,9 +345,26 @@ else()
         PICO_COCO_FORCE_LATE=${PICO_COCO_FORCE_LATE_ON}
         PICO_COCO_TURBO=${PICO_COCO_TURBO_ON}
         PICO_COCO_DS3231=${PICO_COCO_DS3231_ON})
+    # The RS-232 pak has UART0 on GP0/GP1 in every build (design.md
+    # §12.11). The UART0 development build's log, which shared it on
+    # GP2/GP3, moves to a PIO UART on the same pins (piouart.h); the
+    # bench, which has no pak, keeps stdio's UART.
+    if (PICO_COCO_UART AND PICO_COCO_UART_PORT STREQUAL "0")
+        set(PICO_COCO_LOG_PIO_ON 1)
+        pico_enable_stdio_uart(pico-coco 0)
+    else()
+        set(PICO_COCO_LOG_PIO_ON 0)
+    endif()
+    pico_generate_pio_header(pico-coco ${CMAKE_CURRENT_SOURCE_DIR}/src/port/piouart.pio)
+    target_compile_definitions(pico-coco PRIVATE
+        PICO_COCO_LOG_PIO=${PICO_COCO_LOG_PIO_ON}
+        PICO_COCO_LOG_TX=${PICO_COCO_UART_TX}
+        PICO_COCO_LOG_RX=${PICO_COCO_UART_RX})
     target_link_libraries(pico-coco
         pico_coco_fatfs
         hardware_dma
+        hardware_pio
+        hardware_uart
         hardware_i2c
         hardware_powman
         hardware_pwm
