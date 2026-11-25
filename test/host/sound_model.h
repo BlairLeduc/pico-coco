@@ -135,13 +135,22 @@ static double snd_level(const snd_rec_t *r, double held) {
     return held;
 }
 
+/* Which channel snd_model_render makes: 0 mono, 1 the left ear, 2 the
+ * right. */
+static int snd_channel;
+
 /* What is heard: the bus and, beside it, an Orchestra-90's two DACs as
  * XRoar's orch90.c gives them to its mono output (each D / 255 of the
  * full scale, summed), here at half, so that both at 255 reach the full
- * scale, and clipped there (§12.10). */
+ * scale, and clipped there (§12.10). In stereo, as the real cartridge's
+ * own outputs have them: the mono and half the DACs' difference, the
+ * left ear plus it and the right less it, so that each ear hears the bus
+ * and its own DAC at full scale. */
 static double snd_heard(const snd_rec_t *r, double bus) {
     double v = bus + ((double)r->orch_l / 255.0 + (double)r->orch_r / 255.0) / 2.0;
-    return v > 1.0 ? 1.0 : v;
+    if (v > 1.0) v = 1.0;
+    double side = ((double)r->orch_l - (double)r->orch_r) / 255.0 / 2.0;
+    return snd_channel == 1 ? v + side : snd_channel == 2 ? v - side : v;
 }
 
 /* ---- the box filter, exactly ------------------------------------------ */
@@ -179,7 +188,8 @@ static size_t snd_model_render(uint64_t from, uint64_t to, uint32_t num, uint32_
         }
         acc += heard * (double)(s1 - pos);
         double v = acc / (double)num * PCM_FULL_SCALE;
-        snd_model_out[n++] = (int16_t)lround(v);
+        long q = lround(v);
+        snd_model_out[n++] = (int16_t)(q > INT16_MAX ? INT16_MAX : q < INT16_MIN ? INT16_MIN : q);
     }
     return n;
 }

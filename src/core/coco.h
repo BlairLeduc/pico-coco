@@ -154,6 +154,9 @@ typedef struct coco_s {
     uint32_t sound_out;        /* it with the cartridges' sound beside
                                 * the multiplexer (cart_beside), as the
                                 * PCM has it; not state                 */
+    int32_t  sound_side;       /* the cartridges' stereo (cart_side), as
+                                * the PCM's side channel has it; not
+                                * state                                 */
     uint32_t sound_edges;      /* changes of it, since power-on         */
 
     /* The bus as PCM (§10), drained by the port once a field with
@@ -304,6 +307,9 @@ void     coco_audio_set_rate(coco_t *m, uint32_t rate_num, uint32_t rate_den);
 /* Move up to `max` samples of the fields run so far out, oldest first.
  * Returns how many. coco_run_field brings the PCM to the field's end. */
 size_t   coco_audio_drain(coco_t *m, int16_t *dst, size_t max);
+/* The same as stereo pairs, left then right (pcm_drain_stereo): an
+ * Orchestra-90's DACs each to its own ear, the rest to both. */
+size_t   coco_audio_drain_stereo(coco_t *m, int16_t *dst, size_t max);
 
 /* After snapshot_load has put a state's fields back: what follows from
  * them worked out again, the keys released and the sound restarted at

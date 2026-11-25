@@ -68,7 +68,7 @@ enum { I_TAPES, I_DISKS, I_SNAPS, I_SETUP, I_MACHINE, I_RESET, I_POWER, I_SAVE, 
        I_ABOUT, I_COUNT };
 
 enum { D_STATUS, D_PERF, D_BACKLIGHT, D_VOLUME, D_KEYS, D_FAST, D_VDG, D_ARTEFACTS, D_PHASE,
-       D_BACKGROUND, D_DISK_SOUNDS, D_COUNT };
+       D_BACKGROUND, D_DISK_SOUNDS, D_STEREO, D_COUNT };
 _Static_assert(ROW_TOP + I_COUNT + 2 <= ROW_STATUS, "the main page's rows fit");
 /* The layout's bindings go below the rows, as many as there is room
  * for: with the background's row, none. */
@@ -352,6 +352,10 @@ static void draw_setup(void) {
         case D_DISK_SOUNDS:
             /* The drives' steps and motor (drivesnd.h). */
             snprintf(line, sizeof line, " DISK SOUNDS     < %s >", on_off(g_ui.disk_sounds));
+            break;
+        case D_STEREO:
+            /* An Orchestra-90's two DACs, each to its own ear (§12.10). */
+            snprintf(line, sizeof line, " STEREO          < %s >", on_off(g_ui.stereo));
             break;
         }
         textpage_line(s_scr, ROW_TOP + i, line, i == s.setup_sel);
@@ -857,6 +861,7 @@ static void save_settings(void) {
     out.artefact_phase = g_ui.artefact_phase;
     out.dark_bg = g_ui.dark_bg;
     out.disk_sounds = g_ui.disk_sounds;
+    out.stereo = g_ui.stereo;
     /* A layout a loaded file chose is not the user's choice, so the file
      * keeps the one it had (§11.3). */
     if (!keymapio_chosen_by()[0])
@@ -1332,6 +1337,11 @@ static void key_setup(uint8_t c) {
     case D_DISK_SOUNDS:
         g_ui.disk_sounds = !g_ui.disk_sounds;
         log_core1("  setup        : disk sounds %s\n", g_ui.disk_sounds ? "on" : "off");
+        break;
+    case D_STEREO:
+        g_ui.stereo = !g_ui.stereo;
+        say(g_ui.stereo ? " AN ORCHESTRA-90 IN STEREO" : " BOTH EARS HEAR THE SAME", "");
+        log_core1("  setup        : stereo %s\n", g_ui.stereo ? "on" : "off");
         break;
     }
 }

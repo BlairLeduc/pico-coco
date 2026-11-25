@@ -124,8 +124,22 @@ William Tell Overture (S, ENTER, P, ENTER), they judged its volume good
 and its sound as they expect of the cartridge (2026-11-25). Its cost on
 core 0 while playing was not measured.
 
-**Not checked.** The Orchestra-90's cost on core 0; its stereo (mixed
-to one channel here); The Interbank Incident played to its end. The status
+The Orchestra-90 in stereo, at the owner's word the same day
+(`design.md` §12.10): the pcm's side channel, each ear held to the
+model to 1 LSB by `test_audio`, which runs each Orchestra-90 script
+again in stereo (8.7 million samples in all; the ears swapped differ by
+22,487); planted, each failed: the ears swapped, a change of the side
+alone not stamped, the side set without the pcm brought up to it, and
+the ears' DC blockers not seeded from the mono's. `stereo = on | off`
+and the Setup page's STEREO row (`test_settings`). On the board,
+(`out/m18/dev/stereo.log`, `stereo-ctl.log`), the overture over the
+UART: core 0 57.5% busy while it plays against 52.9% for the build
+before stereo (5ad0151) in the same sitting, both 24-25% before it was
+fitted; no late fields or underruns. Static memory 6.5 KB more (the
+ears' buffers).
+
+**Not checked.** The stereo by ear on the device, and with the
+setting off; The Interbank Incident played to its end. The status
 bit for a sound in progress is a stand-in for an analogue detector; the
 mix of the AY and the SP0256 is an estimate (§18).
 

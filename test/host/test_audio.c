@@ -9,12 +9,16 @@
  * random gaps, now and then a long one. Every sample the machine makes is held to the independent model
  * (sound_model.h) run on the pins the program left after each
  * instruction, to 1 LSB with the DC blocker off; the model with every
- * record a cycle late must not match. No ROM of the user's is needed, so
+ * record a cycle late must not match. Each script with an Orchestra-90
+ * runs again drained in stereo, both ears held to the model's to 1 LSB,
+ * the ears swapped must not match, and without one both ears are the
+ * mono. No ROM of the user's is needed, so
  * CI runs it all. test_audio_rom does the same with BASIC's own sounds.
  *
  * Then the parts alone: the sample count after any run, across the tick
  * count's 32-bit wrap; the DC blocker coming to rest at 0 from either
- * level; and PIA1 PB1 reading the bus back.
+ * level, and the side channel's to 0 from a held difference; and PIA1
+ * PB1 reading the bus back.
  */
 
 #include <stdlib.h>
@@ -26,6 +30,10 @@
 static coco_t g_m;
 static int16_t core_out[SND_MAX_SAMPLES];
 static size_t n_core;
+/* Drained as stereo pairs, and each ear apart. */
+static bool    stereo;
+static int16_t core_lr[2 * SND_MAX_SAMPLES / 4];
+static int16_t core_ear[2][SND_MAX_SAMPLES / 4];
 
 /* ---- the program ------------------------------------------------------ */
 
@@ -137,7 +145,16 @@ static void start(bool orch) {
 }
 
 static void drain(void) {
-    n_core += coco_audio_drain(&g_m, core_out + n_core, SND_MAX_SAMPLES - n_core);
+    if (!stereo) {
+        n_core += coco_audio_drain(&g_m, core_out + n_core, SND_MAX_SAMPLES - n_core);
+        return;
+    }
+    size_t k = coco_audio_drain_stereo(&g_m, core_lr, SND_MAX_SAMPLES / 4 - n_core);
+    for (size_t i = 0; i < k; i++) {
+        core_ear[0][n_core + i] = core_lr[2 * i];
+        core_ear[1][n_core + i] = core_lr[2 * i + 1];
+    }
+    n_core += k;
 }
 
 /* Fields until the program reaches DONE, and a few after. */
@@ -152,10 +169,10 @@ static void run_to_done(void) {
     }
 }
 
-static int max_diff(size_t n, size_t *where) {
+static int max_diff_of(const int16_t *core, size_t n, size_t *where) {
     int d = 0;
     for (size_t i = 0; i < n; i++) {
-        int e = abs(core_out[i] - snd_model_out[i]);
+        int e = abs(core[i] - snd_model_out[i]);
         if (e > d) {
             d = e;
             *where = i;
@@ -164,9 +181,47 @@ static int max_diff(size_t n, size_t *where) {
     return d;
 }
 
+static int max_diff(size_t n, size_t *where) { return max_diff_of(core_out, n, where); }
+
+/* The script just run, again, drained in stereo: each ear against the
+ * model's (snd_channel), and the ears swapped as the control when the
+ * DACs moved apart. Without an Orchestra-90 both ears are the mono. */
+static int stereo_again(int s, bool orch, const int16_t *mono, size_t n_mono) {
+    stereo = true;
+    start(orch);
+    run_to_done();
+    stereo = false;
+    CHECK(n_core == n_mono, "script %d in stereo: %zu samples, not %zu", s, n_core, n_mono);
+    size_t n = n_core < n_mono ? n_core : n_mono, at = 0;
+    if (!orch) {
+        size_t bad = 0;
+        for (size_t i = 0; i < n; i++) bad += core_ear[0][i] != mono[i] || core_ear[1][i] != mono[i];
+        CHECK(bad == 0, "script %d: without an Orchestra-90, %zu stereo samples not the mono", s, bad);
+        return 0;
+    }
+    for (int ch = 1; ch <= 2; ch++) {
+        snd_channel = ch;
+        size_t m = snd_model_render(0, coco_ticks(&g_m), g_m.pcm.num, g_m.pcm.den, 0);
+        if (m > n) m = n;
+        int d = max_diff_of(core_ear[ch - 1], m, &at);
+        CHECK(d <= 1, "script %d, the %s ear: sample %zu differs by %d (core %d, model %d)", s,
+              ch == 1 ? "left" : "right", at, d, core_ear[ch - 1][at], snd_model_out[at]);
+        /* The control: this ear against the other's model. */
+        int dx = max_diff_of(core_ear[2 - ch], m, &at);
+        if (s == 5) {
+            CHECK(dx > 1, "the ears swapped made no difference (%d): the check is blind", dx);
+            if (ch == 1) printf("control, the ears swapped: a sample differs by %d\n", dx);
+        }
+    }
+    snd_channel = 0;
+    return 0;
+}
+
+static int16_t mono_copy[SND_MAX_SAMPLES / 4];
+
 static int test_scripts(void) {
     size_t samples = 0, edges = 0;
-    unsigned orch = 0;
+    unsigned orch = 0, stereo_runs = 0;
     for (int s = 0; s < 24; s++) {
         make_script(s < 4 ? 40u : 1500u);
         start(s % 3 == 2);
@@ -183,6 +238,17 @@ static int test_scripts(void) {
               core_out[at], snd_model_out[at]);
         samples += n;
         edges += g_m.sound_edges;
+        if ((s % 3 == 2 || s == 3) && n_core <= SND_MAX_SAMPLES / 4) {
+            unsigned l = g_m.port.slot[0].u.orch.left, r = g_m.port.slot[0].u.orch.right;
+            size_t nm = n_core;
+            memcpy(mono_copy, core_out, nm * sizeof core_out[0]);
+            if (stereo_again(s, s % 3 == 2, mono_copy, nm)) return 1;
+            CHECK(g_m.port.slot[0].u.orch.left == l && g_m.port.slot[0].u.orch.right == r,
+                  "script %d ran otherwise the second time", s);
+            stereo_runs++;
+        } else if (s % 3 == 2) {
+            CHECK(false, "script %d: %zu samples, too many for the stereo run", s, n_core);
+        }
         if (s % 3 == 2) {
             orch += g_m.port.slot[0].u.orch.left | g_m.port.slot[0].u.orch.right ? 1u : 0u;
         } else {
@@ -200,8 +266,9 @@ static int test_scripts(void) {
     }
     CHECK(edges > 5000u, "only %zu changes of level: the scripts barely move the bus", edges);
     CHECK(orch >= 6u, "the Orchestra-90's DACs were left at 0 in %u of 8 scripts", 8u - orch);
-    printf("scripts: %zu samples, %zu changes of level, every sample equal to the model\n",
-           samples, edges);
+    CHECK(stereo_runs == 9u, "%u scripts run in stereo, not 9", stereo_runs);
+    printf("scripts: %zu samples, %zu changes of level, every sample equal to the model; "
+           "%u again in stereo, both ears equal to it\n", samples, edges, stereo_runs);
     return 0;
 }
 
@@ -257,6 +324,39 @@ static int test_dc_block(void) {
     return 0;
 }
 
+/* The side channel's DC blocker: a difference held, both ears come to
+ * rest at the mono's 0; and until a side level is set, nothing but the
+ * mono, in both ears. */
+static int test_side(void) {
+    static pcm_t p;
+    static int16_t lr[2 * COCO_AUDIO_BUF_LEN];
+    pcm_init(&p, 0, COCO_SOUND_LEVEL_MAX, COCO_TICK_HZ, 0, 0);
+    uint32_t t = 0;
+    pcm_set_level(&p, 0, COCO_SOUND_LEVEL_MAX / 4u);
+    int apart = 0, lopsided = 0;
+    for (int f = 0; f < 240; f++) {
+        if (f == 60) pcm_set_side(&p, t, (int32_t)(COCO_SOUND_LEVEL_MAX / 2u));
+        t += 238944u;
+        pcm_advance(&p, t);
+        size_t n = pcm_drain_stereo(&p, lr, COCO_AUDIO_BUF_LEN);
+        for (size_t i = 0; i < n; i++) {
+            if (f < 60) apart |= lr[2 * i] != lr[2 * i + 1];
+            if (f >= 60 && f < 62 && lr[2 * i] - lr[2 * i + 1] > apart) apart = lr[2 * i] - lr[2 * i + 1];
+            /* The mono at rest: the step parts the ears evenly, no thump. */
+            if (f >= 60 && f < 62 && abs(lr[2 * i] + lr[2 * i + 1]) > lopsided)
+                lopsided = abs(lr[2 * i] + lr[2 * i + 1]);
+        }
+        if (f == 59) CHECK(apart == 0 && !p.side_on, "the ears parted with no side level");
+        if (f == 239) CHECK(lr[2 * (n - 1)] == 0 && lr[2 * (n - 1) + 1] == 0,
+                            "a held difference rests at %d and %d, not 0", lr[2 * (n - 1)],
+                            lr[2 * (n - 1) + 1]);
+    }
+    CHECK(apart > PCM_FULL_SCALE / 2, "the side level's step barely parted the ears (%d)", apart);
+    CHECK(lopsided <= 4, "the ears parted unevenly at the step, by %d", lopsided);
+    printf("side: the ears apart by %d at the step, at rest at 0 four seconds on\n", apart);
+    return 0;
+}
+
 /* PIA1 PB1, an input, reads the bus back, low at 0.3 of full scale or
  * more (XRoar's single_bit_feedback; coco.c). Here through the I/O page
  * by hand, with the multiplexer on the DAC: the DAC high, then low. */
@@ -294,6 +394,7 @@ static int test_feedback(void) {
 int main(void) {
     if (test_count()) return 1;
     if (test_dc_block()) return 1;
+    if (test_side()) return 1;
     if (test_feedback()) return 1;
     if (test_scripts()) return 1;
     TEST_DONE();

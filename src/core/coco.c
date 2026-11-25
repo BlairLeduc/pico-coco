@@ -496,6 +496,20 @@ static inline uint32_t sound_out(const coco_t *m, uint32_t bus) {
     return out > COCO_SOUND_LEVEL_MAX ? COCO_SOUND_LEVEL_MAX : out;
 }
 
+/* The bus moved to `level` at tick `at`, or the cartridges' sound beside
+ * it did: the pcm's mono and side levels from there, if either changed. */
+static inline void sound_stamp(coco_t *m, uint32_t at, uint32_t level) {
+    uint32_t out = sound_out(m, level);
+    int32_t side = cart_side(m);
+    if (level == m->sound_level && out == m->sound_out && side == m->sound_side) return;
+    if (out != m->sound_out) pcm_set_level(&m->pcm, at, out);
+    if (side != m->sound_side) pcm_set_side(&m->pcm, at, side);
+    m->sound_level = level;
+    m->sound_out = out;
+    m->sound_side = side;
+    m->sound_edges++;
+}
+
 /* After a write that can move the bus: the level, stamped with the tick
  * at the start of the writing instruction (EL §6.1). XRoar's sound
  * updates, and feeds PB1 back, at each FS rise and when the single bit
@@ -503,13 +517,7 @@ static inline uint32_t sound_out(const coco_t *m, uint32_t bus) {
 static void COCO_HOT1(update_sound)(coco_t *m) {
     const mc6821_port_t *pb = &m->pia1.b;
     if ((pb->ddr & 0x02u) || cb2_level(pb)) m->sound_fed = true;
-    uint32_t level = sound_level_now(m);
-    uint32_t out = sound_out(m, level);
-    if (level == m->sound_level && out == m->sound_out) return;
-    if (out != m->sound_out) pcm_set_level(&m->pcm, (uint32_t)coco_ticks(m), out);
-    m->sound_level = level;
-    m->sound_out = out;
-    m->sound_edges++;
+    sound_stamp(m, (uint32_t)coco_ticks(m), sound_level_now(m));
 }
 
 /* Whether the bus hears the cartridge now: the multiplexer enabled and
@@ -527,13 +535,7 @@ static inline bool cart_heard(const coco_t *m) {
  * never behind the pcm. */
 void ssc_level_changed(ssc_t *s, uint64_t at) {
     coco_t *m = (coco_t *)((char *)s - offsetof(cart_port_t, ssc) - offsetof(coco_t, port));
-    uint32_t level = sound_level_now(m);
-    uint32_t out = sound_out(m, level);
-    if (level == m->sound_level && out == m->sound_out) return;
-    if (out != m->sound_out) pcm_set_level(&m->pcm, (uint32_t)at, out);
-    m->sound_level = level;
-    m->sound_out = out;
-    m->sound_edges++;
+    sound_stamp(m, (uint32_t)at, sound_level_now(m));
 }
 
 void coco_audio_set_rate(coco_t *m, uint32_t rate_num, uint32_t rate_den) {
@@ -548,6 +550,10 @@ void coco_audio_set_rate(coco_t *m, uint32_t rate_num, uint32_t rate_den) {
 
 size_t coco_audio_drain(coco_t *m, int16_t *dst, size_t max) {
     return pcm_drain(&m->pcm, dst, max);
+}
+
+size_t coco_audio_drain_stereo(coco_t *m, int16_t *dst, size_t max) {
+    return pcm_drain_stereo(&m->pcm, dst, max);
 }
 
 /* The cassette's relay, PIA1 CA2 driven high (§12.3): an input, as
@@ -818,11 +824,13 @@ void coco_power_on(coco_t *m) {
     m->sound_fed = false;
     m->sound_level = 0;   /* XRoar's bus starts at 0 */
     m->sound_out = sound_out(m, 0);
+    m->sound_side = cart_side(m);
     m->sound_edges = 0;
     /* The tick count starts again, and the next sample with it; the
      * drives fall silent, their motors stopped. */
     pcm_restart(&m->pcm, 0);
     pcm_set_level(&m->pcm, 0, m->sound_out);
+    pcm_set_side(&m->pcm, 0, m->sound_side);
     drivesnd_motor(&m->pcm.drive, false);
     drivesnd_quiet(&m->pcm.drive);
     m->video_split = false;
@@ -1167,7 +1175,9 @@ void coco_restored(coco_t *m) {
     drivesnd_quiet(&m->pcm.drive);
     pcm_restart(&m->pcm, now);
     m->sound_out = sound_out(m, m->sound_level);
+    m->sound_side = cart_side(m);
     pcm_set_level(&m->pcm, now, m->sound_out);
+    pcm_set_side(&m->pcm, now, m->sound_side);
 }
 
 void coco_key_set(coco_t *m, int row, int col, bool down) {

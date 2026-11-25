@@ -395,8 +395,10 @@ void core0_run(coco_t *m, keymatrix_t *k) {
     const uint32_t power_on_us = time_us_32();
     uint32_t late = 0, slips = 0;   /* the timer's pacing; 0 on audio */
 #if PICO_COCO_AUDIO
-    /* A field's samples, drained after it and pushed to the queue. */
-    static int16_t pcm[COCO_AUDIO_BUF_LEN];
+    /* A field's samples, drained after it and pushed to the queue: mono,
+     * or as stereo pairs (§12.10). */
+    static int16_t pcm[2u * COCO_AUDIO_BUF_LEN];
+    bool lr = false;
     audio_stats_t au_last;
     audio_stats(&au_last, true);
     uint32_t hb_edges = m->sound_edges;
@@ -589,7 +591,11 @@ void core0_run(coco_t *m, keymatrix_t *k) {
         }
 #if PICO_COCO_AUDIO
         AT(AUDIO_AT_DRAIN);
-        size_t n = coco_audio_drain(m, pcm, COCO_AUDIO_BUF_LEN);
+        /* In stereo only once the ears have parted (pcm.h): an
+         * Orchestra-90's DACs apart, and the setting on. */
+        lr = g_ui.stereo && m->pcm.side_on;
+        size_t n = lr ? coco_audio_drain_stereo(m, pcm, COCO_AUDIO_BUF_LEN)
+                      : coco_audio_drain(m, pcm, COCO_AUDIO_BUF_LEN);
 #endif
         uint32_t busy = time_us_32() - t_busy;
         bool turbo = turbo_now(m);
@@ -641,7 +647,8 @@ void core0_run(coco_t *m, keymatrix_t *k) {
              * the PWM wrap, which shares clk_sys with nothing that drifts
              * (EL §6.3). The conversion to compare words inside is not
              * counted as busy; it is ~611 short loops a field. */
-            audio_push(pcm, n);
+            if (lr) audio_push_stereo(pcm, n);
+            else audio_push(pcm, n);
         }
 #else
         (void)turbo;

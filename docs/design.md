@@ -1792,6 +1792,8 @@ documents keep *artefact*; and `disk_sounds` (§10).
 `color_` keys, one for each of the VDG's fourteen colours, six hex
 digits, which only the file sets and a save keeps as written (§9.5).
 An empty colour is refused, since `#00FF00` leaves one.
+**2026-11-25** adds `stereo`, on by default, and the Setup page's
+STEREO row: an Orchestra-90's DACs each to its own ear (§12.10).
 
 ### 12.7 The SmartWatch
 
@@ -2204,8 +2206,26 @@ overture is silent, and what MAME's recording carries is the pair. XRoar
 adds them beside the multiplexer. So here they are beside it, mixed to
 one channel: (L + R) / 2 over 255 of the bus's full scale, added to the
 bus and clipped there, where XRoar's mono output adds each at full scale
-(`cart_beside`; stereo is not taken up). The state's port section holds
+(`cart_beside`). The state's port section holds
 the two DACs in each slot's last two bytes, version 2 unchanged.
+**Stereo** (the owner, 2026-11-25), as the cartridge's own outputs and
+MAME's pair have it: the pcm carries, beside its mono, a side channel,
+half the DACs' difference in the same units (`cart_side`), box-filtered
+with it; each ear is made from the two at once, the left the mono plus
+the side and the right the mono less it, so that each ear hears the bus
+and its own DAC at full scale, rounded once and DC-blocked on its own
+(`pcm.h`, `coco_audio_drain_stereo`). The side channel wakes at its
+first difference, so a machine without an Orchestra-90 costs and sounds
+as before; the port pushes pairs, left to GP26 and right to GP27 (HW
+§5.1), while `stereo = on`, the default, and the mono to both ears with
+it off. `test_audio` runs each script with an Orchestra-90 again in
+stereo and holds both ears to its model to 1 LSB, the ears swapped
+failing; planted, each failed: the ears swapped, a change of the side
+alone not stamped, the side set without the pcm brought up to it, and
+the ears' DC blockers not taken up from the mono's (a thump at the
+first difference). On the owner's board, the overture (S, ENTER, P,
+ENTER) took core 0 to 57.5% busy against 52.9% for the build without
+stereo in the same sitting, no late fields or underruns in either.
 Checked: the trace diff with `-cart orch90` agrees with XRoar for every
 one of our 1,990,930 instructions through 600 fields of its start;
 XRoar's typing reaches only BASIC's keyboard routine and not the
@@ -2219,7 +2239,7 @@ against 414, 276 against 276, 138 against 138, the notes on the same
 quarter-seconds (`out/m18/orch90-ours.wav`, `orch90-mame-stereo.wav`).
 Planted, each failed: the right DAC dropped from the mix, the bus not
 updated after a DAC's write, and a slot of another kind taking the
-DACs' writes. Not checked on the device.
+DACs' writes. Heard on the device (the owner, 2026-11-25).
 
 ### 12.11 The Deluxe RS-232 Program Pak
 

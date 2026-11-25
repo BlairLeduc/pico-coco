@@ -30,6 +30,8 @@
  *   smartwatch = on | off          retired, taken and ignored: the
  *                                  SmartWatch is a cartridge (§12.7)
  *   disk_sounds = on | off         the drives' steps and motor heard (§10)
+ *   stereo    = on | off           an Orchestra-90's DACs each to its own
+ *                                  ear, or both to both (§12.10)
  *   boot_tape = <file>             a tape in /coco/tapes/ put in the deck
  *   artifacts = off | simple | full    the artefact colours (§9.5)
  *   artifact_phase = blue | red | random
@@ -88,6 +90,7 @@ typedef struct {
     bool       fast_tape;   /* blocks served by the trap (§12.3)         */
     bool       vdg_t1;      /* the MC6847T1 drawn, not the MC6847 (§9.2) */
     bool       disk_sounds; /* the drives' steps and motor (§10)         */
+    bool       stereo;      /* an Orchestra-90 in stereo (§12.10)        */
     /* The artefact colours (§9.5): how they are drawn, and their phase,
      * which "random" chooses afresh at each reset, as a real CoCo's VDG
      * comes up locked to either clock edge. */

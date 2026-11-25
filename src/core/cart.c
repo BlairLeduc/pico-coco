@@ -222,6 +222,18 @@ uint32_t cart_beside(const coco_t *m) {
     return level > COCO_SOUND_LEVEL_MAX ? COCO_SOUND_LEVEL_MAX : level;
 }
 
+int32_t cart_side(const coco_t *m) {
+    int32_t diff = 0;
+    for (unsigned s = 0; s < COCO_MPI_SLOTS; s++) {
+        const cart_t *c = &m->port.slot[s];
+        if (c->kind == CART_ORCH90) diff += (int32_t)c->u.orch.left - (int32_t)c->u.orch.right;
+    }
+    /* Rounded to the nearest, so that each ear, the mono and this
+     * together, stays within a level of its own (pcm.h). */
+    int32_t v = diff * (int32_t)(COCO_SOUND_LEVEL_MAX / 2u);
+    return (v + (v < 0 ? -127 : 127)) / 255;
+}
+
 /* ---- RESET, events and lines ------------------------------------------ */
 
 void cart_reset_select(coco_t *m) {

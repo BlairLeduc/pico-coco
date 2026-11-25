@@ -157,6 +157,12 @@ bool    cart_io_write(struct coco_s *m, uint16_t a, uint8_t v, uint64_t now);
  * (§12.10). */
 uint32_t cart_beside(const struct coco_s *m);
 
+/* Their stereo, as the pcm's side channel takes it (pcm.h): half the
+ * difference of the left and right DACs, in the same units, so that the
+ * left ear hears the bus and the left DAC at full scale, the right the
+ * bus and the right; 0 without an Orchestra-90. */
+int32_t cart_side(const struct coco_s *m);
+
 /* RESET's first part, before the page table is built again: the
  * Multi-Pak's slots back to its switch. */
 void cart_reset_select(struct coco_s *m);
